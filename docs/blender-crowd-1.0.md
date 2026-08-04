@@ -5,6 +5,9 @@ Target host: Blender 4.x LTS-compatible API surface
 Implementation: Blender Python add-on, Rust simulation core, Geometry Nodes
 presentation assets
 
+Research rationale and deferred experiments are recorded in
+[Crowd simulation research synthesis](crowd-simulation-research-2026.md).
+
 ## 1. Product decision
 
 Blender Crowd 1.0 will be a Blender-native crowd authoring and shot-production
@@ -414,8 +417,13 @@ Production requirements beyond “agents do not overlap” include:
 - graceful fallback to stop/slow when no feasible velocity exists.
 
 The MVP will benchmark ORCA-style solving against a simpler sampled-velocity
-solver. The chosen implementation must pass quality scenes and the scale budget;
-algorithm branding alone is not an acceptance criterion.
+solver and a scoped time-to-collision-inspired candidate. The third candidate
+may be a soft anticipatory objective, dense-region repair, or global implicit
+solve; a global solve is not presumed to fit the tier scheduler or performance
+budget. Comparisons record predicted time to collision, acceleration/jerk,
+oscillation, penetration, stalls, throughput, wall time, and memory. The chosen
+implementation must pass quality scenes and the scale budget; algorithm
+branding or collision-free output alone is not an acceptance criterion.
 
 ### 6.3 Groups and queues
 
@@ -474,6 +482,27 @@ belong after the deterministic navigation/cache pipeline is proven.
 profiles. Import validation checks bone mapping, scale, forward axis, root bone,
 clip loops, foot contacts, and missing actions. Arbitrary rigs are allowed only
 after an artist supplies a valid profile.
+
+### 7.4 Social attention and gaze stretch
+
+Social attention is an MVP stretch goal and must not delay the base 1.0
+acceptance gate. If implemented, it uses a small deterministic state set such as
+`travel`, `social`, `distraction`, `avoidance`, and `recovery`. The state owns a
+stable gaze or semantic target, bounded head-look output, and an anticipatory
+perception profile. It may shorten the perception range or avoidance horizon,
+but it does not disable the gaze-independent hard separation fallback.
+
+Groups may share anticipatory observations and expose a group extent so that
+other agents prefer to move around, rather than through, a social formation.
+Avoidance-side coordination uses stable-ID tie-breaking. Gaze and upper-body
+presentation communicate the selected target and social state instead of
+playing unrelated random gestures.
+
+If this stretch ships, the cache declares optional versioned channels for
+attention state, gaze target ID, and head-look direction. The viewport exposes
+the attention cone, selected threat, group extent, and the reason for any
+coordination change. Missing optional channels preserve ordinary locomotion
+playback.
 
 ## 8. Fidelity and scale architecture
 
@@ -723,9 +752,11 @@ The reference report includes:
 
 - destination completion and median travel time;
 - agent-agent penetration count, maximum depth, and duration;
+- minimum predicted time to collision and near-miss count;
 - static-boundary violations;
 - stalled agents and stall duration;
 - oscillation/abrupt-turn count;
+- avoidance-side reversals, group splits, and through-group intrusions;
 - portal and queue throughput;
 - simulation wall time and ticks/s;
 - peak resident memory;
@@ -751,6 +782,25 @@ release cannot replace missing thresholds with a subjective demo review.
 - automated unit, property, integration, determinism, performance, and package
   smoke tests.
 
+### 12.5 Non-blocking MVP stretch acceptance
+
+The social-attention and gaze stretch in section 7.4 is accepted only if:
+
+1. attention transitions, target selection, and presentation outputs reproduce
+   under `Strict` mode;
+2. conversational pairs and three-person groups negotiate opposing traffic
+   with fewer through-group intrusions or unnecessary splits than the base
+   solver;
+3. a distracted-walker case changes anticipation visibly without worsening the
+   base penetration, stall, or destination-completion thresholds;
+4. gaze and upper-body outputs remain consistent with the recorded attention
+   target through cache playback; and
+5. any public realism claim is backed by a recorded blinded comparison whose
+   protocol, sample, and result are reported rather than inferred from a demo.
+
+Failure to complete this stretch does not change the definition of Blender
+Crowd 1.0.
+
 ## 13. Delivery plan
 
 ### Phase 0: proving grounds
@@ -759,7 +809,7 @@ Goal: retire the highest-risk assumptions outside polished UI.
 
 - Define coordinate, unit, identity, clock, and determinism contracts.
 - Build a Rust benchmark with 1,000 discs, spatial indexing, preferred velocity,
-  and two avoidance candidates.
+  and ORCA-style, sampled-velocity, and scoped time-to-collision candidates.
 - Implement navmesh corridor following in a synthetic concourse.
 - Measure behavior-IR execution and event ordering.
 - Prototype 1,000 cached point transforms into Blender and GN instancing.
@@ -810,8 +860,12 @@ renders without the simulator loaded.
 
 Goal: earn 10K and then 100K claims.
 
-- S2 shared-path/flow-field behavior and scheduled perception.
+- S2 shared-path/flow-field behavior and scheduled perception, including a
+  measured GPU density/velocity-field prototype if it preserves stable IDs and
+  the cache contract.
 - GPU-friendly deformation/animation representation.
+- Camera/focus-prioritized animation updates that never freeze authoritative
+  simulation or cached root motion.
 - background-cache streaming and render extraction.
 - simulation/render tier promotion with hysteresis.
 - benchmark scenes and published reports for each scale gate.
@@ -925,6 +979,7 @@ The module boundaries are contracts, not a demand for premature package count.
 |---|---|---|
 | Blender armature evaluation dominates playback | Fast simulation still looks slow | Separate point-cache benchmark from visible rig tiers; test GN/deformation options |
 | Avoidance looks robotic or deadlocks | Technically correct but unusable crowds | Quality scenes, explicit queues/lanes, measured oscillation and stall metrics |
+| Attention animation disagrees with steering | Social behavior reads as random or deceptive | One typed attention state drives perception, trace, gaze, and upper-body output; retain a hard safety envelope |
 | Python/Rust packaging breaks across Blender releases | Product cannot be installed reliably | Pin support matrix, automate clean-install smoke tests early |
 | Graph becomes an untestable general language | Complexity and nondeterminism | Typed finite node set, compiled IR, no arbitrary hot-loop Python |
 | Cache schema ossifies too early | Shot compatibility versus iteration conflict | Version every channel, readers tolerate optional fields, golden migration tests |
@@ -937,19 +992,27 @@ The module boundaries are contracts, not a demand for premature package count.
 The recommended order is driven by dependency and product value:
 
 1. **10K background tier and GPU presentation.** Extends the proven cache and
-   scheduler rather than changing agent semantics.
+   scheduler with shared density/velocity fields, future-density costs, and
+   measured camera/focus animation scheduling rather than changing hero-agent
+   semantics.
 2. **Artist layout tools.** Curves, region retiming, group editing, cache layers,
    and stronger local resimulation make the simulator production-usable.
-3. **Richer semantic activities and interactions.** Seats, doors, handoffs,
+3. **Social attention and animation feedback.** Add group-aware perception,
+   gaze, upper-body intent, and richer social formations if the MVP stretch did
+   not ship.
+4. **Trajectory-informed profiles.** Fit explainable presets and compare
+   simulations with licensed reference trajectories offline before considering
+   a learned runtime controller.
+5. **Richer semantic activities and interactions.** Seats, doors, handoffs,
    paired actions, capacity/resource reservation, and activity schedules.
-4. **Motion matching and trajectory-aware locomotion.** Build on stable clip,
+6. **Motion matching and trajectory-aware locomotion.** Build on stable clip,
    cache, and trajectory contracts.
-5. **Traffic and combat domain packs.** Separate action/interaction libraries
+7. **Traffic and combat domain packs.** Separate action/interaction libraries
    sharing core perception, behavior, navigation, and cache infrastructure.
-6. **AI-assisted authoring.** Compile natural-language intent into a proposed,
+8. **AI-assisted authoring.** Compile natural-language intent into a proposed,
    validated graph and population configuration. The artist reviews the diff;
    deterministic runtime behavior remains unchanged.
-7. **100K background gate.** Earned after shared navigation and GPU presentation
+9. **100K background gate.** Earned after shared navigation and GPU presentation
    are proven at 10K.
 
 ## 18. Definition of Blender Crowd 1.0
