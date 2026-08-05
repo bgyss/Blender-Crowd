@@ -4597,7 +4597,7 @@ Prepend to `crates/crowd-core/src/avoidance/sampled.rs`:
 //! have, so they never both yield or both push.
 
 use super::{AvoidanceInput, AvoidanceOutput, AvoidanceSolver};
-use crate::geometry::{time_to_collision_disc, time_to_collision_segment, Segment};
+use crate::geometry::{time_to_collision_disc, time_to_collision_segment};
 use crate::units::Vec2;
 use crate::world::SolverStatus;
 
@@ -4624,8 +4624,14 @@ pub struct SampledVelocitySolver {
     /// Extra collision weight carried by the higher-ID agent in a conflict,
     /// which is what makes a symmetric crossing resolve.
     pub yield_factor: f32,
-    /// Below this predicted time to collision, the agent is reported braking.
-    pub critical_time_to_collision: f32,
+    /// Choosing a speed below this fraction of the preferred speed counts as
+    /// braking.
+    ///
+    /// Braking cannot be defined by the chosen candidate's time to collision:
+    /// stopping has an *infinite* one by construction, so the graceful
+    /// fallback would never report itself. What actually distinguishes it is
+    /// that the solver gave up on making progress.
+    pub brake_speed_fraction: f32,
     /// Comfortable clearance beyond touching radii, in meters.
     pub personal_space: f32,
     /// How strongly local crowding reduces preferred speed.
@@ -4647,7 +4653,7 @@ impl Default for SampledVelocitySolver {
             smoothness_weight: 0.35,
             side_bias_weight: 0.6,
             yield_factor: 1.4,
-            critical_time_to_collision: 0.5,
+            brake_speed_fraction: 0.5,
             personal_space: 0.45,
             density_speed_factor: 0.18,
             head_on_cosine: 0.7,
@@ -4840,7 +4846,7 @@ impl AvoidanceSolver for SampledVelocitySolver {
         // when no feasible velocity exists.
         evaluate(Vec2::ZERO, &mut best_velocity, &mut best_cost, &mut best_ttc);
 
-        let status = if best_ttc < self.critical_time_to_collision {
+        let status = if best_velocity.length() < preferred_speed * self.brake_speed_fraction {
             SolverStatus::Braking
         } else if (best_velocity - preferred).length() > 1e-3 {
             SolverStatus::Avoiding
