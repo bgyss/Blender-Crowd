@@ -2490,6 +2490,31 @@ mod tests {
         let mut index = 0;
         assert_eq!(next_target(&[], &mut index, Vec2::ZERO, 0.5), None);
     }
+
+    #[test]
+    fn an_agent_off_the_path_does_not_skip_a_corner_waypoint() {
+        // An L-shaped route: the corner at (0,10) exists to steer around a
+        // wall. An agent displaced to (6,5) is nearer the waypoint *after*
+        // the corner than the corner itself, but it has made no progress
+        // along the route — skipping the corner would send it straight
+        // through the wall the corner was authored to avoid.
+        let points = [Vec2::new(0.0, 0.0), Vec2::new(0.0, 10.0), Vec2::new(10.0, 10.0)];
+        let mut index = 1;
+        let target = next_target(&points, &mut index, Vec2::new(6.0, 5.0), 0.6);
+        assert_eq!(target, Some(Vec2::new(0.0, 10.0)), "cut the corner");
+        assert_eq!(index, 1);
+    }
+
+    #[test]
+    fn an_agent_already_on_the_next_leg_does_skip_the_corner() {
+        // The other side of the same rule: once the agent really is on the
+        // leg past the corner, walking back to the corner would be absurd.
+        let points = [Vec2::new(0.0, 0.0), Vec2::new(0.0, 10.0), Vec2::new(10.0, 10.0)];
+        let mut index = 1;
+        let target = next_target(&points, &mut index, Vec2::new(6.0, 9.9), 0.6);
+        assert_eq!(target, Some(Vec2::new(10.0, 10.0)));
+        assert_eq!(index, 2);
+    }
 }
 ```
 
@@ -2514,6 +2539,7 @@ Prepend to `crates/crowd-core/src/route.rs`:
 //! is precisely what a navmesh polygon corridor will implement. When real
 //! navigation lands, it replaces this module and touches no agent state.
 
+use crate::geometry::Segment;
 use crate::units::Vec2;
 use crate::world::{RouteHandle, NO_ROUTE};
 
@@ -2710,10 +2736,18 @@ impl RouteArena {
 /// would otherwise turn around and walk backwards to reach it. So a waypoint
 /// also counts as passed once the agent is closer to the *next* one.
 ///
-/// That shortcut is safe here because routes come from Dijkstra over the
-/// waypoint graph, and a shortest path never doubles back on itself. A future
-/// navmesh corridor that can double back must revisit this rule rather than
-/// inherit it.
+/// # Why that shortcut is fenced by the corridor test
+///
+/// "Closer to the next waypoint" is not by itself evidence of progress. On a
+/// route that turns, an agent standing well off the path can be nearer the
+/// waypoint after the corner than the corner itself — and skipping the corner
+/// means steering straight through the wall the corner exists to route
+/// around, which is the exact failure this module was added to prevent.
+///
+/// So the shortcut applies only when the agent is within `arrive_radius` of
+/// the leg it would be skipping onto. On that leg, being nearer its far end
+/// really does mean progress. Off it, the route still leads the agent back to
+/// the corner first.
 pub fn next_target(
     points: &[Vec2],
     index: &mut u16,
@@ -2724,11 +2758,13 @@ pub fn next_target(
     while (*index as usize) < points.len() {
         let i = *index as usize;
         let target = points[i];
-        if i + 1 < points.len()
-            && points[i + 1].distance_squared(pos) < target.distance_squared(pos)
-        {
-            *index += 1;
-            continue;
+        if i + 1 < points.len() {
+            let leg = Segment::new(target, points[i + 1]);
+            let on_leg = leg.distance_to(pos) <= arrive_radius;
+            if on_leg && points[i + 1].distance_squared(pos) < target.distance_squared(pos) {
+                *index += 1;
+                continue;
+            }
         }
         if target.distance_squared(pos) > arrive_sq {
             return Some(target);
@@ -2748,7 +2784,7 @@ In `crates/crowd-core/src/lib.rs` add `pub mod route;` and `pub use route::{next
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core route`
-Expected: PASS, 13 tests.
+Expected: PASS, 15 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -4633,7 +4669,7 @@ In `crates/crowd-core/src/lib.rs` add `pub mod avoidance;` and `pub use avoidanc
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core avoidance`
-Expected: PASS, 13 tests.
+Expected: PASS, 15 tests.
 
 If `a_boxed_in_agent_brakes_rather_than_escaping` fails, the box in the fixture is smaller than the agent diameter plus clearance — widen the walls to ±0.8 rather than weakening the assertion.
 
