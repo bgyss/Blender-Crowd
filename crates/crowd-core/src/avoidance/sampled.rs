@@ -30,7 +30,7 @@
 //! have, so they never both yield or both push.
 
 use super::{AvoidanceInput, AvoidanceOutput, AvoidanceSolver};
-use crate::geometry::{time_to_collision_disc, time_to_collision_segment, Segment};
+use crate::geometry::{time_to_collision_disc, time_to_collision_segment};
 use crate::units::Vec2;
 use crate::world::SolverStatus;
 
@@ -238,7 +238,7 @@ impl AvoidanceSolver for SampledVelocitySolver {
         // Candidate generation order is fixed, so ties resolve identically on
         // every run. The preferred velocity is evaluated first so an
         // unobstructed agent keeps it exactly.
-        let mut evaluate =
+        let evaluate =
             |candidate: Vec2, best_velocity: &mut Vec2, best_cost: &mut f32, best_ttc: &mut f32| {
                 let (collision_cost, ttc) = self.collision_cost(input, candidate);
                 let cost = self.goal_weight * (candidate - preferred).length()
@@ -305,6 +305,7 @@ fn rotate(v: Vec2, angle: f32) -> Vec2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::Segment;
     use crate::ids::AgentId;
     use crate::units::Vec2;
 
