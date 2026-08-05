@@ -13,6 +13,7 @@ pub mod phases;
 pub mod rng;
 pub mod route;
 pub mod scene;
+pub mod scenes;
 pub mod sim;
 pub mod units;
 pub mod world;
