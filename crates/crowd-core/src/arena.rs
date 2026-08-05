@@ -46,6 +46,13 @@ impl NeighborArena {
     }
 
     pub fn neighbors(&self, slot: usize) -> &[Neighbor] {
+        // A slot past what `begin` sized for has no recorded neighbors —
+        // treat it the same as an empty list rather than panicking. Callers
+        // (metrics observation in particular) may hold a `NeighborArena`
+        // that was never `begin`-ed for the current world.
+        if slot >= self.start.len() {
+            return &[];
+        }
         let start = self.start[slot] as usize;
         let len = self.len[slot] as usize;
         &self.entries[start..start + len]
