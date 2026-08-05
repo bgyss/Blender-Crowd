@@ -1,0 +1,15 @@
+[tools]
+rust = "1.94.1"
+
+[env]
+# Reports record this; it never gates compilation.
+CROWD_BUILD_PROFILE = "dev"
+
+[tasks.test]
+run = "cargo test --workspace"
+
+[tasks.fmt]
+run = "cargo fmt --all"
+
+[tasks.lint]
+run = "cargo clippy --workspace --all-targets -- -D warnings"
