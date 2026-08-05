@@ -59,11 +59,7 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    pub fn new(
-        scene: CompiledScene,
-        solver: Box<dyn AvoidanceSolver>,
-        config: SimConfig,
-    ) -> Self {
+    pub fn new(scene: CompiledScene, solver: Box<dyn AvoidanceSolver>, config: SimConfig) -> Self {
         let cell_size = if config.grid_cell_size > 0.0 {
             config.grid_cell_size
         } else {
@@ -246,13 +242,16 @@ mod tests {
                 Segment::new(Vec2::new(0.0, 8.0), Vec2::new(20.0, 8.0)),
             ],
             waypoints,
-            destinations: vec![Destination { name: "exit".into(), node: b }],
+            destinations: vec![Destination {
+                name: "exit".into(),
+                node: b,
+            }],
             spawns: vec![SpawnRegion {
                 id: 0,
                 population_id: 0,
-                area: Aabb::new(Vec2::new(1.0, 3.0), Vec2::new(3.0, 7.0)),
+                area: Aabb::new(Vec2::new(1.0, 3.0), Vec2::new(6.0, 7.0)),
                 count,
-                per_tick: count.min(20),
+                per_tick: 4,
                 destination: 0,
             }],
             populations: vec![PopulationParams::default()],
@@ -284,7 +283,13 @@ mod tests {
         let mut sim = simulation(10);
         sim.step();
         assert_eq!(sim.clock().tick(), 1);
-        assert_eq!(sim.world().len(), 10);
+        // The scene emits 4 per tick, so one step is one batch, not the
+        // whole population.
+        assert_eq!(sim.world().len(), 4);
+        assert!(sim.spawn_errors().is_empty());
+
+        sim.run(5);
+        assert_eq!(sim.world().len(), 10, "spawning must stop at the count");
         assert!(sim.spawn_errors().is_empty());
     }
 
@@ -295,14 +300,20 @@ mod tests {
         let start_x: f32 = sim.world().pos_x.iter().sum::<f32>() / 20.0;
         sim.run(120);
         let end_x: f32 = sim.world().pos_x.iter().sum::<f32>() / 20.0;
-        assert!(end_x > start_x + 2.0, "agents did not advance: {start_x} to {end_x}");
+        assert!(
+            end_x > start_x + 2.0,
+            "agents did not advance: {start_x} to {end_x}"
+        );
     }
 
     #[test]
     fn agents_eventually_arrive() {
         let mut sim = simulation(20);
         sim.run_to_completion();
-        assert!(sim.metrics().arrived() > 0, "nobody reached the destination");
+        assert!(
+            sim.metrics().arrived() > 0,
+            "nobody reached the destination"
+        );
     }
 
     #[test]

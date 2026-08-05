@@ -9,8 +9,13 @@
 //! is precisely what a navmesh polygon corridor will implement. When real
 //! navigation lands, it replaces this module and touches no agent state.
 
-use crate::geometry::Segment;
 use crate::units::Vec2;
+
+/// How far ahead along the corridor to aim, in metres.
+///
+/// Long enough that agents commit to the lane rather than oscillating toward
+/// a point under their feet; short enough that they still track a turn.
+const LOOKAHEAD: f32 = 2.0;
 use crate::world::{RouteHandle, NO_ROUTE};
 
 /// A small hand-authored navigation graph.
@@ -206,54 +211,68 @@ impl RouteArena {
     }
 }
 
-/// The next steering target along a route, advancing `index` past any
-/// waypoints already reached.
+/// The next steering target along a route.
 ///
-/// Returns `None` once the final waypoint is consumed, which the decide phase
-/// reads as arrival. This signature is the contract a navmesh corridor will
-/// inherit.
+/// Returns `None` once the agent reaches the final waypoint, which the decide
+/// phase reads as arrival. This signature is the contract a navmesh corridor
+/// will inherit.
 ///
-/// Proximity alone is not enough to advance: an agent that overshoots a
-/// waypoint — a long step, or a spawn position already past the first one —
-/// would otherwise turn around and walk backwards to reach it. So a waypoint
-/// also counts as passed once the agent is closer to the *next* one.
+/// # Corridor-following, not node-chasing
 ///
-/// # Why that shortcut is fenced by the corridor test
+/// The target is a point a lookahead distance *along the polyline*, measured
+/// from the agent's own projection onto it — not the next node.
 ///
-/// "Closer to the next waypoint" is not by itself evidence of progress. On a
-/// route that turns, an agent standing well off the path can be nearer the
-/// waypoint after the corner than the corner itself — and skipping the corner
-/// means steering straight through the wall the corner exists to route
-/// around, which is the exact failure this module was added to prevent.
-///
-/// So the shortcut applies only when the agent is within `arrive_radius` of
-/// the leg it would be skipping onto. On that leg, being nearer its far end
-/// really does mean progress. Off it, the route still leads the agent back to
-/// the corner first.
+/// Steering at the node itself makes every waypoint a mandatory pass-through
+/// point: a population spread across a wide corridor all converges on one
+/// spot, and since a crowd cannot fit inside an arrival radius, it jams there
+/// permanently. Projecting instead lets agents spread across the corridor
+/// converge onto the *line* and flow along it, which is both what a real
+/// crowd does and what a navmesh polygon corridor computes.
 pub fn next_target(
     points: &[Vec2],
     index: &mut u16,
     pos: Vec2,
     arrive_radius: f32,
 ) -> Option<Vec2> {
-    let arrive_sq = arrive_radius * arrive_radius;
-    while (*index as usize) < points.len() {
-        let i = *index as usize;
-        let target = points[i];
-        if i + 1 < points.len() {
-            let leg = Segment::new(target, points[i + 1]);
-            let on_leg = leg.distance_to(pos) <= arrive_radius;
-            if on_leg && points[i + 1].distance_squared(pos) < target.distance_squared(pos) {
-                *index += 1;
-                continue;
-            }
-        }
-        if target.distance_squared(pos) > arrive_sq {
-            return Some(target);
-        }
-        *index += 1;
+    if points.is_empty() {
+        return None;
     }
-    None
+    let last = points.len() - 1;
+
+    // Consume any leg the agent's projection has already run off the end of.
+    while (*index as usize) < last {
+        let i = *index as usize;
+        let along = points[i + 1] - points[i];
+        let len_sq = along.length_squared();
+        if len_sq <= f32::MIN_POSITIVE {
+            *index += 1;
+            continue;
+        }
+        if (pos - points[i]).dot(along) / len_sq >= 1.0 {
+            *index += 1;
+        } else {
+            break;
+        }
+    }
+
+    let i = *index as usize;
+    if i >= last {
+        // Final waypoint is a destination, not a corridor: steer at it
+        // directly and report arrival inside the radius.
+        let goal = points[last];
+        return if goal.distance_squared(pos) <= arrive_radius * arrive_radius {
+            None
+        } else {
+            Some(goal)
+        };
+    }
+
+    let a = points[i];
+    let along = points[i + 1] - a;
+    let len = along.length();
+    let projected = ((pos - a).dot(along) / (len * len)).clamp(0.0, 1.0) * len;
+    let ahead = (projected + LOOKAHEAD).min(len);
+    Some(a + along.normalize_or_zero() * ahead)
 }
 
 #[cfg(test)]
@@ -330,36 +349,74 @@ mod tests {
     }
 
     #[test]
-    fn next_target_returns_the_current_waypoint_when_far_away() {
+    fn the_target_is_a_point_ahead_along_the_corridor_not_the_node() {
+        // Node-chasing would return (10,0) and make every agent converge on
+        // that one spot. Corridor-following aims a lookahead further on.
         let points = [Vec2::new(10.0, 0.0), Vec2::new(20.0, 0.0)];
         let mut index = 0;
-        assert_eq!(
-            next_target(&points, &mut index, Vec2::ZERO, 0.5),
-            Some(Vec2::new(10.0, 0.0))
-        );
+        let target = next_target(&points, &mut index, Vec2::ZERO, 0.5).unwrap();
+        assert!(target.x > 10.0, "aimed at the node itself: {target:?}");
+        assert!((target.y).abs() < 1e-5);
         assert_eq!(index, 0);
     }
 
     #[test]
-    fn next_target_advances_when_the_waypoint_is_reached() {
-        let points = [Vec2::new(10.0, 0.0), Vec2::new(20.0, 0.0)];
-        let mut index = 0;
-        let target = next_target(&points, &mut index, Vec2::new(10.1, 0.0), 0.5);
-        assert_eq!(target, Some(Vec2::new(20.0, 0.0)));
-        assert_eq!(index, 1);
+    fn an_agent_beside_the_corridor_is_drawn_onto_it() {
+        // The behaviour the whole model exists for: a population spread
+        // across the width of a corridor must converge on the *line*, not on
+        // a single point, or it jams there permanently.
+        let points = [Vec2::new(0.0, 0.0), Vec2::new(20.0, 0.0)];
+        let mut a = 0;
+        let mut b = 0;
+        let high = next_target(&points, &mut a, Vec2::new(5.0, 3.0), 0.6).unwrap();
+        let low = next_target(&points, &mut b, Vec2::new(5.0, -3.0), 0.6).unwrap();
+        assert_eq!(
+            high, low,
+            "targets must not depend on which side you are on"
+        );
+        assert!(high.x > 5.0, "target must lead the agent forward: {high:?}");
     }
 
     #[test]
-    fn next_target_skips_multiple_waypoints_in_one_call() {
+    fn the_target_advances_as_the_agent_moves_along_the_corridor() {
+        let points = [Vec2::new(0.0, 0.0), Vec2::new(20.0, 0.0)];
+        let mut index = 0;
+        let early = next_target(&points, &mut index, Vec2::new(2.0, 0.0), 0.6).unwrap();
+        let later = next_target(&points, &mut index, Vec2::new(9.0, 0.0), 0.6).unwrap();
+        assert!(later.x > early.x, "{early:?} then {later:?}");
+    }
+
+    #[test]
+    fn the_target_never_runs_past_the_end_of_a_leg() {
+        let points = [
+            Vec2::new(0.0, 0.0),
+            Vec2::new(5.0, 0.0),
+            Vec2::new(5.0, 20.0),
+        ];
+        let mut index = 0;
+        let target = next_target(&points, &mut index, Vec2::new(4.5, 0.0), 0.6).unwrap();
+        assert!(target.x <= 5.0 + 1e-5, "overshot the corner: {target:?}");
+    }
+
+    #[test]
+    fn passing_the_end_of_a_leg_advances_to_the_next() {
         let points = [
             Vec2::new(1.0, 0.0),
             Vec2::new(2.0, 0.0),
             Vec2::new(9.0, 0.0),
         ];
         let mut index = 0;
-        let target = next_target(&points, &mut index, Vec2::new(2.0, 0.0), 0.5);
-        assert_eq!(target, Some(Vec2::new(9.0, 0.0)));
-        assert_eq!(index, 2);
+        next_target(&points, &mut index, Vec2::new(2.0, 0.0), 0.5);
+        assert_eq!(index, 1, "leg 0 was fully traversed");
+    }
+
+    #[test]
+    fn the_final_waypoint_is_targeted_directly() {
+        // A destination is a point, not a corridor, so the agent aims at it.
+        let points = [Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0)];
+        let mut index = 1;
+        let target = next_target(&points, &mut index, Vec2::new(9.0, 0.0), 0.5);
+        assert_eq!(target, Some(Vec2::new(10.0, 0.0)));
     }
 
     #[test]
@@ -380,34 +437,35 @@ mod tests {
 
     #[test]
     fn an_agent_off_the_path_does_not_skip_a_corner_waypoint() {
-        // An L-shaped route: the corner at (0,10) exists to steer around a
-        // wall. An agent displaced to (6,5) is nearer the waypoint *after*
-        // the corner than the corner itself, but it has made no progress
-        // along the route — skipping the corner would send it straight
-        // through the wall the corner was authored to avoid.
+        // An L-shaped route whose corner exists to steer around a wall. An
+        // agent that has not traversed the first leg must be drawn back onto
+        // that leg, never sent straight at the leg beyond the corner.
         let points = [
             Vec2::new(0.0, 0.0),
             Vec2::new(0.0, 10.0),
             Vec2::new(10.0, 10.0),
         ];
-        let mut index = 1;
-        let target = next_target(&points, &mut index, Vec2::new(6.0, 5.0), 0.6);
-        assert_eq!(target, Some(Vec2::new(0.0, 10.0)), "cut the corner");
-        assert_eq!(index, 1);
+        let mut index = 0;
+        let target = next_target(&points, &mut index, Vec2::new(6.0, 5.0), 0.6).unwrap();
+        assert_eq!(index, 0, "advanced past a leg it had not traversed");
+        assert!(
+            target.x.abs() < 1e-5 && target.y > 5.0,
+            "cut the corner instead of rejoining the first leg: {target:?}"
+        );
     }
 
     #[test]
-    fn an_agent_already_on_the_next_leg_does_skip_the_corner() {
-        // The other side of the same rule: once the agent really is on the
-        // leg past the corner, walking back to the corner would be absurd.
+    fn an_agent_past_the_corner_follows_the_next_leg() {
+        // The other side of the same rule: once the first leg really is
+        // behind the agent, walking back to the corner would be absurd.
         let points = [
             Vec2::new(0.0, 0.0),
             Vec2::new(0.0, 10.0),
             Vec2::new(10.0, 10.0),
         ];
-        let mut index = 1;
-        let target = next_target(&points, &mut index, Vec2::new(6.0, 9.9), 0.6);
-        assert_eq!(target, Some(Vec2::new(10.0, 10.0)));
-        assert_eq!(index, 2);
+        let mut index = 0;
+        let target = next_target(&points, &mut index, Vec2::new(1.0, 10.5), 0.6).unwrap();
+        assert_eq!(index, 1);
+        assert!(target.x > 1.0, "did not follow the second leg: {target:?}");
     }
 }

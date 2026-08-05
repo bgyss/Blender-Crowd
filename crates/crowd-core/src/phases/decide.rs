@@ -116,11 +116,34 @@ mod tests {
     }
 
     #[test]
-    fn passing_a_waypoint_advances_the_route_index() {
-        let (mut world, routes) = world_with_route(Vec2::ZERO, &[Vec2::ZERO, Vec2::new(10.0, 0.0)]);
+    fn traversing_a_leg_advances_the_route_index() {
+        // The agent starts level with the end of the first leg, so that leg
+        // is behind it and the route moves on to the second.
+        let (mut world, routes) = world_with_route(
+            Vec2::new(10.0, 0.0),
+            &[Vec2::ZERO, Vec2::new(10.0, 0.0), Vec2::new(10.0, 20.0)],
+        );
         decide(&mut world, &routes, &DecideConfig::default());
         assert_eq!(world.route_index[0], 1);
         assert!(!world.arrived[0]);
+    }
+
+    #[test]
+    fn an_agent_beside_the_corridor_steers_back_onto_it() {
+        // Corridor-following: the target leads along the line, so an agent
+        // pushed off to the side rejoins rather than doubling back.
+        let (mut world, routes) =
+            world_with_route(Vec2::new(4.0, 2.0), &[Vec2::ZERO, Vec2::new(20.0, 0.0)]);
+        decide(&mut world, &routes, &DecideConfig::default());
+        let desired = world.desired_velocity(0);
+        assert!(
+            desired.x > 0.0,
+            "not heading along the corridor: {desired:?}"
+        );
+        assert!(
+            desired.y < 0.0,
+            "not converging onto the corridor: {desired:?}"
+        );
     }
 
     #[test]

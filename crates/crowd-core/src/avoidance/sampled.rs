@@ -36,6 +36,10 @@ use crate::world::SolverStatus;
 
 pub use super::NeighborState;
 
+/// Cost scale for an existing overlap, matching the `1/t` term's magnitude at
+/// the shortest time-to-collision the solver otherwise distinguishes.
+const OVERLAP_URGENCY: f32 = 100.0;
+
 #[derive(Clone, Copy, Debug)]
 pub struct SampledVelocitySolver {
     /// Speed rings sampled below the preferred speed, plus a stop candidate.
@@ -119,18 +123,32 @@ impl SampledVelocitySolver {
             if t < earliest {
                 earliest = t;
             }
-            if t < self.time_horizon {
-                // The higher stable ID yields. A perpendicular conflict is
-                // symmetric under the keep-left rule, so without this both
-                // agents would make the identical choice and collide.
-                let yield_weight = if input.agent_id > neighbor.agent_id {
-                    self.yield_factor
-                } else {
-                    1.0
-                };
-                // `max` keeps an already-overlapping pair (t == 0) finite
-                // while still dominating every other term.
-                cost += self.collision_weight * yield_weight / t.max(0.01);
+            // The higher stable ID yields. A perpendicular conflict is
+            // symmetric under the keep-left rule, so without this both
+            // agents would make the identical choice and collide.
+            let yield_weight = if input.agent_id > neighbor.agent_id {
+                self.yield_factor
+            } else {
+                1.0
+            };
+
+            if t <= 0.0 {
+                // Already overlapping, and `time_to_collision_disc` reports
+                // zero for *every* candidate in that state. A penalty derived
+                // from `t` alone would therefore score "pull apart" exactly
+                // like "drive deeper" — the agent gets no gradient telling it
+                // which way is out, and a dense cluster locks solid. This is
+                // the frozen-robot trap, and a crowd meets it constantly at
+                // doorways and spawn points.
+                //
+                // Penalise by how fast the overlap is closing instead, so
+                // separating is always strictly cheaper than compressing.
+                let direction = relative_position.normalize_or_zero();
+                let separation_rate = relative_velocity.dot(direction);
+                let relief = (separation_rate / input.max_speed.max(0.1)).clamp(0.0, 1.0);
+                cost += self.collision_weight * yield_weight * OVERLAP_URGENCY * (1.0 - relief);
+            } else if t < self.time_horizon {
+                cost += self.collision_weight * yield_weight / t;
             }
         }
 
