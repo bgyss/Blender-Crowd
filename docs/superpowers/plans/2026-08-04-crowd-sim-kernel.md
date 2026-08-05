@@ -674,8 +674,10 @@ and extend the re-export line to:
 
 ```rust
 pub use clock::Clock;
-pub use units::{Aabb, Vec2, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER};
+pub use units::{wrap_angle, Aabb, Vec2, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER};
 ```
+
+Later tasks only ever *add* `pub mod` and `pub use` lines here. Never drop an existing export while adding yours.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
