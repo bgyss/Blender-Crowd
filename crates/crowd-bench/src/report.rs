@@ -2,12 +2,6 @@
 //!
 //! Reports record the environment contract section 8.3 requires, so a metrics
 //! number can never be quoted without the machine it came from.
-//!
-//! `run_scene`, `Report`, and the `svg`/`out_dir` fields of `RunOptions` are
-//! only exercised by tests until Task 23 wires the real CLI into `main.rs`;
-//! until then the plain (non-test) binary target sees them as unused. Allowed
-//! rather than removed since they are the module's required interface.
-#![allow(dead_code)]
 
 use std::path::PathBuf;
 use std::time::Instant;

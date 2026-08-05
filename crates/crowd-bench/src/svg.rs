@@ -3,11 +3,6 @@
 //! Metrics cannot tell you a crowd looks robotic. Contract section 16 names
 //! "avoidance looks robotic or deadlocks" as a top risk, and this is the only
 //! way to see it before the Blender bridge exists.
-//!
-//! `sample_count` and `tracked_agents` are only exercised by tests until
-//! Task 23 wires the real CLI into `main.rs`; allowed rather than removed
-//! since they are the module's required interface.
-#![allow(dead_code)]
 
 use std::fmt::Write;
 
@@ -39,10 +34,14 @@ impl TrajectoryRecorder {
         }
     }
 
+    // Not called from the CLI; part of the module's required interface and
+    // exercised directly by tests.
+    #[allow(dead_code)]
     pub fn sample_count(&self) -> usize {
         self.sample_count
     }
 
+    #[allow(dead_code)]
     pub fn tracked_agents(&self) -> usize {
         self.tracks.len()
     }
