@@ -1462,7 +1462,7 @@ In `crates/crowd-core/src/lib.rs` add `pub mod geometry;` and `pub use geometry:
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core geometry`
-Expected: PASS, 16 tests.
+Expected: PASS, 21 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -2988,6 +2988,70 @@ mod tests {
     }
 
     #[test]
+    fn a_population_too_slow_to_clamp_safely_is_rejected() {
+        // Below MIN_PREFERRED_SPEED the spawn phase's clamp would have a floor
+        // above its ceiling, and `f32::clamp` panics on inverted bounds — in
+        // release as well as debug. Compilation must reject it first.
+        let mut scene = valid_scene();
+        scene.populations[0].speed_mean = 0.1;
+        let errors = scene.compile().unwrap_err();
+        assert!(
+            errors.contains(&SceneError::InvalidPopulation {
+                population: 0,
+                field: "speed_mean"
+            }),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_population_with_impossible_radii_is_rejected() {
+        let mut scene = valid_scene();
+        scene.populations[0].radius_min = 0.5;
+        scene.populations[0].radius_max = 0.2;
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::InvalidPopulation {
+            population: 0,
+            field: "radius_max"
+        }));
+    }
+
+    #[test]
+    fn a_non_positive_radius_is_rejected() {
+        let mut scene = valid_scene();
+        scene.populations[0].radius_min = 0.0;
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::InvalidPopulation {
+            population: 0,
+            field: "radius_min"
+        }));
+    }
+
+    #[test]
+    fn a_max_speed_below_preferred_speed_is_rejected() {
+        let mut scene = valid_scene();
+        scene.populations[0].max_speed_factor = 0.8;
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::InvalidPopulation {
+            population: 0,
+            field: "max_speed_factor"
+        }));
+    }
+
+    #[test]
+    fn nan_population_values_are_rejected() {
+        // NaN compares false against every bound, so a plain `x < min` check
+        // would wave it through. The validator tests `is_nan()` explicitly.
+        let mut scene = valid_scene();
+        scene.populations[0].speed_mean = f32::NAN;
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::InvalidPopulation {
+            population: 0,
+            field: "speed_mean"
+        }));
+    }
+
+    #[test]
     fn a_zero_tick_rate_is_rejected() {
         let mut scene = valid_scene();
         scene.ticks_per_second = 0;
@@ -3059,6 +3123,15 @@ pub struct SpawnRegion {
     pub destination: u16,
 }
 
+/// Floor on an agent's preferred speed, in metres per second.
+///
+/// The spawn phase clamps sampled speeds to this floor, and compilation
+/// rejects any population whose mean sits below it. Both use this one constant
+/// deliberately: if the clamp's floor could exceed its ceiling, `f32::clamp`
+/// panics — in release as well as debug — and the tick loop is required to be
+/// infallible.
+pub const MIN_PREFERRED_SPEED: f32 = 0.4;
+
 /// Distributions an agent's varied attributes are drawn from.
 #[derive(Clone, Copy, Debug)]
 pub struct PopulationParams {
@@ -3111,6 +3184,8 @@ pub enum SceneError {
     DestinationNodeMissing { destination: u16, node: u32 },
     UnreachableDestination { spawn: u16, destination: u16 },
     InvalidTickRate { ticks_per_second: u32 },
+    /// A population whose distributions cannot produce a usable agent.
+    InvalidPopulation { population: u16, field: &'static str },
 }
 
 /// A validated scene, ready to simulate.
@@ -3154,6 +3229,39 @@ impl SceneDef {
         }
         if self.spawns.is_empty() {
             errors.push(SceneError::NoSpawns);
+        }
+
+        // Populations are validated here rather than defended against in the
+        // spawn phase. A nonsensical distribution is an authoring fault, and
+        // catching it at the boundary keeps the tick loop free of guards.
+        for (index, population) in self.populations.iter().enumerate() {
+            let index = index as u16;
+            let mut reject = |field: &'static str| {
+                errors.push(SceneError::InvalidPopulation {
+                    population: index,
+                    field,
+                })
+            };
+            // NaN is tested explicitly rather than relying on a negated
+            // comparison. Both forms reject it, but `is_nan()` says so out
+            // loud, and clippy rejects the negated form under `-D warnings`.
+            if population.radius_min.is_nan() || population.radius_min <= 0.0 {
+                reject("radius_min");
+            }
+            if population.radius_max.is_nan() || population.radius_max < population.radius_min {
+                reject("radius_max");
+            }
+            // Below this floor the spawn clamp's minimum would exceed its
+            // maximum, and `f32::clamp` panics on inverted bounds.
+            if population.speed_mean.is_nan() || population.speed_mean < MIN_PREFERRED_SPEED {
+                reject("speed_mean");
+            }
+            if population.speed_stddev.is_nan() || population.speed_stddev < 0.0 {
+                reject("speed_stddev");
+            }
+            if population.max_speed_factor.is_nan() || population.max_speed_factor < 1.0 {
+                reject("max_speed_factor");
+            }
         }
 
         for (index, destination) in self.destinations.iter().enumerate() {
@@ -3331,7 +3439,7 @@ In `crates/crowd-core/src/lib.rs` add `pub mod scene;` and `pub use scene::{Comp
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core scene`
-Expected: PASS, 16 tests.
+Expected: PASS, 21 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -3501,7 +3609,7 @@ Prepend to `crates/crowd-core/src/phases/spawn.rs`:
 use crate::ids::derive_agent_id;
 use crate::rng::{Purpose, StableRng};
 use crate::route::RouteArena;
-use crate::scene::CompiledScene;
+use crate::scene::{CompiledScene, MIN_PREFERRED_SPEED};
 use crate::units::Vec2;
 use crate::world::{AgentSpawn, SpawnError, World, NO_ROUTE};
 
@@ -3568,9 +3676,15 @@ pub fn apply_spawns(
                 StableRng::for_agent(scene.project_seed, agent_id, Purpose::PreferredSpeed);
             // Clamp keeps a rare tail sample from producing a zero or negative
             // preferred speed, which would make an agent permanently stalled.
+            //
+            // The bounds cannot invert: scene compilation rejects any
+            // population with `speed_mean < MIN_PREFERRED_SPEED`, so the
+            // ceiling is always at least twice the floor. That check is what
+            // makes this `clamp` safe — `f32::clamp` panics on inverted
+            // bounds, in release as well as debug.
             let preferred_speed = speed_rng
                 .normal_f32(params.speed_mean, params.speed_stddev)
-                .clamp(0.4, params.speed_mean * 2.0);
+                .clamp(MIN_PREFERRED_SPEED, params.speed_mean * 2.0);
 
             let mut position_rng =
                 StableRng::for_agent(scene.project_seed, agent_id, Purpose::SpawnPosition);
