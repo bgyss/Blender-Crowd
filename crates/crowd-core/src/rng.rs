@@ -69,7 +69,8 @@ impl StableRng {
         ((self.next_u64() >> 40) as u32) as f32 * SCALE
     }
 
-    /// Uniform in `[lo, hi]`.
+    /// Uniform in `[lo, hi)` — `hi` is unreachable, because `next_f32_unit`
+    /// never returns exactly 1.0.
     pub fn range_f32(&mut self, lo: f32, hi: f32) -> f32 {
         lo + (hi - lo) * self.next_f32_unit()
     }
