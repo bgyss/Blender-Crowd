@@ -168,6 +168,18 @@ impl World {
     /// consistent snapshot of the previous tick, which is what makes results
     /// independent of iteration order.
     pub fn commit(&mut self) {
+        // `copy_from_slice` panics on a length mismatch, and the tick loop is
+        // supposed to be infallible. `spawn` is the only mutator that keeps
+        // the columns in step, but phases hold `&mut World` and could push to
+        // one column alone; this catches that in tests rather than in a bake.
+        debug_assert!(
+            self.next_pos_x.len() == self.len()
+                && self.next_pos_y.len() == self.len()
+                && self.next_vel_x.len() == self.len()
+                && self.next_vel_y.len() == self.len()
+                && self.next_yaw.len() == self.len(),
+            "staged columns drifted out of step with the agent count"
+        );
         self.pos_x.copy_from_slice(&self.next_pos_x);
         self.pos_y.copy_from_slice(&self.next_pos_y);
         self.vel_x.copy_from_slice(&self.next_vel_x);
@@ -183,15 +195,31 @@ impl World {
         let mut h: u64 = 0xa5a5_5a5a_dead_beef;
         for slot in 0..self.len() {
             h = hash_combine(h, self.agent_id[slot].0);
-            h = hash_combine(h, self.pos_x[slot].to_bits() as u64);
-            h = hash_combine(h, self.pos_y[slot].to_bits() as u64);
-            h = hash_combine(h, self.vel_x[slot].to_bits() as u64);
-            h = hash_combine(h, self.vel_y[slot].to_bits() as u64);
-            h = hash_combine(h, self.yaw[slot].to_bits() as u64);
+            h = hash_combine(h, canonical_bits(self.pos_x[slot]));
+            h = hash_combine(h, canonical_bits(self.pos_y[slot]));
+            h = hash_combine(h, canonical_bits(self.vel_x[slot]));
+            h = hash_combine(h, canonical_bits(self.vel_y[slot]));
+            h = hash_combine(h, canonical_bits(self.yaw[slot]));
             h = hash_combine(h, self.route_index[slot] as u64);
             h = hash_combine(h, self.arrived[slot] as u64);
         }
         h
+    }
+}
+
+/// Float bits, with negative zero folded onto positive zero.
+///
+/// `-0.0 == 0.0` is true, but their bit patterns differ. Without this fold, a
+/// velocity component that cancelled to `-0.0` on one path and `0.0` on
+/// another would report a determinism failure for two states that are
+/// numerically identical — a false alarm on the test the whole slice is built
+/// to trust. Every other value, NaN included, keeps its exact bits: a real
+/// divergence must still be caught.
+fn canonical_bits(value: f32) -> u64 {
+    if value == 0.0 {
+        0
+    } else {
+        value.to_bits() as u64
     }
 }
 
@@ -289,6 +317,21 @@ mod tests {
         world.next_pos_x[0] = 1.0;
         world.commit();
         assert_ne!(world.state_hash(), before);
+    }
+
+    #[test]
+    fn state_hash_ignores_the_sign_of_zero() {
+        // -0.0 == 0.0 numerically but differs bitwise. Without folding, a
+        // component that cancelled to -0.0 on one path would look like a
+        // determinism failure against a state that is numerically identical.
+        let mut positive = World::new();
+        let mut negative = World::new();
+        positive.spawn(spawn_at(1, Vec2::ZERO), 0).unwrap();
+        negative.spawn(spawn_at(1, Vec2::ZERO), 0).unwrap();
+        negative.next_vel_x[0] = -0.0;
+        negative.next_pos_y[0] = -0.0;
+        negative.commit();
+        assert_eq!(positive.state_hash(), negative.state_hash());
     }
 
     #[test]
