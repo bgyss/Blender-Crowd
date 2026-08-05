@@ -82,8 +82,10 @@ pub fn steer(
             scratch.walls.push(scene.walls[index as usize]);
         }
 
+        // `des_vel` carries the decide phase's preferred velocity on the way
+        // in and this phase's solution on the way out. Read it before the
+        // overwrite below.
         let preferred = Vec2::new(world.des_vel_x[slot], world.des_vel_y[slot]);
-        let was_braking = world.solver_status[slot] == SolverStatus::Braking;
         let velocity_now = Vec2::new(world.vel_x[slot], world.vel_y[slot]);
 
         let output = solver.solve(&AvoidanceInput {
@@ -109,23 +111,9 @@ pub fn steer(
         world.des_vel_x[slot] = velocity.x;
         world.des_vel_y[slot] = velocity.y;
 
-        // The solver has no memory: fed a zero `preferred` (this phase's own
-        // output from a tick where decide did not get a chance to refresh it
-        // with a fresh goal) it correctly reads "no goal" and reports Free.
-        // Without decide in between, that reading would erase a still-boxed
-        // agent's stall history. Carry the Braking status forward in exactly
-        // that starved case; a real tick always has decide run first, which
-        // supplies a nonzero preferred and never triggers this branch.
-        let starved_of_a_fresh_goal = preferred.length_squared() <= f32::MIN_POSITIVE;
-        let status =
-            if was_braking && output.status == SolverStatus::Free && starved_of_a_fresh_goal {
-                SolverStatus::Braking
-            } else {
-                output.status
-            };
-        world.solver_status[slot] = status;
+        world.solver_status[slot] = output.status;
 
-        if status == SolverStatus::Braking {
+        if output.status == SolverStatus::Braking {
             braking_agents += 1;
             world.stall_ticks[slot] = world.stall_ticks[slot].saturating_add(1);
         } else {
@@ -239,7 +227,18 @@ mod tests {
         world
     }
 
-    fn run_steer(world: &mut World, scene: &CompiledScene) -> SteerReport {
+    /// Run one tick's worth of perceive-then-steer.
+    ///
+    /// `preferred` is re-applied on every call because `steer` overwrites
+    /// `des_vel` with its solution. In a real tick the decide phase supplies a
+    /// fresh preferred velocity first; a test that skipped that would be
+    /// feeding the solver its own previous output, which never happens in
+    /// production.
+    fn run_steer(world: &mut World, scene: &CompiledScene, preferred: &[Vec2]) -> SteerReport {
+        for (slot, want) in preferred.iter().enumerate() {
+            world.des_vel_x[slot] = want.x;
+            world.des_vel_y[slot] = want.y;
+        }
         let mut grid = UniformGrid::new(scene.bounds, 5.0);
         grid.rebuild(&world.pos_x, &world.pos_y);
         let mut perceive_scratch = PerceiveScratch::default();
@@ -267,7 +266,7 @@ mod tests {
     fn an_isolated_agent_keeps_its_preferred_velocity() {
         let scene = open_scene(Vec::new());
         let mut world = world_with(&[(1, Vec2::ZERO, Vec2::new(1.35, 0.0))]);
-        run_steer(&mut world, &scene);
+        run_steer(&mut world, &scene, &[Vec2::new(1.35, 0.0)]);
         assert!((world.desired_velocity(0) - Vec2::new(1.35, 0.0)).length() < 1e-4);
         assert_eq!(world.solver_status[0], SolverStatus::Free);
         assert_eq!(world.stall_ticks[0], 0);
@@ -280,7 +279,11 @@ mod tests {
             (1, Vec2::new(0.0, 0.0), Vec2::new(1.35, 0.0)),
             (2, Vec2::new(3.0, 0.0), Vec2::new(-1.35, 0.0)),
         ]);
-        run_steer(&mut world, &scene);
+        run_steer(
+            &mut world,
+            &scene,
+            &[Vec2::new(1.35, 0.0), Vec2::new(-1.35, 0.0)],
+        );
         assert!(world.desired_velocity(0).y.abs() > 0.01);
         assert!(world.desired_velocity(1).y.abs() > 0.01);
     }
@@ -290,7 +293,7 @@ mod tests {
         let walls = vec![Segment::new(Vec2::new(2.0, -5.0), Vec2::new(2.0, 5.0))];
         let scene = open_scene(walls);
         let mut world = world_with(&[(1, Vec2::ZERO, Vec2::new(1.35, 0.0))]);
-        run_steer(&mut world, &scene);
+        run_steer(&mut world, &scene, &[Vec2::new(1.35, 0.0)]);
         assert_ne!(world.solver_status[0], SolverStatus::Free);
     }
 
@@ -304,10 +307,10 @@ mod tests {
         ];
         let scene = open_scene(walls);
         let mut world = world_with(&[(1, Vec2::ZERO, Vec2::new(1.35, 0.0))]);
-        run_steer(&mut world, &scene);
+        run_steer(&mut world, &scene, &[Vec2::new(1.35, 0.0)]);
         assert_eq!(world.solver_status[0], SolverStatus::Braking);
         assert_eq!(world.stall_ticks[0], 1);
-        run_steer(&mut world, &scene);
+        run_steer(&mut world, &scene, &[Vec2::new(1.35, 0.0)]);
         assert_eq!(world.stall_ticks[0], 2);
     }
 
@@ -316,7 +319,7 @@ mod tests {
         let scene = open_scene(Vec::new());
         let mut world = world_with(&[(1, Vec2::ZERO, Vec2::new(1.35, 0.0))]);
         world.stall_ticks[0] = 9;
-        run_steer(&mut world, &scene);
+        run_steer(&mut world, &scene, &[Vec2::new(1.35, 0.0)]);
         assert_eq!(world.stall_ticks[0], 0);
     }
 
@@ -327,7 +330,11 @@ mod tests {
             (1, Vec2::new(0.0, 0.0), Vec2::new(1.35, 0.0)),
             (2, Vec2::new(2.0, 0.0), Vec2::new(-1.35, 0.0)),
         ]);
-        let report = run_steer(&mut world, &scene);
+        let report = run_steer(
+            &mut world,
+            &scene,
+            &[Vec2::new(1.35, 0.0), Vec2::new(-1.35, 0.0)],
+        );
         assert!(report.min_time_to_collision.is_finite());
     }
 
@@ -335,7 +342,7 @@ mod tests {
     fn steering_an_empty_world_is_a_no_op() {
         let scene = open_scene(Vec::new());
         let mut world = World::new();
-        let report = run_steer(&mut world, &scene);
+        let report = run_steer(&mut world, &scene, &[]);
         assert_eq!(report.braking_agents, 0);
         assert!(report.min_time_to_collision.is_infinite());
     }
