@@ -2,10 +2,6 @@
 //!
 //! See `docs/superpowers/specs/2026-08-04-crowd-sim-kernel-design.md`.
 
-#[cfg(test)]
-mod smoke {
-    #[test]
-    fn workspace_builds_and_links() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+pub mod units;
+
+pub use units::{wrap_angle, Aabb, Vec2, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER};
