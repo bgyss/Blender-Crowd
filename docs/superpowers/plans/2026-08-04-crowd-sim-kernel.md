@@ -5095,10 +5095,15 @@ Prepend to `crates/crowd-core/src/phases/steer.rs`:
 
 use crate::arena::NeighborArena;
 use crate::avoidance::{AvoidanceInput, AvoidanceSolver, NeighborState};
-use crate::geometry::Segment;
+use crate::geometry::{time_to_collision_disc, time_to_collision_segment, Segment};
 use crate::scene::CompiledScene;
 use crate::units::Vec2;
 use crate::world::{SolverStatus, World};
+
+/// Horizon used only for the raw, pre-avoidance wall threat estimate below.
+/// Generous on purpose: this is a metrics figure, not a safety cutoff, so
+/// erring toward reporting a threat is preferable to missing one.
+const RAW_WALL_HORIZON: f32 = 10.0;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SteerConfig {
@@ -5194,9 +5199,37 @@ pub fn steer(
             world.stall_ticks[slot] = 0;
         }
 
-        if output.min_time_to_collision < min_time_to_collision {
-            min_time_to_collision = output.min_time_to_collision;
+        // `output.min_time_to_collision` is the chosen candidate's own risk,
+        // which is legitimately infinite when avoidance fully succeeds. That
+        // alone would make this report unable to see a near miss the solver
+        // just steered around, so also probe the raw, pre-avoidance risk the
+        // agent would have run into on its original preferred velocity.
+        let mut raw_ttc = f32::INFINITY;
+        for neighbor in &scratch.neighbors {
+            let relative_position = neighbor.position - position;
+            let relative_velocity = neighbor.velocity - preferred;
+            let combined_radius = world.radius[slot] + neighbor.radius;
+            if let Some(t) =
+                time_to_collision_disc(relative_position, relative_velocity, combined_radius)
+            {
+                raw_ttc = raw_ttc.min(t);
+            }
         }
+        for wall in &scratch.walls {
+            if let Some(t) = time_to_collision_segment(
+                position,
+                preferred,
+                world.radius[slot],
+                wall,
+                RAW_WALL_HORIZON,
+            ) {
+                raw_ttc = raw_ttc.min(t);
+            }
+        }
+
+        min_time_to_collision = min_time_to_collision
+            .min(output.min_time_to_collision)
+            .min(raw_ttc);
     }
 
     SteerReport {
