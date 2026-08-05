@@ -253,7 +253,9 @@ git commit -m "Add Rust workspace with pinned toolchain and macOS linker fix"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `Vec2 { x: f32, y: f32 }` with `new`, `ZERO`, `length`, `length_squared`, `normalize_or_zero`, `perp`, `dot`, `distance_squared`, `clamp_length`, and `Add`/`Sub`/`Mul<f32>`/`Neg` operators. `Aabb { min: Vec2, max: Vec2 }` with `contains`, `center`, `size`. Constants `DEFAULT_TICKS_PER_SECOND: u32 = 30`, `WORLD_TO_METER: f32 = 1.0`.
+- Produces: `Vec2 { x: f32, y: f32 }` with `new`, `ZERO`, `length`, `length_squared`, `normalize_or_zero`, `perp`, `dot`, `distance_squared`, `clamp_length`, `to_yaw`, `from_yaw`, `is_finite`, and `Add`/`Sub`/`Mul<f32>`/`Neg` operators. `Aabb { min: Vec2, max: Vec2 }` with `contains`, `center`, `size`, `expanded`. Free function `wrap_angle(angle: f32) -> f32`. Constants `DEFAULT_TICKS_PER_SECOND: u32 = 30`, `WORLD_TO_METER: f32 = 1.0`.
+
+`wrap_angle` lives here because both the integrate phase and the metrics layer need it; duplicating it in each would be two copies of one convention that must never disagree.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -301,6 +303,31 @@ mod tests {
         let b = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(2.0, 2.0));
         assert!(b.contains(Vec2::new(1.0, 1.0)));
         assert!(!b.contains(Vec2::new(3.0, 1.0)));
+    }
+
+    #[test]
+    fn wrap_angle_leaves_small_angles_alone() {
+        assert!((wrap_angle(0.5) - 0.5).abs() < 1e-6);
+        assert!((wrap_angle(-0.5) + 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn wrap_angle_takes_the_short_way_round() {
+        use std::f32::consts::PI;
+        // Just past +pi must come out just past -pi, not as a near-full turn.
+        let wrapped = wrap_angle(PI + 0.1);
+        assert!(wrapped < 0.0, "got {wrapped}");
+        assert!((wrapped + PI - 0.1).abs() < 1e-4, "got {wrapped}");
+    }
+
+    #[test]
+    fn wrap_angle_output_is_always_within_half_turn() {
+        use std::f32::consts::PI;
+        for step in -50..50 {
+            let angle = step as f32 * 0.7;
+            let wrapped = wrap_angle(angle);
+            assert!(wrapped > -PI - 1e-5 && wrapped <= PI + 1e-5, "got {wrapped}");
+        }
     }
 }
 ```
@@ -462,6 +489,22 @@ impl Aabb {
         )
     }
 }
+
+/// Wrap an angle to `(-pi, pi]` so differences take the short way round.
+///
+/// Shared rather than duplicated: the integrate phase uses it to limit turn
+/// rate and the metrics layer uses it to measure heading change. Two copies of
+/// one convention is two chances for them to disagree about what a reversal is.
+pub fn wrap_angle(angle: f32) -> f32 {
+    use std::f32::consts::{PI, TAU};
+    let mut a = angle % TAU;
+    if a > PI {
+        a -= TAU;
+    } else if a <= -PI {
+        a += TAU;
+    }
+    a
+}
 ```
 
 - [ ] **Step 4: Declare the module**
@@ -475,13 +518,13 @@ Replace the contents of `crates/crowd-core/src/lib.rs`:
 
 pub mod units;
 
-pub use units::{Aabb, Vec2, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER};
+pub use units::{wrap_angle, Aabb, Vec2, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER};
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core units`
-Expected: PASS, 6 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -4967,7 +5010,7 @@ Prepend to `crates/crowd-core/src/phases/integrate.rs`:
 
 use crate::geometry::Segment;
 use crate::scene::CompiledScene;
-use crate::units::Vec2;
+use crate::units::{wrap_angle, Vec2};
 use crate::world::World;
 
 #[derive(Clone, Copy, Debug)]
@@ -5084,18 +5127,6 @@ pub fn integrate(
     }
 
     report
-}
-
-/// Wrap to `(-pi, pi]` so yaw differences take the short way round.
-fn wrap_angle(angle: f32) -> f32 {
-    use std::f32::consts::{PI, TAU};
-    let mut a = angle % TAU;
-    if a > PI {
-        a -= TAU;
-    } else if a <= -PI {
-        a += TAU;
-    }
-    a
 }
 ```
 
@@ -5328,7 +5359,7 @@ use crate::geometry::Segment;
 use crate::phases::integrate::IntegrateReport;
 use crate::phases::steer::SteerReport;
 use crate::scene::CompiledScene;
-use crate::units::Vec2;
+use crate::units::{wrap_angle, Vec2};
 use crate::world::{SolverStatus, World};
 
 /// Which pipeline phase a timing sample belongs to.
@@ -5724,17 +5755,6 @@ fn gate_side(gate: &Segment, p: Vec2) -> i8 {
     } else {
         0
     }
-}
-
-fn wrap_angle(angle: f32) -> f32 {
-    use std::f32::consts::{PI, TAU};
-    let mut a = angle % TAU;
-    if a > PI {
-        a -= TAU;
-    } else if a <= -PI {
-        a += TAU;
-    }
-    a
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -8057,14 +8077,15 @@ fn command_run(args: &Args) -> Result<(), String> {
 fn command_sweep(args: &Args) -> Result<(), String> {
     for scene in scenes_to_run(args)? {
         for agents in [100u32, 500, 1000, 2000] {
-            let mut sweep_args = Args {
+            // Never record SVGs during a sweep: the per-tick sampling would
+            // skew the very timing numbers the sweep exists to measure.
+            let sweep_args = Args {
                 scene: Some(scene.clone()),
                 agents,
                 seed: args.seed,
                 svg: false,
                 out: args.out.clone(),
             };
-            sweep_args.svg = false;
             let report = run_scene(&options_for(&scene, &sweep_args))?;
             println!(
                 "{scene},{agents},{:.4},{:.1},{}",
