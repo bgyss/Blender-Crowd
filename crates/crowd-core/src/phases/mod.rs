@@ -4,8 +4,10 @@
 //! mutable next-state buffers, so read and write sets are visible in the
 //! signature and a later parallel pass needs no semantic change.
 
+pub mod decide;
 pub mod perceive;
 pub mod spawn;
 
+pub use decide::{decide, DecideConfig};
 pub use perceive::{perceive, PerceiveConfig, PerceiveScratch};
 pub use spawn::{apply_spawns, SpawnState};
