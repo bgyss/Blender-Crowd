@@ -70,10 +70,11 @@ fn bidirectional_corridor(agents: u32, seed: u64) -> SceneDef {
     SceneDef {
         name: "bidirectional_corridor".into(),
         bounds,
-        walls: vec![
-            Segment::new(Vec2::new(0.0, 0.0), Vec2::new(40.0, 0.0)),
-            Segment::new(Vec2::new(0.0, 8.0), Vec2::new(40.0, 8.0)),
-        ],
+        // Enclosed, like every other scene. Both destinations sit inside the
+        // corridor, so agents never need to leave through an end -- and
+        // without end caps, crowd pressure pushed agents up to 8 m past the
+        // west destination and out of the scene entirely.
+        walls: box_walls(bounds),
         waypoints,
         destinations: vec![
             Destination {
