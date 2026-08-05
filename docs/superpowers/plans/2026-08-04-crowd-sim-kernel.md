@@ -2704,6 +2704,16 @@ impl RouteArena {
 /// Returns `None` once the final waypoint is consumed, which the decide phase
 /// reads as arrival. This signature is the contract a navmesh corridor will
 /// inherit.
+///
+/// Proximity alone is not enough to advance: an agent that overshoots a
+/// waypoint — a long step, or a spawn position already past the first one —
+/// would otherwise turn around and walk backwards to reach it. So a waypoint
+/// also counts as passed once the agent is closer to the *next* one.
+///
+/// That shortcut is safe here because routes come from Dijkstra over the
+/// waypoint graph, and a shortest path never doubles back on itself. A future
+/// navmesh corridor that can double back must revisit this rule rather than
+/// inherit it.
 pub fn next_target(
     points: &[Vec2],
     index: &mut u16,
@@ -2712,7 +2722,14 @@ pub fn next_target(
 ) -> Option<Vec2> {
     let arrive_sq = arrive_radius * arrive_radius;
     while (*index as usize) < points.len() {
-        let target = points[*index as usize];
+        let i = *index as usize;
+        let target = points[i];
+        if i + 1 < points.len()
+            && points[i + 1].distance_squared(pos) < target.distance_squared(pos)
+        {
+            *index += 1;
+            continue;
+        }
         if target.distance_squared(pos) > arrive_sq {
             return Some(target);
         }
