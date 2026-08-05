@@ -3,6 +3,7 @@
 //! See `docs/superpowers/specs/2026-08-04-crowd-sim-kernel-design.md`.
 
 pub mod arena;
+pub mod avoidance;
 pub mod clock;
 pub mod geometry;
 pub mod grid;
@@ -15,6 +16,9 @@ pub mod units;
 pub mod world;
 
 pub use arena::{Neighbor, NeighborArena};
+pub use avoidance::{
+    AvoidanceInput, AvoidanceOutput, AvoidanceSolver, NeighborState, SampledVelocitySolver,
+};
 pub use clock::Clock;
 pub use geometry::Segment;
 pub use grid::{SegmentIndex, UniformGrid};
