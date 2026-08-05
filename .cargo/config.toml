@@ -6,3 +6,16 @@ linker = "/usr/bin/clang"
 
 [target.x86_64-apple-darwin]
 linker = "/usr/bin/clang"
+
+# crowd-bench installs a process-wide `#[global_allocator]` (CountingAllocator)
+# to measure peak allocated bytes, and its own tests assert absolute deltas
+# against that shared LIVE/PEAK state ("this 4 MiB allocation must raise PEAK
+# by at least 4 MiB"). Rust's default test harness runs test functions on
+# separate OS threads, so any other thread's ordinary allocations/frees
+# (including from unrelated tests in the same binary) perturb the same
+# counters mid-measurement and make those deltas nondeterministic. Cargo has
+# no per-package way to force a test binary single-threaded, so this is set
+# workspace-wide; it costs some wall time on crowd-core's larger suite but
+# costs nothing in correctness.
+[env]
+RUST_TEST_THREADS = "1"

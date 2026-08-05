@@ -7,9 +7,22 @@
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+/// Guards a `reset_peak` .. `peak_bytes` measurement window.
+///
+/// `PEAK`/`LIVE` are process-wide, so two measurement windows running on
+/// different threads (e.g. two `run_scene` calls, or the parallel test
+/// harness) would otherwise corrupt each other: one thread's `reset_peak`
+/// can silently erase another's in-flight high-water mark. Callers that want
+/// an exclusive measurement window should hold this for its duration.
+pub(crate) fn measurement_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 pub struct CountingAllocator;
 
@@ -71,6 +84,12 @@ mod tests {
 
     #[test]
     fn peak_tracks_the_largest_live_allocation() {
+        // PEAK/LIVE are process-wide; without this lock, another test thread's
+        // concurrent reset_peak() (this test, `reset_peak_lowers_the_high_water_mark`,
+        // or a `run_scene` measurement window) can lower PEAK mid-window and
+        // make `after_drop < after_alloc`, which looks like the allocator
+        // losing track of the peak but is actually two windows colliding.
+        let _guard = measurement_lock().lock().unwrap();
         reset_peak();
         let before = peak_bytes();
         let big: Vec<u8> = vec![0; 4 * 1024 * 1024];
@@ -83,6 +102,7 @@ mod tests {
 
     #[test]
     fn reset_peak_lowers_the_high_water_mark() {
+        let _guard = measurement_lock().lock().unwrap();
         let big: Vec<u8> = vec![0; 2 * 1024 * 1024];
         let high = peak_bytes();
         drop(big);

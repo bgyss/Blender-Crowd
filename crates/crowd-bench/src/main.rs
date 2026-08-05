@@ -1,5 +1,6 @@
 mod alloc;
 mod report;
+mod svg;
 
 #[global_allocator]
 static ALLOCATOR: alloc::CountingAllocator = alloc::CountingAllocator;

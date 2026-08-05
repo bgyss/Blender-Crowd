@@ -19,6 +19,7 @@ use crowd_core::sim::{SimConfig, Simulation};
 use serde::{Deserialize, Serialize};
 
 use crate::alloc;
+use crate::svg::TrajectoryRecorder;
 
 /// Bumped whenever the report schema changes incompatibly.
 pub const REPORT_SCHEMA_VERSION: u32 = 1;
@@ -161,12 +162,39 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
 
     let mut sim = Simulation::new(scene, Box::new(SampledVelocitySolver::default()), config);
 
+    // PEAK/LIVE are process-wide (see alloc::measurement_lock), so exclude
+    // concurrent measurement windows (parallel tests, or another run_scene on
+    // another thread) from corrupting this run's peak reading.
+    let _measurement_guard = alloc::measurement_lock().lock().unwrap();
     // Reset after construction so scene-build allocations are excluded.
     alloc::reset_peak();
     let started = Instant::now();
-    sim.run_to_completion();
+    let mut recorder = if options.svg {
+        Some(TrajectoryRecorder::new(5, 400))
+    } else {
+        None
+    };
+    match recorder.as_mut() {
+        // Recording costs a per-tick sample, so the un-recorded path stays a
+        // tight loop and the timing metric is not skewed by visualisation.
+        Some(recorder) => {
+            while sim.clock().tick() < duration_ticks {
+                sim.step();
+                recorder.record(&sim);
+            }
+        }
+        None => sim.run_to_completion(),
+    }
     let wall_time_seconds = started.elapsed().as_secs_f64();
     let peak_allocated_bytes = alloc::peak_bytes() as u64;
+
+    if let Some(recorder) = recorder.as_ref() {
+        std::fs::create_dir_all(&options.out_dir)
+            .map_err(|e| format!("cannot create {}: {e}", options.out_dir.display()))?;
+        let svg = recorder.write_svg(&options.scene, sim.scene().bounds, sim.walls());
+        let path = options.out_dir.join(format!("{}.svg", options.scene));
+        std::fs::write(&path, svg).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    }
 
     let metrics = sim.metrics().summarize(
         sim.world(),
