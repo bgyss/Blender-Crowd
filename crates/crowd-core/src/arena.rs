@@ -35,8 +35,10 @@ impl NeighborArena {
 
     /// Record `neighbors` as belonging to `slot_owner`.
     ///
-    /// Must be called at most once per agent per tick, in ascending slot
-    /// order, which the perceive phase guarantees.
+    /// Entries are indexed by owner, so call order does not affect the result.
+    /// Calling twice for one owner in a tick is still wrong — the first batch
+    /// is stranded in the arena rather than freed — but it is not a
+    /// correctness hazard for readers.
     pub fn push(&mut self, slot_owner: usize, neighbors: &[Neighbor]) {
         self.start[slot_owner] = self.entries.len() as u32;
         self.len[slot_owner] = neighbors.len() as u32;

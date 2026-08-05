@@ -21,6 +21,10 @@ pub struct UniformGrid {
     /// Agent slots grouped by cell, ascending within each cell.
     items: Vec<u32>,
     counts: Vec<u32>,
+    /// Per-cell write cursor for the fill pass. A field rather than a local
+    /// because `rebuild` runs every tick, and a local would heap-allocate on
+    /// every one of them.
+    cursor: Vec<u32>,
 }
 
 impl UniformGrid {
@@ -38,6 +42,7 @@ impl UniformGrid {
             cell_start: vec![0; (cols * rows + 1) as usize],
             items: Vec::new(),
             counts: vec![0; (cols * rows) as usize],
+            cursor: vec![0; (cols * rows) as usize],
         }
     }
 
@@ -88,12 +93,16 @@ impl UniformGrid {
         // monotonically. That ordering is what makes queries reproducible.
         self.items.clear();
         self.items.resize(n, 0);
-        let mut cursor: Vec<u32> = self.cell_start[..self.counts.len()].to_vec();
+        // Refill the cursor in place. `to_vec()` here would allocate on every
+        // tick, which is exactly what this index is built to avoid.
+        self.cursor.clear();
+        self.cursor
+            .extend_from_slice(&self.cell_start[..self.counts.len()]);
         for i in 0..n {
             let (cx, cy) = self.cell_of(pos_x[i], pos_y[i]);
             let cell = self.cell_index(cx, cy);
-            self.items[cursor[cell] as usize] = i as u32;
-            cursor[cell] += 1;
+            self.items[self.cursor[cell] as usize] = i as u32;
+            self.cursor[cell] += 1;
         }
     }
 
@@ -247,6 +256,36 @@ mod tests {
         a.query(Vec2::new(3.0, 3.0), 2.0, &mut oa);
         b.query(Vec2::new(3.0, 3.0), 2.0, &mut ob);
         assert_eq!(oa, ob);
+    }
+
+    #[test]
+    fn rebuild_does_not_allocate_once_warmed_up() {
+        // `rebuild` runs every tick. If any buffer reallocates on a steady
+        // agent count, the tick loop is allocating in its hot path.
+        let xs: Vec<f32> = (0..300).map(|i| (i % 17) as f32 * 0.5).collect();
+        let ys: Vec<f32> = (0..300).map(|i| (i % 13) as f32 * 0.6).collect();
+        let mut grid = UniformGrid::new(test_bounds(), 1.0);
+        grid.rebuild(&xs, &ys);
+
+        let warm = (
+            grid.items.capacity(),
+            grid.cursor.capacity(),
+            grid.counts.capacity(),
+            grid.cell_start.capacity(),
+        );
+        for _ in 0..50 {
+            grid.rebuild(&xs, &ys);
+        }
+        assert_eq!(
+            (
+                grid.items.capacity(),
+                grid.cursor.capacity(),
+                grid.counts.capacity(),
+                grid.cell_start.capacity(),
+            ),
+            warm,
+            "a buffer reallocated during steady-state rebuild"
+        );
     }
 
     #[test]
