@@ -3,6 +3,7 @@
 Date: 2026-08-04
 Status: approved design, ready for implementation planning
 Parent contract: [Blender Crowd 1.0 architecture and MVP](../../blender-crowd-1.0.md)
+Owning milestone: [M0 — Proving grounds](../../milestones/M0-proving-grounds.md)
 
 ## 1. Scope
 

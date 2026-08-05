@@ -7,6 +7,10 @@ presentation assets
 
 Research rationale and deferred experiments are recorded in
 [Crowd simulation research synthesis](crowd-simulation-research-2026.md).
+The complete industrial capability target, including Golaem/MASSIVE parity and
+the Blender ecosystem integration strategy, is recorded in
+[Industrial crowd capability and Blender integration roadmap](industrial-crowd-capability-roadmap.md)
+and scheduled through the [milestone contract index](milestones/README.md).
 
 ## 1. Product decision
 
@@ -18,8 +22,11 @@ complete, inspectable agent loop:
 perception -> context -> goals -> action selection -> locomotion -> animation
 ```
 
-The long-term product is an open alternative to industrial crowd systems. The
-1.0 MVP is narrower: an artist can define a pedestrian population, mark a
+The long-term product is an open, Blender-native alternative to industrial
+crowd systems: Golaem-class population, production layout, cache, and rendering
+workflows combined with MASSIVE-style perception and behavior authoring, then
+prepared for possible integration into Blender's wider ecosystem and main
+project. The 1.0 MVP is narrower: an artist can define a pedestrian population, mark a
 semantic environment, assign deterministic behaviors, simulate 1,000 agents,
 inspect failures, make shot-level overrides, bake a portable cache, and render
 the result without writing code.
@@ -57,6 +64,8 @@ The first release will not attempt to provide:
 - live Geometry Nodes evaluation as the simulation source of truth.
 
 These are roadmap candidates, not acceptance criteria for the first product.
+They are explicitly assigned to later milestones rather than treated as rejected
+ideas; see the capability roadmap for the owning milestone and proof gate.
 
 ## 2. Design principles
 
@@ -78,6 +87,12 @@ These are roadmap candidates, not acceptance criteria for the first product.
    are first-class data.
 8. **Stable cache boundary.** Finished shots do not depend on rerunning the live
    simulator during rendering.
+9. **Framework, not effect.** Navigation, agency, motion, layout, and interchange
+   remain separable public contracts rather than one hard-coded follow/avoid/
+   instance node setup.
+10. **Upstreamable boundaries.** Reusable data models, tests, schemas, and
+    performance evidence must not depend on private scene hacks. Extension-first
+    delivery is the proving path for later Blender ecosystem or mainline review.
 
 ## 3. System architecture
 
@@ -166,6 +181,14 @@ Specific third-party crates and licenses must be selected through a separate
 dependency review. The architecture does not require a particular navmesh or
 ORCA library.
 
+The durable subsystem boundaries are `CrowdCore` (clock, storage, events),
+`CrowdNav` (navmesh, corridors, avoidance, lanes, portals), `CrowdBrain`
+(perception, blackboards, state machines, utility selection, behavior trees),
+`CrowdMotion` (clip graphs, trajectory matching, terrain adaptation, IK, physics
+handoff), and `CrowdLayout` (cache layers, overrides, USD, LOD, rendering).
+These are ownership contracts, not a requirement to create five packages before
+the corresponding behavior exists.
+
 ## 4. Authoring model
 
 Blender Crowd adds five top-level data-block concepts. They are represented by
@@ -234,6 +257,12 @@ The MVP supports a deliberately small semantic vocabulary:
 - `Interest`: optional weighted attraction region;
 - `Danger`: avoidance cost region.
 
+Later milestones extend the same typed vocabulary with preferred/forbidden
+zones, stairs, escalators, doors, seats, resources, interaction points, flow
+fields, and domain-specific traffic or combat semantics. These remain explicit
+scene data; they are not inferred from object names or delegated to Geometry
+Nodes.
+
 Tags have stable IDs and typed properties. For example, a portal has width,
 directionality, capacity, and open/closed state. Meaning is never inferred only
 from an object's display name.
@@ -266,6 +295,15 @@ The 1.0 graph provides these node families:
 The graph can express behavior-tree and utility-selection patterns without
 exposing arbitrary loops or arbitrary code. Nodes declare read/write channels,
 cost class, determinism guarantees, and debug labels.
+
+The graph model deliberately preserves the three authoring modes needed for
+MASSIVE-class agency: finite state machines for readable modes, utility scoring
+for competing goals, and behavior-tree composition for ordered actions and
+fallbacks. Later perception nodes add vision cones, line of sight, hearing,
+touch/contact, density, flow, friend/threat queries, and arbitrary typed agent
+variables without changing the compiled-runtime boundary. Fuzzy membership and
+fuzzy comparison may be added as deterministic numeric nodes; opaque black-box
+behavior is not the goal.
 
 Example commuter logic:
 
@@ -431,6 +469,12 @@ Groups are lightweight constraints, not composite physics bodies. A group has a
 leader or computed center, separation limits, and a regroup policy. Members use
 cohesion as one steering/utility term and may temporarily separate at bottlenecks.
 
+The group contract grows to cover couples, families, parent/child relations,
+tour groups, squads, formations, protest groups, and emergency groups. Roles,
+shared destinations, formation policy, maximum separation, reservations, and
+group-level behavior are first-class authored data rather than conventions
+encoded in individual agents.
+
 Queues use an explicit queue semantic with slots and admission capacity. Agents
 reserve slots deterministically and advance when the preceding slot clears.
 This is preferable to hoping collision avoidance spontaneously produces an
@@ -475,6 +519,13 @@ as Blender-side presentation corrections where available.
 This is a pragmatic first step, not the final locomotion model. Motion matching
 and motion-driven collision response require a richer trajectory database and
 belong after the deterministic navigation/cache pipeline is proven.
+
+The long-term motion loop is bidirectional: the navigation solver supplies a
+future trajectory to motion matching, while selected motion feasibility,
+contacts, and turn capability constrain the next solved trajectory. Terrain
+adaptation, stride warping, foot locking, paired interactions, ragdoll handoff,
+and Blender cloth/hair/rigid-body integration are staged behind this contract so
+hero agents can gain fidelity without making every background agent expensive.
 
 ### 7.3 Retarget and validation
 
@@ -652,6 +703,11 @@ Debug overlays are a product feature, not development leftovers:
 The UI supports “why did this agent do that?” by showing the last decisive graph
 node, its inputs, selected alternative, and relevant event.
 
+Production layout must also support the common “everything is right except
+these seven agents” workflow: select by stable ID, move/delete/freeze/retime,
+replace appearance or animation, redirect a path, promote to hero, or hand a
+bounded interval to physics without destroying the base simulation.
+
 ### 10.3 Error model
 
 Errors must identify the scene entity and corrective action. Bake is blocked for
@@ -712,6 +768,12 @@ crowd_visible
 
 The shipped GN group selects character/appearance variants and presentation
 tier. Users may extend downstream rendering without changing simulation state.
+
+USD and other DCC interchange use the same public cache/IR boundary rather than
+scraping evaluated Blender objects. A dedicated exporter is permitted when
+Blender's general USD path cannot faithfully represent point instancers,
+skinning, animation, or layered overrides. Export claims require round-trip or
+consumer validation; writing a syntactically valid file is not sufficient.
 
 ## 12. MVP scope and acceptance
 
@@ -856,7 +918,20 @@ Goal: trustworthy installation and shot production.
 Exit gate: all 1.0 criteria pass from a clean installation and the release cache
 renders without the simulator loaded.
 
-### Phase 4: scale expansion after 1.0
+### Phase 4: layered production after 1.0
+
+Goal: make successful simulations directly usable in complex shot workflows.
+
+- Complete cache-level move/hide/freeze/retime/path/appearance/animation edits.
+- Add ordered base, layout, animation-fix, hero, physics, and shot layers.
+- Strengthen curve/region editing and bounded local resimulation.
+- Add selected-agent physics handoff and cached recovery policy.
+- Validate procedural render extraction and a layered USD crowd profile.
+
+Exit gate: a corrected production scene reopens, composes, renders, and exchanges
+through every claimed path without mutating or rerunning its base simulation.
+
+### Phase 5: scale expansion after 1.0
 
 Goal: earn 10K and then 100K claims.
 
@@ -870,8 +945,9 @@ Goal: earn 10K and then 100K claims.
 - simulation/render tier promotion with hysteresis.
 - benchmark scenes and published reports for each scale gate.
 
-Motion matching, combat, vehicles, AI graph authoring, and asset marketplace work
-should proceed as separate tracks only after the 1.0 data and cache contracts are
+Advanced perception, motion matching, interaction physics, combat, vehicles,
+semantic AI authoring, synthetic data, and asset marketplace work should proceed
+as separate coordinated tracks only after the 1.0 data and cache contracts are
 stable.
 
 ### 13.1 Team and indicative effort
@@ -991,15 +1067,17 @@ The module boundaries are contracts, not a demand for premature package count.
 
 The recommended order is driven by dependency and product value:
 
-1. **10K background tier and GPU presentation.** Extends the proven cache and
+1. **Artist layout, layered interchange, and procedural extraction.** Curves,
+   region retiming, group editing, cache layers, local resimulation, physics
+   handoff, validated USD composition, and render extraction make the simulator
+   production-usable before chasing headline scale.
+2. **10K background tier and GPU presentation.** Extend the proven cache and
    scheduler with shared density/velocity fields, future-density costs, and
    measured camera/focus animation scheduling rather than changing hero-agent
    semantics.
-2. **Artist layout tools.** Curves, region retiming, group editing, cache layers,
-   and stronger local resimulation make the simulator production-usable.
-3. **Social attention and animation feedback.** Add group-aware perception,
+3. **Social attention, richer perception, and group agency.** Add group-aware perception,
    gaze, upper-body intent, and richer social formations if the MVP stretch did
-   not ship.
+   not ship, then extend toward vision, hearing, contact, and group-level brains.
 4. **Trajectory-informed profiles.** Fit explainable presets and compare
    simulations with licensed reference trajectories offline before considering
    a learned runtime controller.
@@ -1007,13 +1085,28 @@ The recommended order is driven by dependency and product value:
    paired actions, capacity/resource reservation, and activity schedules.
 6. **Motion matching and trajectory-aware locomotion.** Build on stable clip,
    cache, and trajectory contracts.
-7. **Traffic and combat domain packs.** Separate action/interaction libraries
+7. **Interaction and hero physics.** Add paired actions, ragdoll/recovery,
+   rigid-body layers, and promoted hero cloth/hair behind the stable cache and
+   fidelity-tier contracts.
+8. **Blender ecosystem and mainline readiness.** Turn real extension evidence
+   into narrowly scoped, generally useful host proposals while retaining a
+   supported extension fallback.
+9. **Traffic and combat domain packs.** Separate action/interaction libraries
    sharing core perception, behavior, navigation, and cache infrastructure.
-8. **AI-assisted authoring.** Compile natural-language intent into a proposed,
+10. **AI-assisted authoring.** Compile natural-language intent into a proposed,
    validated graph and population configuration. The artist reviews the diff;
    deterministic runtime behavior remains unchanged.
-9. **100K background gate.** Earned after shared navigation and GPU presentation
+11. **Synthetic-data outputs.** Version and validate ground-truth identity,
+    pose, boxes, segmentation, velocity, intent, groups, occlusion, sensors, and
+    provenance for explicitly scoped downstream tasks.
+12. **100K background gate.** Earned after shared navigation and GPU presentation
    are proven at 10K.
+
+This ordering is expanded into independently executable contracts in
+[the milestone suite](milestones/README.md). The suite additionally schedules
+physics handoff, procedural render extraction, USD composition, advanced
+perception/brain authoring, synthetic-data outputs, and the Blender
+ecosystem/mainline readiness gate so none remain aspirational orphan features.
 
 ## 18. Definition of Blender Crowd 1.0
 
@@ -1026,3 +1119,37 @@ performance, memory, and reproducibility.
 
 Anything less is a technology prototype. Anything substantially broader should
 be judged against the post-1.0 roadmap rather than allowed to delay this proof.
+
+## 19. Long-term industrial and Blender integration destination
+
+The project succeeds strategically when Blender users can perform the complete
+crowd-production loop in one open system:
+
+```text
+author population and semantics
+  -> perceive, decide, navigate, and animate
+  -> simulate and inspect
+  -> direct non-destructively after simulation
+  -> compose cache/layout/animation/physics layers
+  -> render procedurally or exchange through USD
+  -> reproduce the shot headlessly from versioned data
+```
+
+The destination includes the supplied Golaem and MASSIVE benchmark capabilities:
+population and stadium tools, visual variation, reusable entity and group types,
+robust navmesh/pathfinding/avoidance, terrain and foot adaptation, arbitrary
+authorable behavior, multi-sensory perception, animation graphs and trajectory-
+aware motion, physics transitions, post-simulation layout, non-destructive
+levels, viewport optimization, procedural rendering, stable APIs, USD exchange,
+and measured 10K/100K scale tiers. It also preserves the three intended areas of
+differentiation: navigation-coupled motion matching, layered USD-native crowd
+composition, and GPU-scale simulation behind an open behavior API.
+
+Blender mainline integration is an evidence gate, not a branding claim. The
+extension must first prove stable schemas, clean host ownership boundaries,
+cross-platform packaging, undo/save/reload safety, headless operation, profiling,
+license compliance, production scenes, and maintainable tests. Only then should
+the project prepare narrowly scoped Blender design proposals or patches for
+reusable host capabilities. Mainline acceptance remains governed by Blender's
+maintainers; the project must remain useful as an extension if upstreaming is
+partial or declined.
