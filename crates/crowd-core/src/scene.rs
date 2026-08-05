@@ -169,21 +169,24 @@ impl SceneDef {
                     field,
                 })
             };
-            if !(population.radius_min > 0.0) {
+            // NaN is tested explicitly rather than relying on a negated
+            // comparison. Both forms reject it, but `is_nan()` says so out
+            // loud, and clippy rejects the negated form under `-D warnings`.
+            if population.radius_min.is_nan() || population.radius_min <= 0.0 {
                 reject("radius_min");
             }
-            if !(population.radius_max >= population.radius_min) {
+            if population.radius_max.is_nan() || population.radius_max < population.radius_min {
                 reject("radius_max");
             }
-            // Below this the spawn clamp's floor would exceed its ceiling and
-            // `f32::clamp` would panic.
-            if !(population.speed_mean >= MIN_PREFERRED_SPEED) {
+            // Below this floor the spawn clamp's minimum would exceed its
+            // maximum, and `f32::clamp` panics on inverted bounds.
+            if population.speed_mean.is_nan() || population.speed_mean < MIN_PREFERRED_SPEED {
                 reject("speed_mean");
             }
-            if !(population.speed_stddev >= 0.0) {
+            if population.speed_stddev.is_nan() || population.speed_stddev < 0.0 {
                 reject("speed_stddev");
             }
-            if !(population.max_speed_factor >= 1.0) {
+            if population.max_speed_factor.is_nan() || population.max_speed_factor < 1.0 {
                 reject("max_speed_factor");
             }
         }
@@ -596,8 +599,8 @@ mod tests {
 
     #[test]
     fn nan_population_values_are_rejected() {
-        // The comparisons are written as negated `!(a >= b)` precisely so NaN
-        // falls through to the reject arm rather than silently passing.
+        // NaN compares false against every bound, so a plain `x < min` check
+        // would wave it through. The validator tests `is_nan()` explicitly.
         let mut scene = valid_scene();
         scene.populations[0].speed_mean = f32::NAN;
         let errors = scene.compile().unwrap_err();
