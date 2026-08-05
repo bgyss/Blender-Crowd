@@ -78,10 +78,21 @@ pub fn time_to_collision_disc(rel_pos: Vec2, rel_vel: Vec2, combined_radius: f32
 
 /// Time until a moving disc touches a static segment, within `horizon`.
 ///
-/// Sampled rather than solved in closed form: the exact swept-capsule test is
-/// three cases (two endpoints plus the edge), and at the sample counts the
-/// solver uses, a short bisection is both simpler to keep correct and fast
-/// enough. Determinism is unaffected because the sample count is fixed.
+/// # Why this is solved exactly rather than sampled
+///
+/// Any sampled search tunnels, and no step bound fixes it. The disc's overlap
+/// window with a segment endpoint has width `2·sqrt(r² − d²)` where `d` is the
+/// closest-approach distance — which goes to *zero* as `d` approaches `r`. A
+/// grazing contact can therefore be arbitrarily brief, so for any fixed or
+/// derived step size there exists a real collision that falls entirely between
+/// two samples and is reported as no collision at all. That is silent, and it
+/// happens exactly at the corner and doorframe geometry a crowd meets
+/// constantly.
+///
+/// The exact swept-capsule test is three cases and is also *cheaper* than the
+/// twenty-odd distance evaluations a bisection needs: two endpoint quadratics
+/// (reusing `time_to_collision_disc`, since a capsule cap is a zero-radius
+/// disc) plus one linear crossing of the edge offset by `radius`.
 pub fn time_to_collision_segment(
     pos: Vec2,
     vel: Vec2,
@@ -96,34 +107,46 @@ pub fn time_to_collision_segment(
         return None;
     }
 
-    const COARSE_STEPS: u32 = 8;
-    const REFINE_STEPS: u32 = 12;
+    let mut earliest = f32::INFINITY;
 
-    let mut lo = 0.0f32;
-    let mut hit = false;
-    let mut hi = horizon;
-    for i in 1..=COARSE_STEPS {
-        let t = horizon * i as f32 / COARSE_STEPS as f32;
-        if seg.distance_to(pos + vel * t) <= radius {
-            hi = t;
-            hit = true;
-            break;
-        }
-        lo = t;
-    }
-    if !hit {
-        return None;
-    }
-
-    for _ in 0..REFINE_STEPS {
-        let mid = 0.5 * (lo + hi);
-        if seg.distance_to(pos + vel * mid) <= radius {
-            hi = mid;
-        } else {
-            lo = mid;
+    // Endpoint caps. A cap is a stationary zero-radius disc, so the relative
+    // position is endpoint-minus-self and the relative velocity is -vel, per
+    // `time_to_collision_disc`'s convention.
+    for endpoint in [seg.a, seg.b] {
+        if let Some(t) = time_to_collision_disc(endpoint - pos, -vel, radius) {
+            if t <= horizon && t < earliest {
+                earliest = t;
+            }
         }
     }
-    Some(hi)
+
+    // Flat side: cross the line offset by `radius` toward the side we start on.
+    let along = seg.b - seg.a;
+    let len_sq = along.length_squared();
+    if len_sq > f32::MIN_POSITIVE {
+        let normal = along.perp() * (1.0 / len_sq.sqrt());
+        let offset = (pos - seg.a).dot(normal);
+        let approach_rate = vel.dot(normal);
+        if approach_rate.abs() > f32::MIN_POSITIVE {
+            let target = if offset >= 0.0 { radius } else { -radius };
+            let t = (target - offset) / approach_rate;
+            if (0.0..=horizon).contains(&t) && t < earliest {
+                // Only a flat-side hit if contact lands between the endpoints.
+                // Beyond them the caps above are the real geometry.
+                let contact = pos + vel * t;
+                let s = (contact - seg.a).dot(along) / len_sq;
+                if (0.0..=1.0).contains(&s) {
+                    earliest = t;
+                }
+            }
+        }
+    }
+
+    if earliest.is_finite() {
+        Some(earliest)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -212,5 +235,62 @@ mod tests {
             time_to_collision_segment(Vec2::ZERO, Vec2::new(1.0, 0.0), 0.5, &wall, 10.0),
             None
         );
+    }
+
+    #[test]
+    fn a_brief_grazing_collision_is_not_stepped_over() {
+        // Regression: this endpoint sits 0.49 from the path against a radius of
+        // 0.5, so the true overlap window is only about 0.2s wide. Any sampled
+        // search coarse enough to be affordable steps straight over it and
+        // reports no collision.
+        let wall = Segment::new(Vec2::new(3.125, 0.49), Vec2::new(3.125, 6.0));
+        let t = time_to_collision_segment(Vec2::ZERO, Vec2::new(1.0, 0.0), 0.5, &wall, 10.0);
+        assert!(t.is_some(), "grazing collision was missed");
+        let t = t.unwrap();
+        assert!(
+            (3.0..3.1).contains(&t),
+            "collision found at the wrong time: {t}"
+        );
+    }
+
+    #[test]
+    fn an_arbitrarily_brief_graze_is_still_detected() {
+        // The window narrows without limit as the miss distance approaches the
+        // radius: at 0.4999 against 0.5 it is under 0.03s. This is the case
+        // that proves sampling cannot work here at any step size.
+        let wall = Segment::new(Vec2::new(4.0, 0.4999), Vec2::new(4.0, 6.0));
+        let t = time_to_collision_segment(Vec2::ZERO, Vec2::new(1.0, 0.0), 0.5, &wall, 10.0);
+        assert!(t.is_some(), "near-tangential graze was missed");
+    }
+
+    #[test]
+    fn contact_past_the_end_of_a_segment_uses_the_endpoint_not_the_edge() {
+        // Travelling parallel to the wall's line but level with its end: the
+        // infinite line would say "never", the capsule cap says otherwise.
+        let wall = Segment::new(Vec2::new(0.0, 5.0), Vec2::new(0.0, 10.0));
+        let t =
+            time_to_collision_segment(Vec2::new(0.0, 0.0), Vec2::new(0.0, 1.0), 0.5, &wall, 10.0);
+        assert!((t.unwrap() - 4.5).abs() < 1e-4, "got {t:?}");
+    }
+
+    #[test]
+    fn a_fast_agent_does_not_tunnel_through_a_thin_gap() {
+        // 20 m of travel against a 0.2 m radius: a constant step count would
+        // advance many radii per sample.
+        let wall = Segment::new(Vec2::new(10.0, -1.0), Vec2::new(10.0, 1.0));
+        let t = time_to_collision_segment(Vec2::ZERO, Vec2::new(10.0, 0.0), 0.2, &wall, 2.0);
+        assert!(t.is_some(), "fast agent tunnelled through the wall");
+        assert!((t.unwrap() - 0.98).abs() < 0.02, "got {t:?}");
+    }
+
+    #[test]
+    fn segment_bounds_cover_both_endpoints_in_either_order() {
+        let ascending = Segment::new(Vec2::new(1.0, 2.0), Vec2::new(4.0, 6.0));
+        let descending = Segment::new(Vec2::new(4.0, 6.0), Vec2::new(1.0, 2.0));
+        for seg in [ascending, descending] {
+            let b = seg.bounds();
+            assert_eq!(b.min, Vec2::new(1.0, 2.0));
+            assert_eq!(b.max, Vec2::new(4.0, 6.0));
+        }
     }
 }
