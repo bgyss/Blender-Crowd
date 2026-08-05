@@ -274,9 +274,18 @@ Neighbors are assumed to hold their current velocity, and avoidance
 responsibility is shared half-and-half. That is the reciprocal-velocity insight
 and it costs nothing to include.
 
-Head-on symmetry is broken by comparing stable IDs, satisfying section 6.2's
-deterministic tie-breaking requirement, so two approaching agents never mirror
-each other into a deadlock.
+Head-on symmetry is broken by a **fixed keep-left convention** evaluated in the
+agent's own frame, not by an ID comparison. Two agents meeting head-on see
+mirrored geometry, so if each asked "am I the lower ID?" they would derive
+opposite answers — and in mirrored frames, opposite answers produce the *same*
+world-space deflection, leaving them on a collision course. A fixed convention
+produces opposite world deflections, which is what actually separates them.
+
+Stable IDs still supply the asymmetry section 6.2 requires, applied where it is
+genuinely needed: a perpendicular crossing conflict is symmetric under the
+keep-left rule, so the higher-ID agent yields through a heavier collision
+weight. Both agents compute that from data both already hold, so they never
+both yield or both push.
 
 Preferred speed is reduced by local density, per section 6.2's density-aware
 speed reduction. When no candidate clears the collision threshold, the agent
