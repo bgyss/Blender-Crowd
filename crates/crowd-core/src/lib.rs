@@ -7,6 +7,7 @@ pub mod clock;
 pub mod geometry;
 pub mod grid;
 pub mod ids;
+pub mod phases;
 pub mod rng;
 pub mod route;
 pub mod scene;
