@@ -53,6 +53,16 @@ impl WaypointGraph {
         self.nodes[node as usize]
     }
 
+    /// Adjacent nodes, ascending. Empty for an unknown index.
+    ///
+    /// Exposed so the scene hash can cover topology: two graphs with identical
+    /// node positions but different edges route differently.
+    pub fn neighbors(&self, node: u32) -> &[u32] {
+        self.adjacency
+            .get(node as usize)
+            .map_or(&[], |list| list.as_slice())
+    }
+
     /// The nearest node to `p`, breaking exact ties by lower node index.
     pub fn nearest_node(&self, p: Vec2) -> Option<u32> {
         let mut best: Option<(f32, u32)> = None;

@@ -219,20 +219,35 @@ fn compute_scene_hash(scene: &SceneDef) -> u64 {
     ] {
         h = hash_combine(h, value.to_bits() as u64);
     }
+    // Each collection folds in its length first. Without it, a differently
+    // shaped sequence of the same values could in principle mix to the same
+    // state — cheap to close, and this hash gates baseline compatibility.
+    h = hash_combine(h, scene.walls.len() as u64);
     for wall in &scene.walls {
         for value in [wall.a.x, wall.a.y, wall.b.x, wall.b.y] {
             h = hash_combine(h, value.to_bits() as u64);
         }
     }
+    h = hash_combine(h, scene.waypoints.node_count() as u64);
     for node in 0..scene.waypoints.node_count() {
         let p = scene.waypoints.position(node);
         h = hash_combine(h, p.x.to_bits() as u64);
         h = hash_combine(h, p.y.to_bits() as u64);
+        // Topology, not just geometry. Routing follows the edges, so a rewired
+        // graph with unmoved nodes simulates differently and must not share a
+        // hash with the original.
+        let neighbors = scene.waypoints.neighbors(node);
+        h = hash_combine(h, neighbors.len() as u64);
+        for neighbor in neighbors {
+            h = hash_combine(h, *neighbor as u64);
+        }
     }
+    h = hash_combine(h, scene.destinations.len() as u64);
     for destination in &scene.destinations {
         h = hash_combine(h, hash_str(&destination.name));
         h = hash_combine(h, destination.node as u64);
     }
+    h = hash_combine(h, scene.spawns.len() as u64);
     for spawn in &scene.spawns {
         h = hash_combine(h, spawn.id as u64);
         h = hash_combine(h, spawn.population_id as u64);
@@ -271,9 +286,15 @@ impl CompiledScene {
         self.spawns.iter().map(|s| s.count).sum()
     }
 
-    pub fn destination_position(&self, destination: u16) -> Vec2 {
-        self.waypoints
-            .position(self.destinations[destination as usize].node)
+    /// `None` for an unknown destination index.
+    ///
+    /// Every internally-produced index is validated at compile time, but a
+    /// caller iterating the wrong bound would otherwise panic mid-bake — and
+    /// the error model says diagnose, never crash.
+    pub fn destination_position(&self, destination: u16) -> Option<Vec2> {
+        self.destinations
+            .get(destination as usize)
+            .map(|d| self.waypoints.position(d.node))
     }
 }
 
@@ -423,5 +444,60 @@ mod tests {
         scene.project_seed = 43;
         let b = scene.compile().unwrap();
         assert_ne!(a.scene_hash(), b.scene_hash());
+    }
+
+    #[test]
+    fn scene_hash_changes_when_graph_topology_changes() {
+        // Same node positions, different edges. Routing follows the edges, so
+        // these simulate differently and must not share a hash.
+        let a = valid_scene().compile().unwrap();
+        let mut scene = valid_scene();
+        let detour = scene.waypoints.add_node(Vec2::new(5.0, 8.0));
+        scene.waypoints.add_edge(0, detour);
+        scene.waypoints.add_edge(detour, 1);
+        let with_detour = scene.compile().unwrap();
+
+        let mut positions_only = valid_scene();
+        positions_only.waypoints.add_node(Vec2::new(5.0, 8.0));
+        positions_only.waypoints.add_edge(0, 2);
+        let without_detour = positions_only.compile().unwrap();
+
+        assert_ne!(a.scene_hash(), with_detour.scene_hash());
+        assert_ne!(with_detour.scene_hash(), without_detour.scene_hash());
+    }
+
+    #[test]
+    fn an_unreachable_destination_is_rejected() {
+        // Two disjoint components: the spawn sits in one, the destination in
+        // the other. Both the connectivity fault and the reachability fault
+        // are real and both must be reported.
+        let mut scene = valid_scene();
+        let island = scene.waypoints.add_node(Vec2::new(9.0, 9.0));
+        scene.destinations[0].node = island;
+        let errors = scene.compile().unwrap_err();
+        assert!(
+            errors.contains(&SceneError::UnreachableDestination {
+                spawn: 0,
+                destination: 0
+            }),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_zero_tick_rate_is_rejected() {
+        let mut scene = valid_scene();
+        scene.ticks_per_second = 0;
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::InvalidTickRate {
+            ticks_per_second: 0
+        }));
+    }
+
+    #[test]
+    fn destination_position_is_none_when_out_of_range() {
+        let compiled = valid_scene().compile().unwrap();
+        assert_eq!(compiled.destination_position(0), Some(Vec2::new(9.0, 5.0)));
+        assert_eq!(compiled.destination_position(7), None);
     }
 }
