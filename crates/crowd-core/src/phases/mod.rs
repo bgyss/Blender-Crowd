@@ -7,7 +7,9 @@
 pub mod decide;
 pub mod perceive;
 pub mod spawn;
+pub mod steer;
 
 pub use decide::{decide, DecideConfig};
 pub use perceive::{perceive, PerceiveConfig, PerceiveScratch};
 pub use spawn::{apply_spawns, SpawnState};
+pub use steer::{steer, SteerConfig, SteerReport, SteerScratch};
