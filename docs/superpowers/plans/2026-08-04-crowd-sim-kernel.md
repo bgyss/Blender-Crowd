@@ -1978,8 +1978,10 @@ impl NeighborArena {
 
     /// Record `neighbors` as belonging to `slot_owner`.
     ///
-    /// Must be called at most once per agent per tick, in ascending slot
-    /// order, which the perceive phase guarantees.
+    /// Entries are indexed by owner, so call order does not affect the result.
+    /// Calling twice for one owner in a tick is still wrong — the first batch
+    /// is stranded in the arena rather than freed — but it is not a
+    /// correctness hazard for readers.
     pub fn push(&mut self, slot_owner: usize, neighbors: &[Neighbor]) {
         self.start[slot_owner] = self.entries.len() as u32;
         self.len[slot_owner] = neighbors.len() as u32;
@@ -2102,6 +2104,36 @@ mod tests {
     }
 
     #[test]
+    fn rebuild_does_not_allocate_once_warmed_up() {
+        // `rebuild` runs every tick. If any buffer reallocates on a steady
+        // agent count, the tick loop is allocating in its hot path.
+        let xs: Vec<f32> = (0..300).map(|i| (i % 17) as f32 * 0.5).collect();
+        let ys: Vec<f32> = (0..300).map(|i| (i % 13) as f32 * 0.6).collect();
+        let mut grid = UniformGrid::new(test_bounds(), 1.0);
+        grid.rebuild(&xs, &ys);
+
+        let warm = (
+            grid.items.capacity(),
+            grid.cursor.capacity(),
+            grid.counts.capacity(),
+            grid.cell_start.capacity(),
+        );
+        for _ in 0..50 {
+            grid.rebuild(&xs, &ys);
+        }
+        assert_eq!(
+            (
+                grid.items.capacity(),
+                grid.cursor.capacity(),
+                grid.counts.capacity(),
+                grid.cell_start.capacity(),
+            ),
+            warm,
+            "a buffer reallocated during steady-state rebuild"
+        );
+    }
+
+    #[test]
     fn segment_index_finds_a_nearby_wall() {
         let walls = vec![
             Segment::new(Vec2::new(2.0, 0.0), Vec2::new(2.0, 10.0)),
@@ -2158,6 +2190,10 @@ pub struct UniformGrid {
     /// Agent slots grouped by cell, ascending within each cell.
     items: Vec<u32>,
     counts: Vec<u32>,
+    /// Per-cell write cursor for the fill pass. A field rather than a local
+    /// because `rebuild` runs every tick, and a local would heap-allocate on
+    /// every one of them.
+    cursor: Vec<u32>,
 }
 
 impl UniformGrid {
@@ -2175,6 +2211,7 @@ impl UniformGrid {
             cell_start: vec![0; (cols * rows + 1) as usize],
             items: Vec::new(),
             counts: vec![0; (cols * rows) as usize],
+            cursor: vec![0; (cols * rows) as usize],
         }
     }
 
@@ -2224,12 +2261,16 @@ impl UniformGrid {
         // monotonically. That ordering is what makes queries reproducible.
         self.items.clear();
         self.items.resize(n, 0);
-        let mut cursor: Vec<u32> = self.cell_start[..self.counts.len()].to_vec();
+        // Refill the cursor in place. `to_vec()` here would allocate on every
+        // tick, which is exactly what this index is built to avoid.
+        self.cursor.clear();
+        self.cursor
+            .extend_from_slice(&self.cell_start[..self.counts.len()]);
         for i in 0..n {
             let (cx, cy) = self.cell_of(pos_x[i], pos_y[i]);
             let cell = self.cell_index(cx, cy);
-            self.items[cursor[cell] as usize] = i as u32;
-            cursor[cell] += 1;
+            self.items[self.cursor[cell] as usize] = i as u32;
+            self.cursor[cell] += 1;
         }
     }
 
@@ -2300,7 +2341,7 @@ In `crates/crowd-core/src/lib.rs` add `pub mod arena;` and `pub mod grid;`, plus
 - [ ] **Step 9: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core`
-Expected: PASS, all tests including 9 grid and 3 arena tests.
+Expected: PASS, all tests including 10 grid and 3 arena tests.
 
 - [ ] **Step 10: Commit**
 
