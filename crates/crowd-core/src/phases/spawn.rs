@@ -8,7 +8,7 @@
 use crate::ids::derive_agent_id;
 use crate::rng::{Purpose, StableRng};
 use crate::route::RouteArena;
-use crate::scene::CompiledScene;
+use crate::scene::{CompiledScene, MIN_PREFERRED_SPEED};
 use crate::units::Vec2;
 use crate::world::{AgentSpawn, SpawnError, World, NO_ROUTE};
 
@@ -71,9 +71,15 @@ pub fn apply_spawns(
                 StableRng::for_agent(scene.project_seed, agent_id, Purpose::PreferredSpeed);
             // Clamp keeps a rare tail sample from producing a zero or negative
             // preferred speed, which would make an agent permanently stalled.
+            //
+            // The bounds cannot invert: scene compilation rejects any
+            // population with `speed_mean < MIN_PREFERRED_SPEED`, so the
+            // ceiling is always at least twice the floor. That check is what
+            // makes this `clamp` safe — `f32::clamp` panics on inverted
+            // bounds, in release as well as debug.
             let preferred_speed = speed_rng
                 .normal_f32(params.speed_mean, params.speed_stddev)
-                .clamp(0.4, params.speed_mean * 2.0);
+                .clamp(MIN_PREFERRED_SPEED, params.speed_mean * 2.0);
 
             let mut position_rng =
                 StableRng::for_agent(scene.project_seed, agent_id, Purpose::SpawnPosition);
