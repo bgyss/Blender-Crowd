@@ -36,9 +36,20 @@ use crate::world::SolverStatus;
 
 pub use super::NeighborState;
 
-/// Cost scale for an existing overlap, matching the `1/t` term's magnitude at
-/// the shortest time-to-collision the solver otherwise distinguishes.
-const OVERLAP_URGENCY: f32 = 100.0;
+/// Cost scale for an existing overlap.
+///
+/// Deliberately comparable to the other terms rather than dominating them.
+/// An unbounded `1/t` made a single touching neighbour cost ~200 against a
+/// goal term of ~1.4, so once any pair touched the solver stopped steering
+/// toward the destination at all and only jostled to separate -- a crowd that
+/// freezes on contact.
+const OVERLAP_URGENCY: f32 = 8.0;
+
+/// Floor on predicted time-to-collision when converting it to a cost.
+///
+/// Bounds the `1/t` term for the same reason: an imminent collision should
+/// dominate, not annihilate, every other consideration.
+const MIN_TIME_FOR_COST: f32 = 0.25;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SampledVelocitySolver {
@@ -148,7 +159,7 @@ impl SampledVelocitySolver {
                 let relief = (separation_rate / input.max_speed.max(0.1)).clamp(0.0, 1.0);
                 cost += self.collision_weight * yield_weight * OVERLAP_URGENCY * (1.0 - relief);
             } else if t < self.time_horizon {
-                cost += self.collision_weight * yield_weight / t;
+                cost += self.collision_weight * yield_weight / t.max(MIN_TIME_FOR_COST);
             }
         }
 
@@ -167,7 +178,7 @@ impl SampledVelocitySolver {
             }
             // Walls never yield, so they are weighted more heavily than a
             // neighbor at the same predicted range.
-            cost += self.collision_weight * self.wall_weight / t.max(0.01);
+            cost += self.collision_weight * self.wall_weight / t.max(MIN_TIME_FOR_COST);
         }
 
         (cost, earliest)

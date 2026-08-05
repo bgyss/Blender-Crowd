@@ -53,6 +53,14 @@ pub fn perceive(
             if candidate as usize == slot {
                 continue;
             }
+            // An agent that reached its destination has left the scene. It
+            // keeps its last position for playback, but it must stop
+            // obstructing: otherwise the first arrivals park on the goal and
+            // become a permanent plug that blocks everyone behind them, and
+            // destination completion collapses to a few percent.
+            if world.arrived[candidate as usize] {
+                continue;
+            }
             let other = Vec2::new(
                 world.pos_x[candidate as usize],
                 world.pos_y[candidate as usize],
@@ -189,6 +197,26 @@ mod tests {
         let mut sorted = ids.clone();
         sorted.sort_unstable();
         assert_eq!(ids, sorted);
+    }
+
+    #[test]
+    fn an_arrived_agent_does_not_obstruct_others() {
+        // Regression: agents that reach a destination park on it and never
+        // move again. If they still register as neighbours, the first
+        // arrivals become a permanent plug sitting on the goal and everyone
+        // behind them jams -- destination completion collapsed from ~85% to
+        // single digits before this was fixed.
+        let mut world = world_at(&[Vec2::ZERO, Vec2::new(1.0, 0.0)]);
+        world.arrived[1] = true;
+        let arena = perceive_world(&world, &PerceiveConfig::default());
+        assert!(
+            arena.neighbors(0).is_empty(),
+            "an agent that has left the scene still obstructs"
+        );
+        // The reverse still holds: an agent still in the scene is visible.
+        world.arrived[1] = false;
+        let arena = perceive_world(&world, &PerceiveConfig::default());
+        assert_eq!(arena.neighbors(0).len(), 1);
     }
 
     #[test]

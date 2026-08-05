@@ -10,13 +10,17 @@
 //! navigation lands, it replaces this module and touches no agent state.
 
 use crate::units::Vec2;
+use crate::world::{RouteHandle, NO_ROUTE};
 
 /// How far ahead along the corridor to aim, in metres.
 ///
 /// Long enough that agents commit to the lane rather than oscillating toward
 /// a point under their feet; short enough that they still track a turn.
 const LOOKAHEAD: f32 = 2.0;
-use crate::world::{RouteHandle, NO_ROUTE};
+
+/// Fraction of an agent's offset from the corridor centreline corrected per
+/// steering query. Small on purpose — see `next_target`.
+const CENTRELINE_PULL: f32 = 0.35;
 
 /// A small hand-authored navigation graph.
 #[derive(Clone, Debug, Default)]
@@ -270,9 +274,22 @@ pub fn next_target(
     let a = points[i];
     let along = points[i + 1] - a;
     let len = along.length();
+    let direction = along.normalize_or_zero();
     let projected = ((pos - a).dot(along) / (len * len)).clamp(0.0, 1.0) * len;
     let ahead = (projected + LOOKAHEAD).min(len);
-    Some(a + along.normalize_or_zero() * ahead)
+
+    // Keep most of the agent's offset from the centreline. Aiming everyone at
+    // the centre would collapse a whole population onto one line: two
+    // opposing flows would then meet head-on in a single lane and jam solid,
+    // which is exactly what real crowds avoid by forming lanes. Correcting
+    // only a fraction per query lets agents hold a lane while still
+    // converging on the corridor over a few seconds.
+    // The perpendicular rejection specifically. Using `pos - (a + dir *
+    // projected)` would fold the along-axis component back in whenever the
+    // projection clamps at a leg's end, aiming a trailing agent backwards.
+    let offset = pos - a;
+    let lateral = offset - direction * offset.dot(direction);
+    Some(a + direction * ahead + lateral * (1.0 - CENTRELINE_PULL))
 }
 
 #[cfg(test)]
@@ -361,20 +378,24 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_beside_the_corridor_is_drawn_onto_it() {
-        // The behaviour the whole model exists for: a population spread
-        // across the width of a corridor must converge on the *line*, not on
-        // a single point, or it jams there permanently.
+    fn an_agent_beside_the_corridor_converges_without_abandoning_its_lane() {
+        // Two competing requirements. Agents must converge on the corridor,
+        // or they drift into walls. But they must NOT all be aimed at the
+        // centreline, because two opposing flows would then meet head-on in
+        // a single lane instead of forming lanes either side of it.
         let points = [Vec2::new(0.0, 0.0), Vec2::new(20.0, 0.0)];
-        let mut a = 0;
-        let mut b = 0;
-        let high = next_target(&points, &mut a, Vec2::new(5.0, 3.0), 0.6).unwrap();
-        let low = next_target(&points, &mut b, Vec2::new(5.0, -3.0), 0.6).unwrap();
-        assert_eq!(
-            high, low,
-            "targets must not depend on which side you are on"
-        );
+        let mut high_index = 0;
+        let mut low_index = 0;
+        let high = next_target(&points, &mut high_index, Vec2::new(5.0, 3.0), 0.6).unwrap();
+        let low = next_target(&points, &mut low_index, Vec2::new(5.0, -3.0), 0.6).unwrap();
+
         assert!(high.x > 5.0, "target must lead the agent forward: {high:?}");
+        assert!(high.y < 3.0 && high.y > 0.0, "did not converge: {high:?}");
+        assert!(low.y > -3.0 && low.y < 0.0, "did not converge: {low:?}");
+        assert!(
+            high.y > low.y,
+            "agents on opposite sides were collapsed onto one line"
+        );
     }
 
     #[test]
@@ -449,8 +470,12 @@ mod tests {
         let target = next_target(&points, &mut index, Vec2::new(6.0, 5.0), 0.6).unwrap();
         assert_eq!(index, 0, "advanced past a leg it had not traversed");
         assert!(
-            target.x.abs() < 1e-5 && target.y > 5.0,
-            "cut the corner instead of rejoining the first leg: {target:?}"
+            target.y > 5.0,
+            "not progressing along the first leg: {target:?}"
+        );
+        assert!(
+            target.x < 6.0,
+            "not converging back toward the first leg: {target:?}"
         );
     }
 
