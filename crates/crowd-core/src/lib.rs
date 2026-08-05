@@ -9,6 +9,7 @@ pub mod grid;
 pub mod ids;
 pub mod rng;
 pub mod route;
+pub mod scene;
 pub mod units;
 pub mod world;
 
@@ -19,5 +20,6 @@ pub use grid::{SegmentIndex, UniformGrid};
 pub use ids::{derive_agent_id, AgentId};
 pub use rng::{Purpose, StableRng};
 pub use route::{next_target, RouteArena, WaypointGraph};
+pub use scene::{CompiledScene, Destination, PopulationParams, SceneDef, SceneError, SpawnRegion};
 pub use units::{wrap_angle, Aabb, Vec2, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER};
 pub use world::{AgentSpawn, RouteHandle, SolverStatus, SpawnError, World, NO_ROUTE};
