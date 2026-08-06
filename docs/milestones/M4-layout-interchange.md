@@ -91,4 +91,3 @@ M4 is done when a production correction and exchange scene can be composed,
 reopened, rendered, and validated without touching its base simulation. Stop if
 layers become destructive, consumer fidelity is inferred rather than tested, or
 physics output becomes hidden authoritative state outside the cache contract.
-

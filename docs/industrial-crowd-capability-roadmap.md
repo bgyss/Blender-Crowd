@@ -1,9 +1,9 @@
 # Industrial crowd capability and Blender integration roadmap
 
-Status: long-term product and capability contract  
+Status: long-term product and capability contract
 Source lineage: August 2026 competitive and architectural survey supplied for
-project planning  
-Canonical 1.0 contract: [Blender Crowd 1.0 architecture and MVP](blender-crowd-1.0.md)  
+project planning
+Canonical 1.0 contract: [Blender Crowd 1.0 architecture and MVP](blender-crowd-1.0.md)
 Execution contracts: [Milestone index](milestones/README.md)
 
 ## Purpose

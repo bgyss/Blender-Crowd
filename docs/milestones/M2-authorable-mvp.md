@@ -86,4 +86,3 @@ M2 is done when an independent artist can author, debug, bake, correct, and
 render the full reference shot and the automated suite passes. Stop if the node
 graph becomes an unbounded language, overrides mutate the base cache, or custom
 assets require undocumented implementation knowledge.
-

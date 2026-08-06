@@ -82,4 +82,3 @@ reproducible report and all seven criteria pass. Stop and record a failed gate i
 native packaging, cache throughput, navigation correctness, avoidance quality,
 or playback makes the 1K vertical slice non-credible; do not hide the result by
 starting M1 UI work.
-

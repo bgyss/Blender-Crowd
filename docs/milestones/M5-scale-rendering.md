@@ -85,4 +85,3 @@ Visual demos supplement the numerical and failure evidence.
 M5 is done only when both scale gates have separate passing reports. Stop before
 100K if 10K fails, and stop a backend claim on correctness, determinism, driver,
 memory, or portability failure rather than weakening the shared contracts.
-

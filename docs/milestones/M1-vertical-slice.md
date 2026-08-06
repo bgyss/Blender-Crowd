@@ -77,4 +77,3 @@ M1 is done only when the same documented input produces the accepted headless
 bake and cache-only render. Stop if the shot requires Python/Rust edits, hidden
 runtime Blender state, manual cache repair, or relaxed stable-ID/determinism
 rules; those failures block M2.
-

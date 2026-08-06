@@ -64,4 +64,3 @@ rg '^## ' docs/blender-crowd-1.0.md
 rg '^#' docs/milestones/*.md
 git status --short
 ```
-
