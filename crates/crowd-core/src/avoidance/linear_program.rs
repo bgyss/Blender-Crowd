@@ -7,9 +7,13 @@
 //! worst constraint violation instead of leaving the caller with an undefined
 //! or non-finite result -- the graceful-failure path a boxed-in agent needs.
 
+// The entire module is unused until Task 3 of the avoidance-solver-comparison plan
+// wires the `solve` function into the ORCA solver. Suppressing dead_code warnings
+// for all items rather than individually annotating each one.
+#![allow(dead_code)]
+
 use crate::units::Vec2;
 
-#[allow(dead_code)]
 const EPSILON: f32 = 1e-5;
 
 /// A half-plane constraint. `v` is feasible iff `det(direction, v - point) >= 0`.
@@ -19,7 +23,6 @@ pub(crate) struct Line {
     pub direction: Vec2,
 }
 
-#[allow(dead_code)]
 fn det(a: Vec2, b: Vec2) -> f32 {
     a.x * b.y - a.y * b.x
 }
@@ -27,7 +30,6 @@ fn det(a: Vec2, b: Vec2) -> f32 {
 /// The interval of `t` along `lines[line_no]` (parameterised as
 /// `point + direction * t`) that lies within the disc of radius `radius` and
 /// satisfies every line before it. `None` if no such interval exists.
-#[allow(dead_code)]
 fn feasible_interval(lines: &[Line], line_no: usize, radius: f32) -> Option<(f32, f32)> {
     let line = lines[line_no];
     let dot = line.point.dot(line.direction);
@@ -64,7 +66,6 @@ fn feasible_interval(lines: &[Line], line_no: usize, radius: f32) -> Option<(f32
 }
 
 /// Point on `lines[line_no]`'s feasible interval closest to `preferred`.
-#[allow(dead_code)]
 fn solve_line_toward_point(
     lines: &[Line],
     line_no: usize,
@@ -82,7 +83,6 @@ fn solve_line_toward_point(
 }
 
 /// Furthest point on `lines[line_no]`'s feasible interval in `direction`.
-#[allow(dead_code)]
 fn solve_line_toward_direction(
     lines: &[Line],
     line_no: usize,
@@ -106,7 +106,6 @@ fn solve_line_toward_direction(
 /// Try to satisfy every line in order, closest to `preferred`, within the
 /// disc of radius `radius`. Returns the index of the first line that could
 /// not be satisfied, or `lines.len()` on full success.
-#[allow(dead_code)]
 fn solve_incremental_toward_point(
     lines: &[Line],
     radius: f32,
@@ -128,7 +127,6 @@ fn solve_incremental_toward_point(
 
 /// Direction-optimizing variant of `solve_incremental_toward_point`, used by
 /// the infeasible-fallback search.
-#[allow(dead_code)]
 fn solve_incremental_toward_direction(
     lines: &[Line],
     radius: f32,
@@ -152,7 +150,6 @@ fn solve_incremental_toward_direction(
 /// `solve_incremental_toward_point` could not satisfy all of them. This is
 /// the graceful fallback for a jointly infeasible constraint set (an agent
 /// boxed in on every side).
-#[allow(dead_code)]
 fn solve_fallback(lines: &[Line], first_failed: usize, radius: f32, result: &mut Vec2) {
     let mut distance = 0.0f32;
     for i in first_failed..lines.len() {
@@ -190,7 +187,6 @@ fn solve_fallback(lines: &[Line], first_failed: usize, radius: f32, result: &mut
 /// Solve for the velocity within the disc of radius `radius` closest to
 /// `preferred` that satisfies every line in `lines`, falling back to a
 /// minimal-violation point if the set is jointly infeasible.
-#[allow(dead_code)]
 pub(crate) fn solve(lines: &[Line], radius: f32, preferred: Vec2) -> Vec2 {
     let mut result = Vec2::ZERO;
     let first_failed = solve_incremental_toward_point(lines, radius, preferred, &mut result);
