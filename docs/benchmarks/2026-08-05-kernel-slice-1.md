@@ -33,26 +33,41 @@ cargo run --release -p crowd-bench -- check --agents 1000
 
 ## 2. Results at 1,000 agents
 
-| Scene | Completion | Median travel | p95 travel | Penetration events | Max depth | Stalled | Heading reversals | Ticks/s | Peak alloc | Wall time |
+| Scene | Completion | Median travel | Mean TTC | Near-miss agent-ticks | Penetration pair-ticks | Max depth | Agents stalled | Heading reversals | Ticks/s | Peak alloc |
 |---|---|---|---|---|---|---|---|---|---|---|
-| bidirectional_corridor | 24.5% | 123.8 s | 184.4 s | 188,871 | 0.715 m | 13,827 | 350,846 | 100 | 0.33 MB | 56.9 s |
-| crossing | 21.9% | 128.2 s | 184.1 s | 109,500 | 0.728 m | 12,489 | 279,588 | 100 | 0.48 MB | 57.1 s |
-| bottleneck | 43.9% | 236.8 s | 368.1 s | 1,184,063 | 0.740 m | 19,332 | 406,662 | 104 | 0.40 MB | 109.4 s |
-| dense_flow | 43.9% | 240.3 s | 366.1 s | 1,324,631 | 0.740 m | 19,112 | 402,880 | 103 | 0.44 MB | 110.7 s |
-| circle | 44.4% | 173.7 s | 188.3 s | 23,681 | 0.708 m | 11,347 | 324,402 | 103 | 0.51 MB | 55.4 s |
+| bidirectional_corridor | 24.5% | 124 s | 5.90 s | 370,542 | 188,871 | 0.71 m | 950 | 350,846 | 103 | 0.34 MB |
+| crossing | 21.9% | 128 s | 5.89 s | 253,351 | 109,500 | 0.73 m | 967 | 279,588 | 101 | 0.48 MB |
+| bottleneck | 37.0% | 216 s | 5.57 s | 2,118,866 | 947,983 | 0.75 m | 986 | 334,137 | 105 | 0.40 MB |
+| dense_flow | 33.6% | 197 s | 5.32 s | 2,229,080 | 1,386,087 | 0.73 m | 974 | 352,928 | 99 | 0.44 MB |
+| circle | 44.4% | 174 s | 6.25 s | 118,571 | 23,681 | 0.71 m | 1,000 | 324,402 | 101 | 0.51 MB |
+| l_corridor | 14.7% | 196 s | 5.99 s | 191,599 | 56,447 | 0.71 m | 953 | 428,582 | 98 | 0.48 MB |
 
-Minimum predicted time to collision is 0.00 s in every scene: agents do make
-contact.
+Reading the columns, because several of these were renamed after review found
+they did not measure what their names claimed:
+
+- **Mean TTC** is the mean per-agent predicted time to collision, capped at a
+  10 s horizon, measured against the velocity each agent actually uses. The
+  *minimum* is also recorded but is 0.00 s everywhere — one overlapping pair
+  pins it for a whole run, so it cannot compare solvers.
+- **Near-miss agent-ticks** counts agent-ticks spent under 0.5 s predicted time
+  to collision. It scales with the population instead of saturating.
+- **Penetration pair-ticks** is duration, not distinct episodes: a pair
+  overlapping for 100 ticks contributes 100.
+- **Agents stalled** is distinct agents that stalled at least once — nearly the
+  whole population in every scene.
 
 Peak allocation is *allocated* bytes from a counting global allocator, not
 resident set size. It excludes allocator overhead and static data.
+
+Throughput through the constrictions: 412 forward crossings in `bottleneck`
+and 608 in `dense_flow`, against 370 and 336 arrivals respectively.
 
 ## 3. Against the contract's 1K gate
 
 Contract section 8.3 asks for "at least real-time simulation at 30 ticks/s
 without armature evaluation."
 
-**Met, comfortably.** 100–104 ticks/s achieved against 30 required — a 3.3x
+**Met, comfortably.** 98–105 ticks/s achieved against 30 required — a 3.3x
 margin — with peak allocation under 0.6 MB for 1,000 agents. Memory is not
 close to a constraint at this scale.
 
@@ -96,20 +111,27 @@ Cross-machine identity is **not** claimed and has not been tested.
 This is the honest weak spot, and the reason a metrics report is worth more
 than a demo.
 
-**Completion is 22–44%.** Agents that do finish take 124–240 s median. In a
+**Completion is 15–44%.** Agents that do finish take 124–216 s median. In a
 scene the population can cross in about 90 s unobstructed, that is a crowd
 spending most of its time not making progress.
 
-**Penetration is severe.** Maximum depth of 0.71–0.74 m against agent radii of
-0.24–0.38 m means pairs are overlapping by more than a full body diameter —
-agents are passing through each other, not brushing past. The bottleneck and
-dense_flow scenes log over a million penetration events.
+The worst is `l_corridor` at 14.7% — the only scene whose route turns a
+corner. That scene was added *because* review noticed every other route was a
+straight line, so the corridor-following navigation had never been exercised
+at scene scale. It immediately became the hardest scene, which is exactly the
+kind of thing a benchmark exists to reveal.
 
-**Oscillation is high.** 280,000–407,000 heading reversals across a run. The
+**Penetration is severe.** Maximum depth of 0.71–0.75 m against agent radii of
+0.24–0.38 m means pairs are overlapping by more than a full body diameter —
+agents are passing through each other, not brushing past. `dense_flow` logs
+1.39 million penetration pair-ticks.
+
+**Oscillation is high.** 280,000–429,000 heading reversals across a run. The
 smoothness term in the cost function is not enough to suppress the flip-flopping
 that contract section 6.2 names as a production blocker.
 
-**Stalls are common.** 11,000–19,000 stalled agent-ticks per scene.
+**Stalls are near-universal.** 950–1,000 of the 1,000 agents stall at least
+once in every scene. Every agent in `circle` does.
 
 The trajectory SVGs corroborate all of this: the enclosed scenes show real
 funnel structure at the doorway, but the flows are tangled rather than laned,
@@ -122,8 +144,9 @@ The failure is *not* in the parts the slice set out to prove:
 - Determinism holds bitwise, including under spawn-order permutation.
 - Throughput exceeds the gate 3x, with the cost concentrated where expected.
 - No agent reaches non-finite state, escapes the scene, or exceeds its maximum
-  speed, under fuzzing at 800 agents across five scenes and multiple seeds.
-- The crowd never deadlocks wholesale — it always retains some moving agents.
+  speed, under fuzzing at 800 agents across six scenes and multiple seeds.
+- The crowd never deadlocks wholesale — at least 10% of the unfinished
+  population is always still moving.
 
 The failure is specifically **avoidance quality under sustained density**. That
 is precisely the risk contract section 16 lists first ("avoidance looks robotic
@@ -149,8 +172,48 @@ disagreement is a real signal about doorway behaviour worth revisiting.
 
 ## 6. Defects this slice found
 
-Twelve genuine defects were found and fixed, most of them in the plan's own
-specified code rather than in its transcription. The ones that mattered:
+Twenty defects were found and fixed, most of them in the plan's own specified
+code rather than in its transcription, and eight of them only by the
+whole-branch review at the end. They are listed because the pattern is the
+useful part: the simulation was easier to get right than the *measurement* of
+it, and a demo would have surfaced none of the second kind.
+
+### 6.1 Found by review of the measurement
+
+Every one of these would have poisoned the baselines that the next slice's
+avoidance bake-off is judged against:
+
+1. **Two metrics were fully saturated.** `near_miss_ticks` read 11,383 of
+   11,384 ticks, and `min_time_to_collision` read 0.00, because both were
+   global minima over 1,000 agents — one overlapping pair pins them for an
+   entire run. Replaced with per-agent-tick counts and an unsaturated mean.
+2. **The reported time to collision described a velocity no agent had.** It
+   came from the solver's reciprocal construction, which is correct as a cost
+   heuristic but is not a kinematic state. Now measured against the velocity
+   the agent actually uses.
+3. **Three metrics misnamed what they counted:** stall *episodes* reported as
+   stalled agents, pair-*ticks* reported as penetration events, and a
+   throughput gate that tested an *infinite line in both directions* — so an
+   agent crossing anywhere in a 126 m scene counted as passing through a 5 m
+   doorway. After clamping and directing it, the gate then read zero while 37%
+   of the population walked through, because the direction test was inverted.
+4. **A routing failure counted as a destination completion.** An agent with no
+   route was flagged `arrived`, inflating the headline metric with navigation
+   failures.
+5. **Population scaling dissolved the constrictions.** Scaling geometry by
+   `sqrt(population)` while agent radii stay fixed turned the bottleneck's
+   1.6 m doorway into 5.06 m at 1,000 agents. The scene named after its
+   constriction no longer had one. Constrictions are now held fixed.
+6. **Every route was a straight line**, so the corridor-following navigation
+   was never exercised at scene scale. Adding `l_corridor` immediately produced
+   the worst-performing scene in the set.
+7. **A schema-coverage test could not detect what it guarded**, because it
+   checked a hardcoded list; and the deadlock test passed with 399 of 400
+   agents frozen.
+
+### 6.2 Found earlier, in the simulation itself
+
+The ones that mattered:
 
 1. **Wall time-to-collision could not detect brief contacts.** A sampled search
    misses grazing collisions entirely, because the overlap window is
