@@ -1,0 +1,93 @@
+{
+  "scene": "dense_flow",
+  "agents": 1000,
+  "seed": 2026,
+  "scene_hash": 7916417146317842778,
+  "solver": "sampled_velocity",
+  "metrics": {
+    "abrupt_turns": {
+      "value": 9934.0,
+      "tolerance": 0.0
+    },
+    "agents_arrived": {
+      "value": 439.0,
+      "tolerance": 0.0
+    },
+    "agents_spawned": {
+      "value": 1000.0,
+      "tolerance": 0.0
+    },
+    "completion_rate": {
+      "value": 0.4390000104904175,
+      "tolerance": 0.0
+    },
+    "gate_crossings": {
+      "value": 1002.0,
+      "tolerance": 0.0
+    },
+    "heading_reversals": {
+      "value": 402880.0,
+      "tolerance": 0.0
+    },
+    "max_penetration_depth": {
+      "value": 0.7399007081985474,
+      "tolerance": 0.0
+    },
+    "median_travel_seconds": {
+      "value": 240.3000030517578,
+      "tolerance": 0.0
+    },
+    "min_time_to_collision": {
+      "value": 0.0,
+      "tolerance": 0.0
+    },
+    "near_miss_ticks": {
+      "value": 11383.0,
+      "tolerance": 0.0
+    },
+    "nonfinite_corrections": {
+      "value": 0.0,
+      "tolerance": 0.0
+    },
+    "p95_travel_seconds": {
+      "value": 366.1000061035156,
+      "tolerance": 0.0
+    },
+    "peak_allocated_bytes": {
+      "value": 456572.0,
+      "tolerance": 0.15
+    },
+    "penetration_agent_ticks": {
+      "value": 1855480.0,
+      "tolerance": 0.0
+    },
+    "penetration_events": {
+      "value": 1324631.0,
+      "tolerance": 0.0
+    },
+    "stall_agent_ticks": {
+      "value": 6237051.0,
+      "tolerance": 0.0
+    },
+    "stalled_agents": {
+      "value": 19112.0,
+      "tolerance": 0.0
+    },
+    "ticks": {
+      "value": 11384.0,
+      "tolerance": 0.0
+    },
+    "ticks_per_second_achieved": {
+      "value": 98.36202930945464,
+      "tolerance": 0.5
+    },
+    "wall_corrections": {
+      "value": 66637.0,
+      "tolerance": 0.0
+    },
+    "wall_time_seconds": {
+      "value": 115.735717125,
+      "tolerance": 0.5
+    }
+  }
+}

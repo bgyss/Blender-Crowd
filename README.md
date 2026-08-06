@@ -20,3 +20,35 @@ decisions is summarized in:
 The first release is intentionally focused: build a trustworthy pedestrian-crowd
 pipeline for 1,000 interactive agents before expanding into semantic activities,
 combat, traffic, motion matching, or 100,000-agent backgrounds.
+
+## Status
+
+Phase 0, slice 1 is implemented: a headless, deterministic Rust simulation
+kernel with structure-of-arrays agents, a fixed tick, spatial queries, one
+sampled-velocity avoidance solver, five benchmark scenes, and a measured
+metrics report. Nothing here touches Blender yet.
+
+Measured results, including where the current solver falls short:
+
+- [Kernel slice 1 benchmark report](docs/benchmarks/2026-08-05-kernel-slice-1.md)
+
+## Development
+
+Requires the pinned Rust toolchain in `rust-toolchain.toml`; `mise install`
+sets it up. On macOS, `.cargo/config.toml` points the linker at the system
+clang — without it, nothing links.
+
+```sh
+cargo test --workspace                                    # unit, property, determinism
+cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
+cargo clippy --workspace --all-targets -- -D warnings
+
+cargo run --release -p crowd-bench -- run --agents 1000 --svg
+cargo run --release -p crowd-bench -- check --agents 1000 # regression against baselines
+```
+
+`cargo test --workspace` runs the density fuzz in debug, which is slow; use the
+release invocation above when iterating.
+
+Baselines in `benchmarks/baselines/` record measured output, not targets. Per
+the contract, quality thresholds are set only after a baseline is reviewed.
