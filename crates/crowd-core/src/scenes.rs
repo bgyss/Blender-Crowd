@@ -19,24 +19,69 @@ pub const SCENE_NAMES: [&str; 5] = [
 ];
 
 pub fn build(name: &str, agents: u32, seed: u64) -> Option<SceneDef> {
-    match name {
-        "bidirectional_corridor" => Some(bidirectional_corridor(agents, seed)),
-        "crossing" => Some(crossing(agents, seed)),
-        "bottleneck" => Some(bottleneck(agents, seed)),
-        "dense_flow" => Some(dense_flow(agents, seed)),
-        "circle" => Some(circle(agents, seed)),
-        _ => None,
+    let base = match name {
+        "bidirectional_corridor" => bidirectional_corridor(agents, seed),
+        "crossing" => crossing(agents, seed),
+        "bottleneck" => bottleneck(agents, seed),
+        "dense_flow" => dense_flow(agents, seed),
+        "circle" => circle(agents, seed),
+        _ => return None,
+    };
+    Some(scale_to_population(base, agents))
+}
+
+/// Population these scenes are dimensioned for at scale 1.
+const REFERENCE_POPULATION: f32 = 100.0;
+
+/// Grow scene geometry with the population so agent density stays constant.
+///
+/// Without this the benchmark measures the wrong thing. The scenes are sized
+/// for a few hundred agents; running 1,000 through the same geometry puts the
+/// corridor at 3.1 agents/m² — past the jamming threshold and heading for
+/// crush density — so completion collapses and the report describes how
+/// over-subscribed the scene was rather than how well the solver steers.
+///
+/// Area scales with population, so lengths scale with its square root. Agent
+/// radii deliberately do not scale: the agents are the fixed physical thing,
+/// and the world around them is what grows.
+fn scale_to_population(mut scene: SceneDef, agents: u32) -> SceneDef {
+    let scale = (agents as f32 / REFERENCE_POPULATION).sqrt();
+    if scale <= 1.0 {
+        return scene;
     }
+
+    let point = |p: Vec2| p * scale;
+    let area = |b: Aabb| Aabb::new(point(b.min), point(b.max));
+
+    scene.bounds = area(scene.bounds);
+    for wall in &mut scene.walls {
+        *wall = Segment::new(point(wall.a), point(wall.b));
+    }
+    scene.waypoints = scene.waypoints.scaled(scale);
+    for spawn in &mut scene.spawns {
+        spawn.area = area(spawn.area);
+        // Fill the larger scene in comparable time, or the run ends before
+        // the population has finished entering.
+        spawn.per_tick = ((spawn.per_tick as f32 * scale).round() as u32).max(1);
+    }
+    // Longer scene, proportionally longer to walk across.
+    scene.duration_ticks = (scene.duration_ticks as f32 * scale).round() as u64;
+    scene
 }
 
 /// The line crossings are counted against, for scenes where throughput is the
 /// interesting measure.
-pub fn throughput_gate(name: &str) -> Option<Segment> {
-    match name {
-        "bottleneck" => Some(Segment::new(Vec2::new(20.0, 8.0), Vec2::new(20.0, 12.0))),
-        "dense_flow" => Some(Segment::new(Vec2::new(28.0, 12.0), Vec2::new(28.0, 18.0))),
-        _ => None,
-    }
+/// Takes the agent count because scene geometry scales with population; a
+/// gate at fixed coordinates would end up in the wrong place, or outside the
+/// scene entirely.
+pub fn throughput_gate(name: &str, agents: u32) -> Option<Segment> {
+    let scale = (agents as f32 / REFERENCE_POPULATION).sqrt().max(1.0);
+    let gate = match name {
+        "bottleneck" => Segment::new(Vec2::new(20.0, 8.0), Vec2::new(20.0, 12.0)),
+        "dense_flow" => Segment::new(Vec2::new(28.0, 12.0), Vec2::new(28.0, 18.0)),
+        _ => return None,
+    };
+    Some(Segment::new(gate.a * scale, gate.b * scale))
 }
 
 /// Split `total` across `parts` so the counts sum to exactly `total`.
@@ -379,8 +424,14 @@ mod tests {
 
     #[test]
     fn the_bottleneck_scene_has_a_throughput_gate() {
-        assert!(throughput_gate("bottleneck").is_some());
-        assert!(throughput_gate("circle").is_none());
+        assert!(throughput_gate("bottleneck", 100).is_some());
+        assert!(throughput_gate("circle", 100).is_none());
+
+        // The gate must track the scene as it grows with the population,
+        // or it ends up in the wrong place — or outside the scene entirely.
+        let small = throughput_gate("bottleneck", 100).unwrap();
+        let large = throughput_gate("bottleneck", 1000).unwrap();
+        assert!(large.a.x > small.a.x, "gate did not scale with the scene");
     }
 
     #[test]

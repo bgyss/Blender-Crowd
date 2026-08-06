@@ -148,7 +148,7 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
 
     let config = SimConfig {
         metrics: MetricsConfig {
-            throughput_gate: scenes::throughput_gate(&options.scene),
+            throughput_gate: scenes::throughput_gate(&options.scene, options.agents),
             ..MetricsConfig::default()
         },
         ..SimConfig::default()

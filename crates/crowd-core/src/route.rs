@@ -72,6 +72,17 @@ impl WaypointGraph {
             .map_or(&[], |list| list.as_slice())
     }
 
+    /// A copy with every node position multiplied by `scale`.
+    ///
+    /// Used to grow a benchmark scene with its population while holding agent
+    /// density constant.
+    pub fn scaled(&self, scale: f32) -> WaypointGraph {
+        WaypointGraph {
+            nodes: self.nodes.iter().map(|p| *p * scale).collect(),
+            adjacency: self.adjacency.clone(),
+        }
+    }
+
     /// The nearest node to `p`, breaking exact ties by lower node index.
     pub fn nearest_node(&self, p: Vec2) -> Option<u32> {
         let mut best: Option<(f32, u32)> = None;
