@@ -5,6 +5,7 @@
 //! any tick phase.
 
 pub mod sampled;
+mod linear_program;
 
 pub use sampled::SampledVelocitySolver;
 
