@@ -1,0 +1,317 @@
+//! Scoped, multi-step anticipatory avoidance, contract section 6.2's third
+//! candidate.
+//!
+//! Distinct from both other solvers in *where* it spends its attention:
+//! sampled-velocity scores every neighbor with one analytic
+//! time-to-collision per candidate; ORCA solves one closed-form half-plane
+//! per neighbor. This solver instead ranks neighbors by distance and gives
+//! only the nearest few (`lookahead_neighbors`) a multi-step constant-velocity
+//! extrapolation, so its cost is bounded by that count rather than by the
+//! full neighbor list -- see `Task 5` (`lookahead_collision_cost`) for the
+//! part that makes this solver's name accurate. This file starts with
+//! everything *except* that: walls, goal-seeking, smoothness, side bias, and
+//! density-based speed reduction, all reused unchanged from the shared
+//! helpers `sampled.rs` also uses.
+
+use super::{
+    density_adjusted_preferred, sample_candidates, side_bias_cost, wall_avoidance_cost,
+    AvoidanceInput, AvoidanceOutput, AvoidanceSolver, MIN_TIME_FOR_COST, OVERLAP_URGENCY,
+};
+use crate::units::Vec2;
+use crate::world::SolverStatus;
+
+pub use super::NeighborState;
+
+#[derive(Clone, Copy, Debug)]
+pub struct AnticipatorySolver {
+    pub speed_samples: u32,
+    pub heading_samples: u32,
+    pub time_horizon: f32,
+    pub wall_horizon: f32,
+    /// How many of the nearest neighbors get full multi-step lookahead.
+    /// Wired up in Task 5; unused until then.
+    pub lookahead_neighbors: usize,
+    /// How many sub-steps the lookahead walks across `time_horizon`. Wired up
+    /// in Task 5; unused until then.
+    pub lookahead_steps: u32,
+    pub goal_weight: f32,
+    pub collision_weight: f32,
+    pub wall_weight: f32,
+    pub smoothness_weight: f32,
+    pub side_bias_weight: f32,
+    /// Extra collision weight carried by the higher-ID agent in a crossing
+    /// conflict. Wired up in Task 5; unused until then.
+    pub yield_factor: f32,
+    pub brake_speed_fraction: f32,
+    pub personal_space: f32,
+    pub density_speed_factor: f32,
+    pub head_on_cosine: f32,
+    /// Cheap repulsion weight for neighbors past the lookahead cutoff. Wired
+    /// up in Task 5; unused until then.
+    pub far_field_weight: f32,
+}
+
+impl Default for AnticipatorySolver {
+    fn default() -> Self {
+        Self {
+            speed_samples: 3,
+            heading_samples: 16,
+            time_horizon: 3.0,
+            wall_horizon: 2.0,
+            lookahead_neighbors: 4,
+            lookahead_steps: 3,
+            goal_weight: 1.0,
+            collision_weight: 2.0,
+            wall_weight: 1.5,
+            smoothness_weight: 0.35,
+            side_bias_weight: 0.6,
+            yield_factor: 1.4,
+            brake_speed_fraction: 0.5,
+            personal_space: 0.45,
+            density_speed_factor: 0.18,
+            head_on_cosine: 0.7,
+            far_field_weight: 0.15,
+        }
+    }
+}
+
+impl AvoidanceSolver for AnticipatorySolver {
+    fn name(&self) -> &'static str {
+        "anticipatory"
+    }
+
+    fn solve(&self, input: &AvoidanceInput<'_>) -> AvoidanceOutput {
+        let preferred = density_adjusted_preferred(
+            input.preferred,
+            input.position,
+            input.radius,
+            input.neighbors,
+            self.personal_space,
+            self.density_speed_factor,
+        )
+        .clamp_length(input.max_speed);
+
+        if preferred.length_squared() <= f32::MIN_POSITIVE
+            && input.velocity.length_squared() <= f32::MIN_POSITIVE
+        {
+            return AvoidanceOutput {
+                velocity: Vec2::ZERO,
+                status: SolverStatus::Free,
+            };
+        }
+
+        let preferred_speed = preferred.length();
+        let heading = if preferred_speed > f32::MIN_POSITIVE {
+            preferred.normalize_or_zero()
+        } else {
+            input.velocity.normalize_or_zero()
+        };
+
+        let mut best_velocity = Vec2::ZERO;
+        let mut best_cost = f32::INFINITY;
+        let mut best_ttc = f32::INFINITY;
+
+        let evaluate = |candidate: Vec2,
+                        best_velocity: &mut Vec2,
+                        best_cost: &mut f32,
+                        best_ttc: &mut f32| {
+            let (wall_cost, wall_ttc) = wall_avoidance_cost(
+                input.position,
+                input.max_speed,
+                candidate,
+                input.radius,
+                input.walls,
+                self.wall_horizon,
+                self.collision_weight,
+                self.wall_weight,
+                OVERLAP_URGENCY,
+                MIN_TIME_FOR_COST,
+            );
+            let bias_cost = side_bias_cost(
+                input.preferred,
+                input.position,
+                input.velocity,
+                input.neighbors,
+                candidate,
+                self.head_on_cosine,
+                self.side_bias_weight,
+            );
+            let cost = self.goal_weight * (candidate - preferred).length()
+                + self.smoothness_weight * (candidate - input.velocity).length()
+                + wall_cost
+                + bias_cost;
+            if cost < *best_cost {
+                *best_cost = cost;
+                *best_velocity = candidate;
+                *best_ttc = wall_ttc;
+            }
+        };
+
+        evaluate(preferred, &mut best_velocity, &mut best_cost, &mut best_ttc);
+        let speed_reference = preferred_speed.max(input.velocity.length());
+        sample_candidates(
+            heading,
+            speed_reference,
+            self.speed_samples,
+            self.heading_samples,
+            |candidate| evaluate(candidate, &mut best_velocity, &mut best_cost, &mut best_ttc),
+        );
+        evaluate(Vec2::ZERO, &mut best_velocity, &mut best_cost, &mut best_ttc);
+
+        let status = if best_velocity.length() < preferred_speed * self.brake_speed_fraction {
+            SolverStatus::Braking
+        } else if (best_velocity - preferred).length() > 1e-3 {
+            SolverStatus::Avoiding
+        } else {
+            SolverStatus::Free
+        };
+
+        AvoidanceOutput {
+            velocity: best_velocity.clamp_length(input.max_speed),
+            status,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geometry::Segment;
+    use crate::ids::AgentId;
+
+    fn solver() -> AnticipatorySolver {
+        AnticipatorySolver::default()
+    }
+
+    fn input<'a>(
+        agent_id: u64,
+        position: Vec2,
+        velocity: Vec2,
+        preferred: Vec2,
+        neighbors: &'a [NeighborState],
+        walls: &'a [Segment],
+    ) -> AvoidanceInput<'a> {
+        AvoidanceInput {
+            agent_id: AgentId(agent_id),
+            position,
+            velocity,
+            preferred,
+            radius: 0.3,
+            max_speed: 2.0,
+            neighbors,
+            walls,
+        }
+    }
+
+    #[test]
+    fn an_unobstructed_agent_keeps_its_preferred_velocity() {
+        let preferred = Vec2::new(1.35, 0.0);
+        let out = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &[], &[]));
+        assert_eq!(out.status, SolverStatus::Free);
+        assert!((out.velocity - preferred).length() < 1e-4);
+    }
+
+    #[test]
+    fn a_stopped_agent_with_no_goal_stays_stopped() {
+        let out = solver().solve(&input(1, Vec2::ZERO, Vec2::ZERO, Vec2::ZERO, &[], &[]));
+        assert_eq!(out.velocity, Vec2::ZERO);
+        assert_eq!(out.status, SolverStatus::Free);
+    }
+
+    #[test]
+    fn a_wall_ahead_deflects_the_agent() {
+        let walls = [Segment::new(Vec2::new(3.0, -5.0), Vec2::new(3.0, 5.0))];
+        let preferred = Vec2::new(1.35, 0.0);
+        let out = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &[], &walls));
+        assert_ne!(out.status, SolverStatus::Free);
+        assert!(out.velocity.x < preferred.x, "agent drove into the wall");
+    }
+
+    #[test]
+    fn a_boxed_in_agent_brakes_rather_than_escaping() {
+        let walls = [
+            Segment::new(Vec2::new(0.8, -2.0), Vec2::new(0.8, 2.0)),
+            Segment::new(Vec2::new(-2.0, 0.8), Vec2::new(2.0, 0.8)),
+            Segment::new(Vec2::new(-2.0, -0.8), Vec2::new(2.0, -0.8)),
+            Segment::new(Vec2::new(-0.8, -2.0), Vec2::new(-0.8, 2.0)),
+        ];
+        let preferred = Vec2::new(1.35, 0.0);
+        let out = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &[], &walls));
+        assert_eq!(out.status, SolverStatus::Braking);
+        assert!(out.velocity.length() < preferred.length());
+    }
+
+    #[test]
+    fn an_agent_inside_a_wall_is_given_a_way_out() {
+        let wall = [Segment::new(Vec2::new(0.0, -5.0), Vec2::new(0.0, 5.0))];
+        let position = Vec2::new(0.1, 0.0);
+        let out = solver().solve(&input(
+            1,
+            position,
+            Vec2::ZERO,
+            Vec2::new(-1.35, 0.0),
+            &[],
+            &wall,
+        ));
+        assert!(
+            out.velocity.x >= 0.0,
+            "steered deeper into the wall: {:?}",
+            out.velocity
+        );
+    }
+
+    #[test]
+    fn the_solution_never_exceeds_max_speed() {
+        let preferred = Vec2::new(100.0, 0.0);
+        let out = solver().solve(&input(1, Vec2::ZERO, Vec2::ZERO, preferred, &[], &[]));
+        assert!(out.velocity.length() <= 2.0 + 1e-4, "got {}", out.velocity.length());
+    }
+
+    #[test]
+    fn the_output_is_always_finite() {
+        let walls = [Segment::new(Vec2::ZERO, Vec2::ZERO)];
+        let out = solver().solve(&input(
+            1,
+            Vec2::ZERO,
+            Vec2::ZERO,
+            Vec2::new(1.35, 0.0),
+            &[],
+            &walls,
+        ));
+        assert!(out.velocity.is_finite(), "got {:?}", out.velocity);
+    }
+
+    #[test]
+    fn solving_is_deterministic_for_identical_input() {
+        let walls = [Segment::new(Vec2::new(3.0, -5.0), Vec2::new(3.0, 5.0))];
+        let preferred = Vec2::new(1.35, 0.0);
+        let first = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &[], &walls));
+        let second = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &[], &walls));
+        assert_eq!(first.velocity, second.velocity);
+        assert_eq!(first.status, second.status);
+    }
+
+    #[test]
+    fn the_solver_reports_its_name() {
+        assert_eq!(solver().name(), "anticipatory");
+    }
+
+    #[test]
+    fn dense_neighbors_reduce_speed() {
+        let crowd: Vec<NeighborState> = (0..8)
+            .map(|i| NeighborState {
+                position: Vec2::from_yaw(i as f32) * 0.75,
+                velocity: Vec2::ZERO,
+                radius: 0.3,
+                agent_id: AgentId(100 + i as u64),
+            })
+            .collect();
+        let preferred = Vec2::new(1.35, 0.0);
+        let sparse = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &[], &[]));
+        let dense = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &crowd, &[]));
+        assert!(
+            dense.velocity.length() < sparse.velocity.length(),
+            "density did not slow the agent"
+        );
+    }
+}
