@@ -12,6 +12,8 @@
 
 **Parent contract:** [Blender Crowd 1.0 architecture and MVP](../../blender-crowd-1.0.md)
 
+**Owning milestone:** [M0 — Proving grounds](../../milestones/M0-proving-grounds.md). This plan implements the first M0 slice; completing it does not by itself satisfy the full M0 navigation, cache, or Blender bridge gate.
+
 ## Global Constraints
 
 Every task's requirements implicitly include this section.
