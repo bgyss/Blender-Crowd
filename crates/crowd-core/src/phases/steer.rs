@@ -12,22 +12,25 @@ use crate::scene::CompiledScene;
 use crate::units::Vec2;
 use crate::world::{SolverStatus, World};
 
-/// Horizon used only for the raw, pre-avoidance wall threat estimate below.
-/// Generous on purpose: this is a metrics figure, not a safety cutoff, so
-/// erring toward reporting a threat is preferable to missing one.
-const RAW_WALL_HORIZON: f32 = 10.0;
+/// Horizon for the risk measurement below. Generous on purpose: this is a
+/// metrics figure, not a safety cutoff, so erring toward reporting a threat is
+/// preferable to missing one.
+const RISK_HORIZON: f32 = 10.0;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SteerConfig {
     /// How far to look for walls. Should exceed the solver's wall horizon
     /// times the maximum speed, or an agent can turn into a wall it never saw.
     pub wall_query_radius: f32,
+    /// Predicted time to collision below which an agent-tick is a near miss.
+    pub near_miss_time: f32,
 }
 
 impl Default for SteerConfig {
     fn default() -> Self {
         Self {
             wall_query_radius: 3.0,
+            near_miss_time: 0.5,
         }
     }
 }
@@ -41,9 +44,25 @@ pub struct SteerScratch {
 }
 
 /// Tick-level aggregates the metrics layer would otherwise recompute.
+///
+/// Risk is measured against the velocity each agent will actually use, not
+/// against the solver's internal reciprocal construction, and it is reported
+/// as a distribution rather than a single global minimum. A global minimum
+/// over a thousand agents is pinned at zero by any one overlapping pair, so it
+/// cannot distinguish a good solver from a bad one — which is the only thing
+/// the next slice's bake-off needs it to do.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SteerReport {
+    /// Smallest predicted time to collision anywhere this tick. Retained for
+    /// completeness; expect it to saturate at zero in a dense scene.
     pub min_time_to_collision: f32,
+    /// Sum of per-agent predicted times to collision, capped at the horizon.
+    /// With `risk_samples`, yields an unsaturated mean.
+    pub time_to_collision_sum: f32,
+    pub risk_samples: u32,
+    /// Agents whose predicted time to collision was under the near-miss
+    /// threshold this tick. Scales with the population instead of saturating.
+    pub near_miss_agents: u32,
     pub braking_agents: u32,
 }
 
@@ -56,6 +75,9 @@ pub fn steer(
     scratch: &mut SteerScratch,
 ) -> SteerReport {
     let mut min_time_to_collision = f32::INFINITY;
+    let mut time_to_collision_sum = 0.0;
+    let mut risk_samples = 0;
+    let mut near_miss_agents = 0;
     let mut braking_agents = 0;
 
     for slot in 0..world.len() {
@@ -120,41 +142,49 @@ pub fn steer(
             world.stall_ticks[slot] = 0;
         }
 
-        // `output.min_time_to_collision` is the chosen candidate's own risk,
-        // which is legitimately infinite when avoidance fully succeeds. That
-        // alone would make this report unable to see a near miss the solver
-        // just steered around, so also probe the raw, pre-avoidance risk the
-        // agent would have run into on its original preferred velocity.
-        let mut raw_ttc = f32::INFINITY;
+        // Risk is measured here, not taken from the solver. The solver's own
+        // figure comes from the reciprocal construction (`candidate * 2 -
+        // velocity`), which is correct as a cost heuristic but describes a
+        // velocity the agent never has. This uses the velocity the agent will
+        // actually move with.
+        let mut agent_ttc = f32::INFINITY;
         for neighbor in &scratch.neighbors {
             let relative_position = neighbor.position - position;
-            let relative_velocity = neighbor.velocity - preferred;
+            let relative_velocity = neighbor.velocity - velocity;
             let combined_radius = world.radius[slot] + neighbor.radius;
             if let Some(t) =
                 time_to_collision_disc(relative_position, relative_velocity, combined_radius)
             {
-                raw_ttc = raw_ttc.min(t);
+                agent_ttc = agent_ttc.min(t);
             }
         }
         for wall in &scratch.walls {
             if let Some(t) = time_to_collision_segment(
                 position,
-                preferred,
+                velocity,
                 world.radius[slot],
                 wall,
-                RAW_WALL_HORIZON,
+                RISK_HORIZON,
             ) {
-                raw_ttc = raw_ttc.min(t);
+                agent_ttc = agent_ttc.min(t);
             }
         }
 
-        min_time_to_collision = min_time_to_collision
-            .min(output.min_time_to_collision)
-            .min(raw_ttc);
+        min_time_to_collision = min_time_to_collision.min(agent_ttc);
+        // Cap before summing so an agent in the clear does not contribute
+        // infinity and destroy the mean.
+        time_to_collision_sum += agent_ttc.min(RISK_HORIZON);
+        risk_samples += 1;
+        if agent_ttc < config.near_miss_time {
+            near_miss_agents += 1;
+        }
     }
 
     SteerReport {
         min_time_to_collision,
+        time_to_collision_sum,
+        risk_samples,
+        near_miss_agents,
         braking_agents,
     }
 }
@@ -324,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn the_report_aggregates_the_worst_time_to_collision() {
+    fn the_report_samples_risk_for_every_agent() {
         let scene = open_scene(Vec::new());
         let mut world = world_with(&[
             (1, Vec2::new(0.0, 0.0), Vec2::new(1.35, 0.0)),
@@ -335,7 +365,41 @@ mod tests {
             &scene,
             &[Vec2::new(1.35, 0.0), Vec2::new(-1.35, 0.0)],
         );
-        assert!(report.min_time_to_collision.is_finite());
+        // Risk is measured against the velocity each agent will actually use.
+        // These two successfully avoid, so their predicted collision times are
+        // legitimately large — the point is that every agent is sampled, and
+        // the aggregate stays finite and bounded.
+        assert_eq!(report.risk_samples, 2, "every agent must be sampled");
+        assert!(report.time_to_collision_sum.is_finite());
+        let mean = report.time_to_collision_sum / report.risk_samples as f32;
+        assert!(mean > 0.0 && mean <= RISK_HORIZON, "mean was {mean}");
+    }
+
+    #[test]
+    fn a_genuine_near_miss_is_counted_per_agent() {
+        // Already overlapping, so no choice of velocity avoids it and the
+        // measurement cannot be steered away. Unlike a global minimum, which
+        // one bad pair pins for a whole run, this count scales with how many
+        // agents are actually in trouble.
+        //
+        // A merely *close* pair is deliberately not used here: the solver
+        // avoids that successfully, and reporting no near miss is the correct
+        // answer in that case.
+        let scene = open_scene(Vec::new());
+        let mut world = world_with(&[
+            (1, Vec2::new(0.0, 0.0), Vec2::new(1.35, 0.0)),
+            (2, Vec2::new(0.4, 0.0), Vec2::new(-1.35, 0.0)),
+        ]);
+        let report = run_steer(
+            &mut world,
+            &scene,
+            &[Vec2::new(1.35, 0.0), Vec2::new(-1.35, 0.0)],
+        );
+        assert!(
+            report.near_miss_agents > 0,
+            "an imminent contact was not counted: {report:?}"
+        );
+        assert!(report.near_miss_agents <= 2);
     }
 
     #[test]

@@ -65,8 +65,6 @@ impl Phase {
 
 #[derive(Clone, Copy, Debug)]
 pub struct MetricsConfig {
-    /// Predicted time to collision below which an encounter is a near miss.
-    pub near_miss_time: f32,
     /// Consecutive braking ticks before an agent counts as stalled.
     pub stall_ticks_threshold: u16,
     /// Heading change in one tick that counts as abrupt.
@@ -78,7 +76,6 @@ pub struct MetricsConfig {
 impl Default for MetricsConfig {
     fn default() -> Self {
         Self {
-            near_miss_time: 0.5,
             stall_ticks_threshold: 15,
             abrupt_turn_radians: 0.9,
             throughput_gate: None,
@@ -90,21 +87,20 @@ impl Default for MetricsConfig {
 pub struct Metrics {
     ticks: u64,
 
-    penetration_events: u64,
+    penetration_pair_ticks: u64,
     max_penetration_depth: f32,
     penetration_agent_ticks: u64,
 
     min_time_to_collision: f32,
-    /// This tick's value only. The running minimum cannot be used to detect a
-    /// near miss, because once it drops it stays down and every later tick
-    /// would be counted.
-    tick_min_time_to_collision: f32,
-    near_misses: u64,
+    time_to_collision_sum: f64,
+    risk_samples: u64,
+    near_miss_agent_ticks: u64,
 
     wall_corrections: u64,
     nonfinite_corrections: u64,
 
-    stalled_agents: u64,
+    stall_episodes: u64,
+    agents_ever_stalled: u64,
     stall_agent_ticks: u64,
 
     heading_reversals: u64,
@@ -120,6 +116,9 @@ pub struct Metrics {
     previous_turn_sign: Vec<i8>,
     counted_arrival: Vec<bool>,
     counted_stall: Vec<bool>,
+    /// Never reset, so an agent is counted once no matter how many separate
+    /// stalls it has.
+    ever_stalled: Vec<bool>,
     previous_gate_side: Vec<i8>,
 
     phase_nanos: [u64; 7],
@@ -129,14 +128,12 @@ impl Metrics {
     pub fn new() -> Self {
         Self {
             min_time_to_collision: f32::INFINITY,
-            tick_min_time_to_collision: f32::INFINITY,
             ..Default::default()
         }
     }
 
     pub fn begin_tick(&mut self) {
         self.ticks += 1;
-        self.tick_min_time_to_collision = f32::INFINITY;
     }
 
     pub fn record_phase(&mut self, phase: Phase, nanos: u64) {
@@ -151,9 +148,9 @@ impl Metrics {
         if report.min_time_to_collision < self.min_time_to_collision {
             self.min_time_to_collision = report.min_time_to_collision;
         }
-        if report.min_time_to_collision < self.tick_min_time_to_collision {
-            self.tick_min_time_to_collision = report.min_time_to_collision;
-        }
+        self.time_to_collision_sum += report.time_to_collision_sum as f64;
+        self.risk_samples += report.risk_samples as u64;
+        self.near_miss_agent_ticks += report.near_miss_agents as u64;
     }
 
     pub fn record_integrate(&mut self, report: &IntegrateReport) {
@@ -167,6 +164,7 @@ impl Metrics {
         self.previous_turn_sign.resize(agent_count, 0);
         self.counted_arrival.resize(agent_count, false);
         self.counted_stall.resize(agent_count, false);
+        self.ever_stalled.resize(agent_count, false);
         self.previous_gate_side.resize(agent_count, 0);
     }
 
@@ -196,7 +194,7 @@ impl Metrics {
                 let distance = neighbor.dist_sq.sqrt();
                 if distance < combined {
                     let depth = combined - distance;
-                    self.penetration_events += 1;
+                    self.penetration_pair_ticks += 1;
                     if depth > self.max_penetration_depth {
                         self.max_penetration_depth = depth;
                     }
@@ -221,7 +219,11 @@ impl Metrics {
                 self.stall_agent_ticks += 1;
                 if !self.counted_stall[slot] {
                     self.counted_stall[slot] = true;
-                    self.stalled_agents += 1;
+                    self.stall_episodes += 1;
+                    if !self.ever_stalled[slot] {
+                        self.ever_stalled[slot] = true;
+                        self.agents_ever_stalled += 1;
+                    }
                 }
             } else if world.solver_status[slot] != SolverStatus::Braking {
                 self.counted_stall[slot] = false;
@@ -258,21 +260,25 @@ impl Metrics {
                 self.previous_heading[slot] = heading;
             }
 
-            // Throughput gate.
+            // Throughput gate. Counts only forward crossings that actually
+            // pass through the gate's extent.
+            //
+            // The side test alone is a test against the *infinite* line, so an
+            // agent crossing that line anywhere in a 126 m scene used to
+            // count as passing through a 5 m doorway. And counting any sign
+            // change let an agent jittering at the threshold contribute over
+            // and over, in both directions.
             if let Some(gate) = config.throughput_gate {
                 let side = gate_side(&gate, position);
                 let previous = self.previous_gate_side[slot];
-                if previous != 0 && side != 0 && side != previous {
+                let forward = previous < 0 && side > 0;
+                if forward && within_gate_extent(&gate, position) {
                     self.gate_crossings += 1;
                 }
                 if side != 0 {
                     self.previous_gate_side[slot] = side;
                 }
             }
-        }
-
-        if self.tick_min_time_to_collision < config.near_miss_time {
-            self.near_misses += 1;
         }
     }
 
@@ -290,8 +296,8 @@ impl Metrics {
         }
     }
 
-    pub fn penetration_events(&self) -> u64 {
-        self.penetration_events
+    pub fn penetration_pair_ticks(&self) -> u64 {
+        self.penetration_pair_ticks
     }
 
     pub fn max_penetration_depth(&self) -> f32 {
@@ -302,8 +308,8 @@ impl Metrics {
         self.penetration_agent_ticks
     }
 
-    pub fn stalled_agents(&self) -> u64 {
-        self.stalled_agents
+    pub fn agents_ever_stalled(&self) -> u64 {
+        self.agents_ever_stalled
     }
 
     pub fn heading_reversals(&self) -> u64 {
@@ -349,7 +355,7 @@ impl Metrics {
             median_travel_seconds: median_travel,
             p95_travel_seconds: p95_travel,
 
-            penetration_events: self.penetration_events,
+            penetration_pair_ticks: self.penetration_pair_ticks,
             max_penetration_depth: self.max_penetration_depth,
             penetration_agent_ticks: self.penetration_agent_ticks,
 
@@ -360,12 +366,18 @@ impl Metrics {
                 // trip beats a value that silently becomes null.
                 -1.0
             },
-            near_miss_ticks: self.near_misses,
+            near_miss_agent_ticks: self.near_miss_agent_ticks,
+            mean_time_to_collision: if self.risk_samples > 0 {
+                (self.time_to_collision_sum / self.risk_samples as f64) as f32
+            } else {
+                -1.0
+            },
 
             wall_corrections: self.wall_corrections,
             nonfinite_corrections: self.nonfinite_corrections,
 
-            stalled_agents: self.stalled_agents,
+            agents_ever_stalled: self.agents_ever_stalled,
+            stall_episodes: self.stall_episodes,
             stall_agent_ticks: self.stall_agent_ticks,
 
             heading_reversals: self.heading_reversals,
@@ -397,6 +409,18 @@ impl Metrics {
 }
 
 /// Which side of the gate line a point is on: `-1`, `0`, or `1`.
+/// Whether `p` projects onto the gate segment rather than past either end.
+fn within_gate_extent(gate: &Segment, p: Vec2) -> bool {
+    let along = gate.b - gate.a;
+    let len_sq = along.length_squared();
+    if len_sq <= f32::MIN_POSITIVE {
+        return false;
+    }
+    let t = (p - gate.a).dot(along) / len_sq;
+    (0.0..=1.0).contains(&t)
+}
+
+/// Which side of the gate's infinite line `p` lies on: `-1`, `0`, or `1`.
 fn gate_side(gate: &Segment, p: Vec2) -> i8 {
     let along = gate.b - gate.a;
     let to_point = p - gate.a;
@@ -428,18 +452,30 @@ pub struct MetricsSummary {
     pub median_travel_seconds: f32,
     pub p95_travel_seconds: f32,
 
-    pub penetration_events: u64,
+    /// Pair-ticks of overlap, not distinct penetration episodes: a pair that
+    /// stays overlapped for 100 ticks contributes 100.
+    pub penetration_pair_ticks: u64,
     pub max_penetration_depth: f32,
     pub penetration_agent_ticks: u64,
 
-    /// `-1.0` means no collision was ever predicted.
+    /// `-1.0` means no collision was ever predicted. Expect this to saturate
+    /// at zero in a dense scene — one overlapping pair pins it for the whole
+    /// run — which is why `mean_time_to_collision` exists beside it.
     pub min_time_to_collision: f32,
-    pub near_miss_ticks: u64,
+    /// Mean per-agent predicted time to collision, capped at the risk horizon.
+    /// Unlike the minimum, this responds to how the whole population is doing.
+    pub mean_time_to_collision: f32,
+    /// Agent-ticks spent under the near-miss threshold. Scales with the
+    /// population rather than saturating at the tick count.
+    pub near_miss_agent_ticks: u64,
 
     pub wall_corrections: u64,
     pub nonfinite_corrections: u64,
 
-    pub stalled_agents: u64,
+    /// Distinct agents that stalled at least once.
+    pub agents_ever_stalled: u64,
+    /// Stall episodes, which is larger: one agent can stall repeatedly.
+    pub stall_episodes: u64,
     pub stall_agent_ticks: u64,
 
     pub heading_reversals: u64,
@@ -509,7 +545,7 @@ mod tests {
         let world = world_at(&[Vec2::ZERO, Vec2::new(5.0, 0.0)], 0.3);
         let mut metrics = Metrics::new();
         observe(&world, &mut metrics, &Clock::default());
-        assert_eq!(metrics.penetration_events(), 0);
+        assert_eq!(metrics.penetration_pair_ticks(), 0);
         assert_eq!(metrics.max_penetration_depth(), 0.0);
     }
 
@@ -519,7 +555,11 @@ mod tests {
         let world = world_at(&[Vec2::ZERO, Vec2::new(0.4, 0.0)], 0.3);
         let mut metrics = Metrics::new();
         observe(&world, &mut metrics, &Clock::default());
-        assert_eq!(metrics.penetration_events(), 1, "one pair, counted once");
+        assert_eq!(
+            metrics.penetration_pair_ticks(),
+            1,
+            "one pair, counted once"
+        );
         assert!((metrics.max_penetration_depth() - 0.2).abs() < 1e-5);
     }
 
@@ -544,7 +584,7 @@ mod tests {
         metrics.begin_tick();
         let arena = NeighborArena::new();
         metrics.observe_tick(&world, &arena, &Clock::default(), &config);
-        assert_eq!(metrics.stalled_agents(), 1);
+        assert_eq!(metrics.agents_ever_stalled(), 1);
     }
 
     #[test]

@@ -77,6 +77,13 @@ pub struct World {
     pub route_index: Vec<u16>,
     pub destination: Vec<u16>,
     pub arrived: Vec<bool>,
+    /// Set when an agent has no usable route at all.
+    ///
+    /// Kept distinct from `arrived` because both stop the agent, but they mean
+    /// opposite things: one is a destination reached, the other is a
+    /// navigation failure. Sharing a flag would let routing failures be
+    /// counted as destination completions in the headline metric.
+    pub unrouted: Vec<bool>,
 
     // Staging. Written by steer, consumed by integrate.
     pub des_vel_x: Vec<f32>,
@@ -146,6 +153,7 @@ impl World {
         self.route_index.push(0);
         self.destination.push(spawn.destination);
         self.arrived.push(false);
+        self.unrouted.push(false);
 
         self.des_vel_x.push(0.0);
         self.des_vel_y.push(0.0);

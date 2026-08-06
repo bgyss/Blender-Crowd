@@ -238,6 +238,30 @@ mod tests {
     }
 
     #[test]
+    fn an_agent_already_inside_a_wall_reports_zero() {
+        // The overlap early return is load-bearing: the solver's escape
+        // gradient depends on distinguishing "already inside" from "will
+        // never touch".
+        let wall = Segment::new(Vec2::new(0.0, -5.0), Vec2::new(0.0, 5.0));
+        let inside =
+            time_to_collision_segment(Vec2::new(0.1, 0.0), Vec2::new(1.0, 0.0), 0.5, &wall, 10.0);
+        assert_eq!(inside, Some(0.0));
+        // ... and it does not depend on which way the agent is moving.
+        let leaving =
+            time_to_collision_segment(Vec2::new(0.1, 0.0), Vec2::new(-1.0, 0.0), 0.5, &wall, 10.0);
+        assert_eq!(leaving, Some(0.0));
+    }
+
+    #[test]
+    fn a_stationary_agent_clear_of_a_wall_never_reaches_it() {
+        let wall = Segment::new(Vec2::new(5.0, -5.0), Vec2::new(5.0, 5.0));
+        assert_eq!(
+            time_to_collision_segment(Vec2::ZERO, Vec2::ZERO, 0.5, &wall, 10.0),
+            None
+        );
+    }
+
+    #[test]
     fn a_brief_grazing_collision_is_not_stepped_over() {
         // Regression: this endpoint sits 0.49 from the path against a radius of
         // 0.5, so the true overlap window is only about 0.2s wide. Any sampled

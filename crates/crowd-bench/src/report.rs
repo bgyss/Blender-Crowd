@@ -256,7 +256,10 @@ mod tests {
         let a = run_scene(&options("bottleneck", 40)).unwrap();
         let b = run_scene(&options("bottleneck", 40)).unwrap();
         assert_eq!(a.final_state_hash, b.final_state_hash);
-        assert_eq!(a.metrics.penetration_events, b.metrics.penetration_events);
+        assert_eq!(
+            a.metrics.penetration_pair_ticks,
+            b.metrics.penetration_pair_ticks
+        );
         assert_eq!(a.metrics.agents_arrived, b.metrics.agents_arrived);
         assert_eq!(a.metrics.heading_reversals, b.metrics.heading_reversals);
     }

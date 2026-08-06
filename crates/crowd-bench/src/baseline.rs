@@ -70,7 +70,10 @@ pub fn metric_map(summary: &MetricsSummary) -> BTreeMap<String, f64> {
             summary.median_travel_seconds as f64,
         ),
         ("p95_travel_seconds", summary.p95_travel_seconds as f64),
-        ("penetration_events", summary.penetration_events as f64),
+        (
+            "penetration_pair_ticks",
+            summary.penetration_pair_ticks as f64,
+        ),
         (
             "max_penetration_depth",
             summary.max_penetration_depth as f64,
@@ -83,13 +86,21 @@ pub fn metric_map(summary: &MetricsSummary) -> BTreeMap<String, f64> {
             "min_time_to_collision",
             summary.min_time_to_collision as f64,
         ),
-        ("near_miss_ticks", summary.near_miss_ticks as f64),
+        (
+            "near_miss_agent_ticks",
+            summary.near_miss_agent_ticks as f64,
+        ),
+        (
+            "mean_time_to_collision",
+            summary.mean_time_to_collision as f64,
+        ),
         ("wall_corrections", summary.wall_corrections as f64),
         (
             "nonfinite_corrections",
             summary.nonfinite_corrections as f64,
         ),
-        ("stalled_agents", summary.stalled_agents as f64),
+        ("agents_ever_stalled", summary.agents_ever_stalled as f64),
+        ("stall_episodes", summary.stall_episodes as f64),
         ("stall_agent_ticks", summary.stall_agent_ticks as f64),
         ("heading_reversals", summary.heading_reversals as f64),
         ("abrupt_turns", summary.abrupt_turns as f64),
@@ -209,7 +220,7 @@ mod tests {
     #[test]
     fn quality_metrics_have_zero_tolerance() {
         let baseline = from_report(&report());
-        let metric = baseline.metrics.get("penetration_events").unwrap();
+        let metric = baseline.metrics.get("penetration_pair_ticks").unwrap();
         assert_eq!(metric.tolerance, 0.0);
     }
 
@@ -267,23 +278,30 @@ mod tests {
     fn every_summary_field_appears_in_the_metric_map() {
         // Guards against a metric being added to the summary but silently
         // never compared.
-        let map = metric_map(&report().metrics);
-        for key in [
-            "agents_arrived",
-            "completion_rate",
-            "penetration_events",
-            "max_penetration_depth",
-            "min_time_to_collision",
-            "stalled_agents",
-            "heading_reversals",
-            "abrupt_turns",
-            "gate_crossings",
-            "wall_corrections",
-            "nonfinite_corrections",
-            "wall_time_seconds",
-            "peak_allocated_bytes",
-        ] {
-            assert!(map.contains_key(key), "missing metric: {key}");
+        //
+        // Derived from the serialised summary rather than a hardcoded list:
+        // a hardcoded list cannot detect the very thing this test is for,
+        // since adding a field leaves the list — and the test — unchanged.
+        let summary = report().metrics;
+        let map = metric_map(&summary);
+        let serialised = serde_json::to_value(&summary).expect("summary serialises");
+        let object = serialised.as_object().expect("summary is a JSON object");
+
+        for (key, value) in object {
+            // Phase timings are a nested array of per-phase shares, not a
+            // scalar quality metric, and they are excluded from comparison on
+            // purpose: they are wall-clock derived and vary between runs.
+            if key == "phase_time_shares" {
+                continue;
+            }
+            assert!(
+                value.is_number(),
+                "unexpected non-scalar metric {key}: {value}"
+            );
+            assert!(
+                map.contains_key(key.as_str()),
+                "metric `{key}` is in MetricsSummary but never compared against a baseline"
+            );
         }
     }
 }

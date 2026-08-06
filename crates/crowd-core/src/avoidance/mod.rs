@@ -44,10 +44,15 @@ pub struct AvoidanceInput<'a> {
 pub struct AvoidanceOutput {
     pub velocity: Vec2,
     pub status: SolverStatus,
-    /// Predicted time to collision for the chosen velocity, or `f32::INFINITY`.
-    /// Reported so the metrics layer does not recompute it.
-    pub min_time_to_collision: f32,
 }
+
+// A solver deliberately does NOT report a predicted time to collision.
+//
+// Its internal figure is computed against the reciprocal construction —
+// `candidate * 2 - velocity` — which is right as a cost heuristic but is a
+// velocity the agent never actually has. Surfacing it would put a fictitious
+// kinematic state into the quality metrics. The steer phase measures the real
+// one against the velocity the agent will actually use.
 
 pub trait AvoidanceSolver {
     fn name(&self) -> &'static str;

@@ -121,7 +121,7 @@ fn command_run(args: &Args) -> Result<(), String> {
             "{scene}: {} arrived / {} spawned, {} penetrations, {:.2}s wall, {:.0} ticks/s -> {}",
             report.metrics.agents_arrived,
             report.metrics.agents_spawned,
-            report.metrics.penetration_events,
+            report.metrics.penetration_pair_ticks,
             report.metrics.wall_time_seconds,
             report.metrics.ticks_per_second_achieved,
             path.display()

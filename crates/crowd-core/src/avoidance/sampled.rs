@@ -176,9 +176,30 @@ impl SampledVelocitySolver {
             if t < earliest {
                 earliest = t;
             }
-            // Walls never yield, so they are weighted more heavily than a
-            // neighbor at the same predicted range.
-            cost += self.collision_weight * self.wall_weight / t.max(MIN_TIME_FOR_COST);
+            if t <= 0.0 {
+                // Already inside the wall. As with an overlapping neighbour,
+                // `t` is zero for every candidate, so a penalty derived from
+                // it is a constant that cancels out of the argmin — the wall
+                // becomes invisible for this tick and the agent may steer
+                // deeper in. Penalise by whether the candidate is closing on
+                // the wall or escaping it.
+                let closest = wall.closest_point(input.position);
+                let outward = (input.position - closest).normalize_or_zero();
+                // Exactly on the surface: use the wall's own normal, chosen by
+                // a fixed rule so the result stays deterministic.
+                let outward = if outward == Vec2::ZERO {
+                    (wall.b - wall.a).normalize_or_zero().perp()
+                } else {
+                    outward
+                };
+                let escape_rate = candidate.dot(outward);
+                let relief = (escape_rate / input.max_speed.max(0.1)).clamp(0.0, 1.0);
+                cost += self.collision_weight * self.wall_weight * OVERLAP_URGENCY * (1.0 - relief);
+            } else {
+                // Walls never yield, so they are weighted more heavily than a
+                // neighbor at the same predicted range.
+                cost += self.collision_weight * self.wall_weight / t.max(MIN_TIME_FOR_COST);
+            }
         }
 
         (cost, earliest)
@@ -249,7 +270,6 @@ impl AvoidanceSolver for SampledVelocitySolver {
             return AvoidanceOutput {
                 velocity: Vec2::ZERO,
                 status: SolverStatus::Free,
-                min_time_to_collision: f32::INFINITY,
             };
         }
 
@@ -321,7 +341,6 @@ impl AvoidanceSolver for SampledVelocitySolver {
         AvoidanceOutput {
             velocity: best_velocity.clamp_length(input.max_speed),
             status,
-            min_time_to_collision: best_ttc,
         }
     }
 }
@@ -541,6 +560,33 @@ mod tests {
         let out = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &[], &walls));
         assert_eq!(out.status, SolverStatus::Braking);
         assert!(out.velocity.length() < preferred.length());
+    }
+
+    #[test]
+    fn an_agent_inside_a_wall_is_given_a_way_out() {
+        // Regression: `time_to_collision_segment` reports zero for every
+        // candidate once the agent is inside the wall, so a penalty derived
+        // from it is a constant that cancels out of the argmin. The wall goes
+        // invisible and the agent can steer deeper in. The escape direction
+        // must be strictly cheaper than driving further in.
+        let wall = [Segment::new(Vec2::new(0.0, -5.0), Vec2::new(0.0, 5.0))];
+        // Straddling the wall: 0.1 to its right against a radius of 0.3.
+        let position = Vec2::new(0.1, 0.0);
+        let out = solver().solve(&input(
+            1,
+            position,
+            Vec2::ZERO,
+            // Preferred velocity points *into* the wall, so only the wall term
+            // can produce an outward answer.
+            Vec2::new(-1.35, 0.0),
+            &[],
+            &wall,
+        ));
+        assert!(
+            out.velocity.x >= 0.0,
+            "steered deeper into the wall: {:?}",
+            out.velocity
+        );
     }
 
     #[test]

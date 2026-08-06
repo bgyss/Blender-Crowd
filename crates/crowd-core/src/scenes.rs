@@ -10,28 +10,48 @@ use crate::route::WaypointGraph;
 use crate::scene::{Destination, PopulationParams, SceneDef, SpawnRegion};
 use crate::units::{Aabb, Vec2};
 
-pub const SCENE_NAMES: [&str; 5] = [
+pub const SCENE_NAMES: [&str; 6] = [
     "bidirectional_corridor",
     "crossing",
     "bottleneck",
     "dense_flow",
     "circle",
+    "l_corridor",
 ];
 
 pub fn build(name: &str, agents: u32, seed: u64) -> Option<SceneDef> {
-    let base = match name {
-        "bidirectional_corridor" => bidirectional_corridor(agents, seed),
-        "crossing" => crossing(agents, seed),
-        "bottleneck" => bottleneck(agents, seed),
-        "dense_flow" => dense_flow(agents, seed),
-        "circle" => circle(agents, seed),
+    let scale = population_scale(agents);
+    let scene = match name {
+        "bidirectional_corridor" => {
+            scale_to_population(bidirectional_corridor(agents, seed), scale)
+        }
+        "crossing" => scale_to_population(crossing(agents, seed), scale),
+        "circle" => scale_to_population(circle(agents, seed), scale),
+        "l_corridor" => scale_to_population(l_corridor(agents, seed), scale),
+        // These two build themselves at scale. Their constriction is a fixed
+        // physical feature like the agents themselves, so it must not grow
+        // with the population — see `population_scale`.
+        "bottleneck" => bottleneck(agents, seed, scale),
+        "dense_flow" => dense_flow(agents, seed, scale),
         _ => return None,
     };
-    Some(scale_to_population(base, agents))
+    Some(scene)
 }
 
 /// Population these scenes are dimensioned for at scale 1.
 const REFERENCE_POPULATION: f32 = 100.0;
+
+/// Linear scale factor for a given population.
+///
+/// Area scales with population, so lengths scale with its square root.
+///
+/// Note what must NOT be scaled: agent radii, and any constriction whose whole
+/// purpose is to be narrow relative to an agent. Scaling a 1.6 m doorway to
+/// 5 m at 1,000 agents leaves the bottleneck scene without a bottleneck, and
+/// its measurements no longer describe the same experiment as at 100 agents.
+pub fn population_scale(agents: u32) -> f32 {
+    (agents as f32 / REFERENCE_POPULATION).sqrt().max(1.0)
+}
 
 /// Grow scene geometry with the population so agent density stays constant.
 ///
@@ -44,8 +64,7 @@ const REFERENCE_POPULATION: f32 = 100.0;
 /// Area scales with population, so lengths scale with its square root. Agent
 /// radii deliberately do not scale: the agents are the fixed physical thing,
 /// and the world around them is what grows.
-fn scale_to_population(mut scene: SceneDef, agents: u32) -> SceneDef {
-    let scale = (agents as f32 / REFERENCE_POPULATION).sqrt();
+fn scale_to_population(mut scene: SceneDef, scale: f32) -> SceneDef {
     if scale <= 1.0 {
         return scene;
     }
@@ -75,13 +94,29 @@ fn scale_to_population(mut scene: SceneDef, agents: u32) -> SceneDef {
 /// gate at fixed coordinates would end up in the wrong place, or outside the
 /// scene entirely.
 pub fn throughput_gate(name: &str, agents: u32) -> Option<Segment> {
-    let scale = (agents as f32 / REFERENCE_POPULATION).sqrt().max(1.0);
-    let gate = match name {
-        "bottleneck" => Segment::new(Vec2::new(20.0, 8.0), Vec2::new(20.0, 12.0)),
-        "dense_flow" => Segment::new(Vec2::new(28.0, 12.0), Vec2::new(28.0, 18.0)),
-        _ => return None,
-    };
-    Some(Segment::new(gate.a * scale, gate.b * scale))
+    let scale = population_scale(agents);
+    // The gate spans the constriction, and constrictions are held fixed while
+    // the room around them grows — so the gate's *position* scales but its
+    // *extent* does not.
+    match name {
+        "bottleneck" => {
+            let x = 20.0 * scale;
+            let mid = 10.0 * scale;
+            Some(Segment::new(
+                Vec2::new(x, mid - 1.2),
+                Vec2::new(x, mid + 1.2),
+            ))
+        }
+        "dense_flow" => {
+            let x = 28.0 * scale;
+            let mid = 15.0 * scale;
+            Some(Segment::new(
+                Vec2::new(x, mid - 3.5),
+                Vec2::new(x, mid + 3.5),
+            ))
+        }
+        _ => None,
+    }
 }
 
 /// Split `total` across `parts` so the counts sum to exactly `total`.
@@ -210,21 +245,34 @@ fn crossing(agents: u32, seed: u64) -> SceneDef {
 }
 
 /// One room emptying into another through a 1.6 m doorway.
-fn bottleneck(agents: u32, seed: u64) -> SceneDef {
-    let bounds = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(40.0, 20.0));
+fn bottleneck(agents: u32, seed: u64, scale: f32) -> SceneDef {
+    /// Half-width of the doorway, in metres. Fixed: a doorway that widened
+    /// with the population would stop being a bottleneck, and `bottleneck` at
+    /// 1,000 agents would no longer be the same experiment as at 100.
+    const DOOR_HALF_WIDTH: f32 = 0.8;
+
+    let bounds = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(40.0 * scale, 20.0 * scale));
+    let mid_y = 10.0 * scale;
+    let divider_x = 20.0 * scale;
+
     let mut waypoints = WaypointGraph::new();
-    let start = waypoints.add_node(Vec2::new(8.0, 10.0));
-    let approach = waypoints.add_node(Vec2::new(18.5, 10.0));
-    let through = waypoints.add_node(Vec2::new(21.5, 10.0));
-    let exit = waypoints.add_node(Vec2::new(34.0, 10.0));
+    let start = waypoints.add_node(Vec2::new(8.0 * scale, mid_y));
+    let approach = waypoints.add_node(Vec2::new(divider_x - 1.5, mid_y));
+    let through = waypoints.add_node(Vec2::new(divider_x + 1.5, mid_y));
+    let exit = waypoints.add_node(Vec2::new(34.0 * scale, mid_y));
     waypoints.add_edge(start, approach);
     waypoints.add_edge(approach, through);
     waypoints.add_edge(through, exit);
 
     let mut walls = box_walls(bounds);
-    // The divider, with a gap from y = 9.2 to y = 10.8.
-    walls.push(Segment::new(Vec2::new(20.0, 0.0), Vec2::new(20.0, 9.2)));
-    walls.push(Segment::new(Vec2::new(20.0, 10.8), Vec2::new(20.0, 20.0)));
+    walls.push(Segment::new(
+        Vec2::new(divider_x, 0.0),
+        Vec2::new(divider_x, mid_y - DOOR_HALF_WIDTH),
+    ));
+    walls.push(Segment::new(
+        Vec2::new(divider_x, mid_y + DOOR_HALF_WIDTH),
+        Vec2::new(divider_x, 20.0 * scale),
+    ));
 
     SceneDef {
         name: "bottleneck".into(),
@@ -238,34 +286,57 @@ fn bottleneck(agents: u32, seed: u64) -> SceneDef {
         spawns: vec![SpawnRegion {
             id: 0,
             population_id: 0,
-            area: Aabb::new(Vec2::new(1.0, 2.0), Vec2::new(14.0, 18.0)),
+            area: Aabb::new(
+                Vec2::new(1.0 * scale, 2.0 * scale),
+                Vec2::new(14.0 * scale, 18.0 * scale),
+            ),
             count: agents,
-            per_tick: 8,
+            per_tick: ((8.0 * scale).round() as u32).max(1),
             destination: 0,
         }],
         populations: vec![PopulationParams::default()],
         project_seed: seed,
         ticks_per_second: 30,
-        duration_ticks: 3600,
+        duration_ticks: (3600.0 * scale).round() as u64,
     }
 }
 
 /// A dense blob converging on a single exit corridor.
-fn dense_flow(agents: u32, seed: u64) -> SceneDef {
-    let bounds = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(40.0, 30.0));
+fn dense_flow(agents: u32, seed: u64, scale: f32) -> SceneDef {
+    /// Half-width of the funnel mouth, in metres. Fixed, for the same reason
+    /// as the bottleneck's doorway.
+    const MOUTH_HALF_WIDTH: f32 = 3.0;
+
+    let bounds = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(40.0 * scale, 30.0 * scale));
+    let mid_y = 15.0 * scale;
+    let throat_x = 28.0 * scale;
+
     let mut waypoints = WaypointGraph::new();
-    let start = waypoints.add_node(Vec2::new(12.0, 15.0));
-    let mouth = waypoints.add_node(Vec2::new(26.0, 15.0));
-    let exit = waypoints.add_node(Vec2::new(38.0, 15.0));
+    let start = waypoints.add_node(Vec2::new(12.0 * scale, mid_y));
+    let mouth = waypoints.add_node(Vec2::new(26.0 * scale, mid_y));
+    let exit = waypoints.add_node(Vec2::new(38.0 * scale, mid_y));
     waypoints.add_edge(start, mouth);
     waypoints.add_edge(mouth, exit);
 
     let mut walls = box_walls(bounds);
-    // A funnel narrowing to a 6 m mouth.
-    walls.push(Segment::new(Vec2::new(24.0, 0.0), Vec2::new(28.0, 12.0)));
-    walls.push(Segment::new(Vec2::new(24.0, 30.0), Vec2::new(28.0, 18.0)));
-    walls.push(Segment::new(Vec2::new(28.0, 12.0), Vec2::new(40.0, 12.0)));
-    walls.push(Segment::new(Vec2::new(28.0, 18.0), Vec2::new(40.0, 18.0)));
+    let low = mid_y - MOUTH_HALF_WIDTH;
+    let high = mid_y + MOUTH_HALF_WIDTH;
+    walls.push(Segment::new(
+        Vec2::new(24.0 * scale, 0.0),
+        Vec2::new(throat_x, low),
+    ));
+    walls.push(Segment::new(
+        Vec2::new(24.0 * scale, 30.0 * scale),
+        Vec2::new(throat_x, high),
+    ));
+    walls.push(Segment::new(
+        Vec2::new(throat_x, low),
+        Vec2::new(40.0 * scale, low),
+    ));
+    walls.push(Segment::new(
+        Vec2::new(throat_x, high),
+        Vec2::new(40.0 * scale, high),
+    ));
 
     SceneDef {
         name: "dense_flow".into(),
@@ -279,15 +350,65 @@ fn dense_flow(agents: u32, seed: u64) -> SceneDef {
         spawns: vec![SpawnRegion {
             id: 0,
             population_id: 0,
-            area: Aabb::new(Vec2::new(1.0, 2.0), Vec2::new(18.0, 28.0)),
+            area: Aabb::new(
+                Vec2::new(1.0 * scale, 2.0 * scale),
+                Vec2::new(18.0 * scale, 28.0 * scale),
+            ),
             count: agents,
-            per_tick: 12,
+            per_tick: ((12.0 * scale).round() as u32).max(1),
             destination: 0,
         }],
         populations: vec![PopulationParams::default()],
         project_seed: seed,
         ticks_per_second: 30,
-        duration_ticks: 3600,
+        duration_ticks: (3600.0 * scale).round() as u64,
+    }
+}
+
+/// A corridor with a right-angle turn around a solid block.
+///
+/// Every other scene routes its population along a straight line, so the
+/// routing layer's corner handling — leg consumption, and steering that
+/// converges onto a corridor without cutting across its inside edge — is
+/// exercised only by unit tests. Here a crowd has to actually round a corner
+/// that a wall makes it impossible to cut.
+fn l_corridor(agents: u32, seed: u64) -> SceneDef {
+    let bounds = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(40.0, 40.0));
+
+    let mut waypoints = WaypointGraph::new();
+    let start = waypoints.add_node(Vec2::new(4.0, 4.0));
+    let corner = waypoints.add_node(Vec2::new(4.0, 34.0));
+    let exit = waypoints.add_node(Vec2::new(36.0, 34.0));
+    waypoints.add_edge(start, corner);
+    waypoints.add_edge(corner, exit);
+
+    let mut walls = box_walls(bounds);
+    // The inside block. Its corner at (10, 28) is what the route has to go
+    // around: an agent that cuts the turn walks straight into it.
+    walls.push(Segment::new(Vec2::new(10.0, 0.0), Vec2::new(10.0, 28.0)));
+    walls.push(Segment::new(Vec2::new(10.0, 28.0), Vec2::new(40.0, 28.0)));
+
+    SceneDef {
+        name: "l_corridor".into(),
+        bounds,
+        walls,
+        waypoints,
+        destinations: vec![Destination {
+            name: "exit".into(),
+            node: exit,
+        }],
+        spawns: vec![SpawnRegion {
+            id: 0,
+            population_id: 0,
+            area: Aabb::new(Vec2::new(0.5, 0.5), Vec2::new(9.5, 10.0)),
+            count: agents,
+            per_tick: 4,
+            destination: 0,
+        }],
+        populations: vec![PopulationParams::default()],
+        project_seed: seed,
+        ticks_per_second: 30,
+        duration_ticks: 2400,
     }
 }
 
@@ -420,6 +541,56 @@ mod tests {
                 "{name}: nobody reached a destination"
             );
         }
+    }
+
+    #[test]
+    fn constrictions_do_not_widen_with_the_population() {
+        // The doorway and the funnel mouth are fixed physical features, like
+        // the agents. If they scaled with the room, `bottleneck` at 1,000
+        // agents would have a 5 m "doorway" and would no longer be measuring
+        // the same thing as at 100.
+        for (scene, expected_gap) in [("bottleneck", 1.6f32), ("dense_flow", 6.0f32)] {
+            let small = gap_width(scene, 100);
+            let large = gap_width(scene, 1000);
+            assert!(
+                (small - expected_gap).abs() < 0.05,
+                "{scene} gap at 100 agents was {small}, expected {expected_gap}"
+            );
+            assert!(
+                (large - expected_gap).abs() < 0.05,
+                "{scene} gap widened to {large} at 1000 agents"
+            );
+        }
+    }
+
+    /// Width of the narrowest vertical gap between wall endpoints, which for
+    /// these two scenes is the constriction.
+    fn gap_width(scene: &str, agents: u32) -> f32 {
+        let def = build(scene, agents, 1).unwrap();
+        let bounds = def.bounds;
+        // Sample a vertical line through the constriction and find the widest
+        // clear span, which is the gap agents must pass through.
+        let x = match scene {
+            "bottleneck" => 20.0 * population_scale(agents),
+            _ => 28.0 * population_scale(agents),
+        };
+        let mut blocked: Vec<(f32, f32)> = Vec::new();
+        for wall in &def.walls {
+            let (lo, hi) = (wall.a.x.min(wall.b.x), wall.a.x.max(wall.b.x));
+            if lo - 1e-3 <= x && x <= hi + 1e-3 {
+                blocked.push((wall.a.y.min(wall.b.y), wall.a.y.max(wall.b.y)));
+            }
+        }
+        blocked.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut widest = 0.0f32;
+        let mut cursor = bounds.min.y;
+        for (lo, hi) in blocked {
+            if lo > cursor {
+                widest = widest.max(lo - cursor);
+            }
+            cursor = cursor.max(hi);
+        }
+        widest
     }
 
     #[test]

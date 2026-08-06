@@ -26,7 +26,7 @@ impl Default for DecideConfig {
 
 pub fn decide(world: &mut World, routes: &RouteArena, config: &DecideConfig) {
     for slot in 0..world.len() {
-        if world.arrived[slot] {
+        if world.arrived[slot] || world.unrouted[slot] {
             world.des_vel_x[slot] = 0.0;
             world.des_vel_y[slot] = 0.0;
             continue;
@@ -34,6 +34,17 @@ pub fn decide(world: &mut World, routes: &RouteArena, config: &DecideConfig) {
 
         let position = Vec2::new(world.pos_x[slot], world.pos_y[slot]);
         let points = routes.points(world.route[slot]);
+
+        // No route at all is a navigation failure, not an arrival. Deciding
+        // this before consulting `next_target` keeps the two apart: that
+        // function returns `None` for both cases and cannot distinguish them.
+        if points.is_empty() {
+            world.unrouted[slot] = true;
+            world.des_vel_x[slot] = 0.0;
+            world.des_vel_y[slot] = 0.0;
+            continue;
+        }
+
         let mut index = world.route_index[slot];
         let target = next_target(points, &mut index, position, config.arrive_radius);
         world.route_index[slot] = index;
@@ -46,9 +57,8 @@ pub fn decide(world: &mut World, routes: &RouteArena, config: &DecideConfig) {
                 world.des_vel_y[slot] = preferred.y;
             }
             None => {
-                // Route exhausted, or the agent never had one. Stopping rather
-                // than drifting keeps an unrouted agent from wandering into
-                // other agents and corrupting the metrics.
+                // The route existed and is now exhausted — a real arrival.
+                // The no-route case was separated out above.
                 world.arrived[slot] = true;
                 world.des_vel_x[slot] = 0.0;
                 world.des_vel_y[slot] = 0.0;
@@ -147,11 +157,18 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_with_no_route_stops_rather_than_drifting() {
+    fn an_agent_with_no_route_is_unrouted_not_arrived() {
+        // A routing failure and a destination completion both stop the agent,
+        // but they mean opposite things. Conflating them let navigation
+        // failures be counted as completions in the headline metric.
         let (mut world, routes) = world_with_route(Vec2::ZERO, &[]);
         decide(&mut world, &routes, &DecideConfig::default());
         assert_eq!(world.desired_velocity(0), Vec2::ZERO);
-        assert!(world.arrived[0]);
+        assert!(world.unrouted[0], "should be flagged as a routing failure");
+        assert!(
+            !world.arrived[0],
+            "must not count as a destination completion"
+        );
     }
 
     #[test]

@@ -206,6 +206,69 @@ mod tests {
     }
 
     #[test]
+    fn operators_have_the_expected_signs() {
+        // An inverted `Sub` or `Neg` would corrupt every integration step and
+        // every relative-position calculation, silently and everywhere.
+        let a = Vec2::new(3.0, 5.0);
+        let b = Vec2::new(1.0, 2.0);
+        assert_eq!(a + b, Vec2::new(4.0, 7.0));
+        assert_eq!(a - b, Vec2::new(2.0, 3.0), "Sub must be self minus other");
+        assert_eq!(-a, Vec2::new(-3.0, -5.0));
+        assert_eq!(a * 2.0, Vec2::new(6.0, 10.0));
+        assert_eq!(a - a, Vec2::ZERO);
+    }
+
+    #[test]
+    fn dot_and_distance_agree_with_hand_computation() {
+        let a = Vec2::new(3.0, 4.0);
+        let b = Vec2::new(1.0, 2.0);
+        assert_eq!(a.dot(b), 11.0);
+        assert_eq!(a.length_squared(), 25.0);
+        assert_eq!(a.length(), 5.0);
+        // (3-1)^2 + (4-2)^2 = 8
+        assert_eq!(a.distance_squared(b), 8.0);
+        // Symmetric, and zero against itself.
+        assert_eq!(b.distance_squared(a), 8.0);
+        assert_eq!(a.distance_squared(a), 0.0);
+    }
+
+    #[test]
+    fn yaw_round_trips_through_a_direction() {
+        for step in 0..8 {
+            let yaw = std::f32::consts::TAU * step as f32 / 8.0 - std::f32::consts::PI;
+            let back = Vec2::from_yaw(yaw).to_yaw();
+            assert!(
+                (wrap_angle(back - yaw)).abs() < 1e-5,
+                "yaw {yaw} round-tripped to {back}"
+            );
+        }
+        // +X is yaw zero, +Y is a quarter turn — the Z-up convention.
+        assert!((Vec2::new(1.0, 0.0).to_yaw()).abs() < 1e-6);
+        assert!((Vec2::new(0.0, 1.0).to_yaw() - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn is_finite_rejects_nan_and_infinity() {
+        assert!(Vec2::new(1.0, 2.0).is_finite());
+        assert!(!Vec2::new(f32::NAN, 0.0).is_finite());
+        assert!(!Vec2::new(0.0, f32::INFINITY).is_finite());
+    }
+
+    #[test]
+    fn aabb_accessors_match_their_names() {
+        let b = Aabb::new(Vec2::new(2.0, 4.0), Vec2::new(6.0, 10.0));
+        assert_eq!(b.center(), Vec2::new(4.0, 7.0));
+        assert_eq!(b.size(), Vec2::new(4.0, 6.0));
+        let grown = b.expanded(1.0);
+        assert_eq!(grown.min, Vec2::new(1.0, 3.0));
+        assert_eq!(grown.max, Vec2::new(7.0, 11.0));
+        assert!(
+            grown.contains(b.min),
+            "expanding must not exclude the original"
+        );
+    }
+
+    #[test]
     fn wrap_angle_leaves_small_angles_alone() {
         assert!((wrap_angle(0.5) - 0.5).abs() < 1e-6);
         assert!((wrap_angle(-0.5) + 0.5).abs() < 1e-6);

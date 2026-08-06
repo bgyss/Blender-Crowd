@@ -76,21 +76,30 @@ fn the_crowd_does_not_deadlock_wholesale() {
     // Not a quality threshold: this asserts only that the simulation is still
     // making progress, which is the difference between a slow crowd and a
     // frozen one. Real quality bars come from measured baselines.
+    //
+    // Requires a *fraction* of the unfinished population to be moving. The
+    // earlier `moving > 0` form passed with 399 of 400 agents frozen solid —
+    // exactly the state it was meant to catch.
+    const MIN_MOVING_FRACTION: f32 = 0.1;
+
     for scene in scenes::SCENE_NAMES {
         let sim = stress(scene, 400, 3, 900);
-        let moving = (0..sim.world().len())
-            .filter(|slot| {
-                !sim.world().arrived[*slot] && sim.world().velocity(*slot as u32).length() > 0.05
-            })
-            .count();
-        let unfinished = (0..sim.world().len())
-            .filter(|slot| !sim.world().arrived[*slot])
-            .count();
-        if unfinished > 10 {
-            assert!(
-                moving > 0,
-                "{scene}: {unfinished} agents unfinished and none moving"
-            );
+        let unfinished: Vec<usize> = (0..sim.world().len())
+            .filter(|slot| !sim.world().arrived[*slot] && !sim.world().unrouted[*slot])
+            .collect();
+        if unfinished.len() <= 10 {
+            continue;
         }
+        let moving = unfinished
+            .iter()
+            .filter(|slot| sim.world().velocity(**slot as u32).length() > 0.05)
+            .count();
+        let fraction = moving as f32 / unfinished.len() as f32;
+        assert!(
+            fraction >= MIN_MOVING_FRACTION,
+            "{scene}: only {moving}/{} unfinished agents moving ({:.0}%)",
+            unfinished.len(),
+            fraction * 100.0
+        );
     }
 }
