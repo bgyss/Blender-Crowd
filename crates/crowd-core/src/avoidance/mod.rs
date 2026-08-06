@@ -6,8 +6,10 @@
 
 pub mod sampled;
 mod linear_program;
+pub mod orca;
 
 pub use sampled::SampledVelocitySolver;
+pub use orca::OrcaSolver;
 
 use crate::geometry::Segment;
 use crate::ids::AgentId;
