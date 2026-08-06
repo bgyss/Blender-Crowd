@@ -22,17 +22,20 @@ use crate::world::SolverStatus;
 
 pub use super::NeighborState;
 
+/// Floor on predicted separation, in meters, when converting it to a cost —
+/// the lookahead analogue of `MIN_TIME_FOR_COST`.
+const MIN_SEPARATION_FOR_COST: f32 = 0.1;
+
 #[derive(Clone, Copy, Debug)]
 pub struct AnticipatorySolver {
     pub speed_samples: u32,
     pub heading_samples: u32,
     pub time_horizon: f32,
     pub wall_horizon: f32,
-    /// How many of the nearest neighbors get full multi-step lookahead.
-    /// Wired up in Task 5; unused until then.
+    /// How many of the nearest neighbors get full multi-step lookahead; the
+    /// rest fall back to the cheap `far_field_cost` repulsion.
     pub lookahead_neighbors: usize,
-    /// How many sub-steps the lookahead walks across `time_horizon`. Wired up
-    /// in Task 5; unused until then.
+    /// How many sub-steps the lookahead walks across `time_horizon`.
     pub lookahead_steps: u32,
     pub goal_weight: f32,
     pub collision_weight: f32,
@@ -40,14 +43,13 @@ pub struct AnticipatorySolver {
     pub smoothness_weight: f32,
     pub side_bias_weight: f32,
     /// Extra collision weight carried by the higher-ID agent in a crossing
-    /// conflict. Wired up in Task 5; unused until then.
+    /// conflict.
     pub yield_factor: f32,
     pub brake_speed_fraction: f32,
     pub personal_space: f32,
     pub density_speed_factor: f32,
     pub head_on_cosine: f32,
-    /// Cheap repulsion weight for neighbors past the lookahead cutoff. Wired
-    /// up in Task 5; unused until then.
+    /// Cheap repulsion weight for neighbors past the lookahead cutoff.
     pub far_field_weight: f32,
 }
 
@@ -59,7 +61,7 @@ impl Default for AnticipatorySolver {
             time_horizon: 3.0,
             wall_horizon: 2.0,
             lookahead_neighbors: 4,
-            lookahead_steps: 3,
+            lookahead_steps: 6,
             goal_weight: 1.0,
             collision_weight: 2.0,
             wall_weight: 1.5,
@@ -70,8 +72,89 @@ impl Default for AnticipatorySolver {
             personal_space: 0.45,
             density_speed_factor: 0.18,
             head_on_cosine: 0.7,
-            far_field_weight: 0.15,
+            far_field_weight: 10.0,
         }
+    }
+}
+
+impl AnticipatorySolver {
+    /// Cheap directional repulsion for neighbors past the lookahead cutoff.
+    /// Only candidates heading *toward* a nearby far-field neighbor are
+    /// penalised, so this is a real gradient rather than a constant that
+    /// would cancel out of the argmin.
+    fn far_field_cost(
+        &self,
+        position: Vec2,
+        radius: f32,
+        candidate: Vec2,
+        far: &[&NeighborState],
+    ) -> f32 {
+        let mut cost = 0.0;
+        for neighbor in far {
+            let clearance = radius + neighbor.radius + self.personal_space;
+            let offset = neighbor.position - position;
+            let dist_sq = offset.length_squared();
+            if dist_sq < clearance * clearance {
+                let dist = dist_sq.sqrt().max(0.05);
+                let toward = candidate.dot(offset.normalize_or_zero()).max(0.0);
+                cost += self.far_field_weight * toward / dist;
+            }
+        }
+        cost
+    }
+
+    /// Collision cost and earliest predicted contact for one candidate,
+    /// against only the scoped (nearest `lookahead_neighbors`) threats, via a
+    /// fixed number of constant-velocity sub-steps across `time_horizon`.
+    fn lookahead_collision_cost(
+        &self,
+        input: &AvoidanceInput<'_>,
+        candidate: Vec2,
+        scoped: &[&NeighborState],
+    ) -> (f32, f32) {
+        let mut cost = 0.0;
+        let mut earliest = f32::INFINITY;
+        let step_dt = self.time_horizon / self.lookahead_steps as f32;
+
+        for neighbor in scoped {
+            let combined_radius = input.radius + neighbor.radius;
+            // The higher stable ID yields, exactly as in `sampled.rs`: a
+            // perpendicular conflict is symmetric under the keep-left rule,
+            // so without this both agents derive the identical choice.
+            let yield_weight = if input.agent_id > neighbor.agent_id {
+                self.yield_factor
+            } else {
+                1.0
+            };
+
+            let mut min_separation = f32::INFINITY;
+            let mut min_separation_time = f32::INFINITY;
+            for step in 1..=self.lookahead_steps {
+                let t = step_dt * step as f32;
+                let self_pos = input.position + candidate * t;
+                let neighbor_pos = neighbor.position + neighbor.velocity * t;
+                let separation = self_pos.distance_squared(neighbor_pos).sqrt() - combined_radius;
+                if separation < min_separation {
+                    min_separation = separation;
+                    min_separation_time = t;
+                }
+            }
+
+            if min_separation <= 0.0 {
+                let offset = neighbor.position - input.position;
+                let direction = offset.normalize_or_zero();
+                let relative_velocity = neighbor.velocity - candidate;
+                let separation_rate = relative_velocity.dot(direction);
+                let relief = (separation_rate / input.max_speed.max(0.1)).clamp(0.0, 1.0);
+                cost += self.collision_weight * yield_weight * OVERLAP_URGENCY * (1.0 - relief);
+                earliest = earliest.min(min_separation_time);
+            } else if min_separation < self.personal_space {
+                cost += self.collision_weight * yield_weight
+                    / min_separation.max(MIN_SEPARATION_FOR_COST);
+                earliest = earliest.min(min_separation_time);
+            }
+        }
+        (cost, earliest)
     }
 }
 
@@ -107,45 +190,64 @@ impl AvoidanceSolver for AnticipatorySolver {
             input.velocity.normalize_or_zero()
         };
 
+        // Rank by distance, breaking ties by stable ID so the scoped/far
+        // split never depends on upstream neighbor-list order.
+        let mut ranked: Vec<&NeighborState> = input.neighbors.iter().collect();
+        ranked.sort_by(|a, b| {
+            let da = input.position.distance_squared(a.position);
+            let db = input.position.distance_squared(b.position);
+            da.partial_cmp(&db)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.agent_id.cmp(&b.agent_id))
+        });
+        let (scoped, far): (&[&NeighborState], &[&NeighborState]) =
+            if ranked.len() > self.lookahead_neighbors {
+                ranked.split_at(self.lookahead_neighbors)
+            } else {
+                (&ranked[..], &[])
+            };
+
         let mut best_velocity = Vec2::ZERO;
         let mut best_cost = f32::INFINITY;
         let mut best_ttc = f32::INFINITY;
 
-        let evaluate = |candidate: Vec2,
-                        best_velocity: &mut Vec2,
-                        best_cost: &mut f32,
-                        best_ttc: &mut f32| {
-            let (wall_cost, wall_ttc) = wall_avoidance_cost(
-                input.position,
-                input.max_speed,
-                candidate,
-                input.radius,
-                input.walls,
-                self.wall_horizon,
-                self.collision_weight,
-                self.wall_weight,
-                OVERLAP_URGENCY,
-                MIN_TIME_FOR_COST,
-            );
-            let bias_cost = side_bias_cost(
-                input.preferred,
-                input.position,
-                input.velocity,
-                input.neighbors,
-                candidate,
-                self.head_on_cosine,
-                self.side_bias_weight,
-            );
-            let cost = self.goal_weight * (candidate - preferred).length()
-                + self.smoothness_weight * (candidate - input.velocity).length()
-                + wall_cost
-                + bias_cost;
-            if cost < *best_cost {
-                *best_cost = cost;
-                *best_velocity = candidate;
-                *best_ttc = wall_ttc;
-            }
-        };
+        let evaluate =
+            |candidate: Vec2, best_velocity: &mut Vec2, best_cost: &mut f32, best_ttc: &mut f32| {
+                let (near_cost, near_ttc) = self.lookahead_collision_cost(input, candidate, scoped);
+                let (wall_cost, wall_ttc) = wall_avoidance_cost(
+                    input.position,
+                    input.max_speed,
+                    candidate,
+                    input.radius,
+                    input.walls,
+                    self.wall_horizon,
+                    self.collision_weight,
+                    self.wall_weight,
+                    OVERLAP_URGENCY,
+                    MIN_TIME_FOR_COST,
+                );
+                let far_cost = self.far_field_cost(input.position, input.radius, candidate, far);
+                let bias_cost = side_bias_cost(
+                    input.preferred,
+                    input.position,
+                    input.velocity,
+                    input.neighbors,
+                    candidate,
+                    self.head_on_cosine,
+                    self.side_bias_weight,
+                );
+                let cost = self.goal_weight * (candidate - preferred).length()
+                    + self.smoothness_weight * (candidate - input.velocity).length()
+                    + near_cost
+                    + wall_cost
+                    + far_cost
+                    + bias_cost;
+                if cost < *best_cost {
+                    *best_cost = cost;
+                    *best_velocity = candidate;
+                    *best_ttc = near_ttc.min(wall_ttc);
+                }
+            };
 
         evaluate(preferred, &mut best_velocity, &mut best_cost, &mut best_ttc);
         let speed_reference = preferred_speed.max(input.velocity.length());
@@ -156,7 +258,12 @@ impl AvoidanceSolver for AnticipatorySolver {
             self.heading_samples,
             |candidate| evaluate(candidate, &mut best_velocity, &mut best_cost, &mut best_ttc),
         );
-        evaluate(Vec2::ZERO, &mut best_velocity, &mut best_cost, &mut best_ttc);
+        evaluate(
+            Vec2::ZERO,
+            &mut best_velocity,
+            &mut best_cost,
+            &mut best_ttc,
+        );
 
         let status = if best_velocity.length() < preferred_speed * self.brake_speed_fraction {
             SolverStatus::Braking
@@ -264,7 +371,11 @@ mod tests {
     fn the_solution_never_exceeds_max_speed() {
         let preferred = Vec2::new(100.0, 0.0);
         let out = solver().solve(&input(1, Vec2::ZERO, Vec2::ZERO, preferred, &[], &[]));
-        assert!(out.velocity.length() <= 2.0 + 1e-4, "got {}", out.velocity.length());
+        assert!(
+            out.velocity.length() <= 2.0 + 1e-4,
+            "got {}",
+            out.velocity.length()
+        );
     }
 
     #[test]
@@ -313,5 +424,155 @@ mod tests {
             dense.velocity.length() < sparse.velocity.length(),
             "density did not slow the agent"
         );
+    }
+
+    #[test]
+    fn a_head_on_neighbor_deflects_the_agent() {
+        let neighbors = [NeighborState {
+            position: Vec2::new(4.0, 0.0),
+            velocity: Vec2::new(-1.35, 0.0),
+            radius: 0.3,
+            agent_id: AgentId(2),
+        }];
+        let preferred = Vec2::new(1.35, 0.0);
+        let out = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &neighbors, &[]));
+        assert_ne!(out.status, SolverStatus::Free);
+        assert!(
+            out.velocity.y.abs() > 0.05,
+            "no lateral deflection: {out:?}"
+        );
+    }
+
+    #[test]
+    fn head_on_agents_choose_opposite_sides() {
+        let a_neighbors = [NeighborState {
+            position: Vec2::new(4.0, 0.0),
+            velocity: Vec2::new(-1.35, 0.0),
+            radius: 0.3,
+            agent_id: AgentId(2),
+        }];
+        let b_neighbors = [NeighborState {
+            position: Vec2::new(0.0, 0.0),
+            velocity: Vec2::new(1.35, 0.0),
+            radius: 0.3,
+            agent_id: AgentId(1),
+        }];
+        let a = solver().solve(&input(
+            1,
+            Vec2::ZERO,
+            Vec2::new(1.35, 0.0),
+            Vec2::new(1.35, 0.0),
+            &a_neighbors,
+            &[],
+        ));
+        let b = solver().solve(&input(
+            2,
+            Vec2::new(4.0, 0.0),
+            Vec2::new(-1.35, 0.0),
+            Vec2::new(-1.35, 0.0),
+            &b_neighbors,
+            &[],
+        ));
+        assert!(
+            a.velocity.y * b.velocity.y < 0.0,
+            "agents chose the same world-space side: a={:?} b={:?}",
+            a.velocity,
+            b.velocity
+        );
+    }
+
+    #[test]
+    fn the_higher_id_yields_more_in_a_crossing_conflict() {
+        let crossing_neighbor = |id: u64| {
+            [NeighborState {
+                position: Vec2::new(2.0, -2.0),
+                velocity: Vec2::new(0.0, 1.35),
+                radius: 0.3,
+                agent_id: AgentId(id),
+            }]
+        };
+        let preferred = Vec2::new(1.35, 0.0);
+        let lower = solver().solve(&input(
+            10,
+            Vec2::ZERO,
+            preferred,
+            preferred,
+            &crossing_neighbor(20),
+            &[],
+        ));
+        let higher = solver().solve(&input(
+            30,
+            Vec2::ZERO,
+            preferred,
+            preferred,
+            &crossing_neighbor(20),
+            &[],
+        ));
+        assert!(
+            higher.velocity.length() <= lower.velocity.length() + 1e-3,
+            "the higher ID must not push harder: lower={:?} higher={:?}",
+            lower.velocity,
+            higher.velocity
+        );
+    }
+
+    #[test]
+    fn only_the_nearest_k_neighbors_receive_full_lookahead() {
+        // Five threats, but lookahead_neighbors defaults to 4: the 5th
+        // (furthest) must not get the full multi-step treatment, so removing
+        // it changes the result less than removing one of the nearest four.
+        let mut base = solver();
+        base.lookahead_neighbors = 2;
+        let near: Vec<NeighborState> = (0..2)
+            .map(|i| NeighborState {
+                position: Vec2::new(1.0, if i == 0 { 0.3 } else { -0.3 }),
+                velocity: Vec2::new(-1.35, 0.0),
+                radius: 0.3,
+                agent_id: AgentId(10 + i as u64),
+            })
+            .collect();
+        let far_threat = NeighborState {
+            position: Vec2::new(1.0, 20.0),
+            velocity: Vec2::new(0.0, -1.35),
+            radius: 0.3,
+            agent_id: AgentId(99),
+        };
+        let preferred = Vec2::new(1.35, 0.0);
+        let without_far = base.solve(&input(1, Vec2::ZERO, preferred, preferred, &near, &[]));
+        let with_far_neighbors: Vec<NeighborState> = near
+            .iter()
+            .cloned()
+            .chain(std::iter::once(far_threat))
+            .collect();
+        let with_far = base.solve(&input(
+            1,
+            Vec2::ZERO,
+            preferred,
+            preferred,
+            &with_far_neighbors,
+            &[],
+        ));
+        assert!(
+            (without_far.velocity - with_far.velocity).length() < 0.05,
+            "a far, out-of-scope neighbor changed the outcome as much as a scoped one: \
+             without={:?} with={:?}",
+            without_far.velocity,
+            with_far.velocity
+        );
+    }
+
+    #[test]
+    fn solving_is_deterministic_with_neighbors_present() {
+        let neighbors = [NeighborState {
+            position: Vec2::new(2.0, 0.5),
+            velocity: Vec2::new(-1.0, 0.0),
+            radius: 0.3,
+            agent_id: AgentId(2),
+        }];
+        let preferred = Vec2::new(1.35, 0.0);
+        let first = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &neighbors, &[]));
+        let second = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &neighbors, &[]));
+        assert_eq!(first.velocity, second.velocity);
+        assert_eq!(first.status, second.status);
     }
 }
