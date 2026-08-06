@@ -7,9 +7,12 @@ Parent contract: [Blender Crowd 1.0 architecture and MVP](../blender-crowd-1.0.m
 This is the Phase 0 exit artifact. The contract is explicit that the gate is a
 reproducible benchmark report, not working code and not a video.
 
-**Headline: the performance gate is met with a 3x margin. The quality gate is
-not met.** Both statements are backed by numbers below, and the quality gap is
-the most useful output of this slice.
+**Headline: the performance gate is met with a 3.3x margin. The quality gate is
+not met — but not in the way the raw completion numbers suggest.** Nothing
+deadlocks; every scene drains given time. The defect is that agents move at
+28–43% of their preferred speed, and that contact concentrates sharply at
+constrictions. Both statements are backed by measurements below, and the
+quality gap is the most useful output of this slice.
 
 ## 1. Environment
 
@@ -35,12 +38,12 @@ cargo run --release -p crowd-bench -- check --agents 1000
 
 | Scene | Completion | Median travel | Mean TTC | Near-miss agent-ticks | Penetration pair-ticks | Max depth | Agents stalled | Heading reversals | Ticks/s | Peak alloc |
 |---|---|---|---|---|---|---|---|---|---|---|
-| bidirectional_corridor | 24.5% | 124 s | 6.34 s | 20,481 | 11,104 | 0.68 m | 950 | 348,943 | 104 | 0.34 MB |
-| crossing | 21.9% | 128 s | 6.21 s | 32,894 | 13,705 | 0.73 m | 967 | 277,274 | 102 | 0.48 MB |
-| bottleneck | 37.0% | 216 s | 6.21 s | 1,258,142 | 765,639 | 0.75 m | 986 | 331,504 | 107 | 0.40 MB |
-| dense_flow | 33.6% | 197 s | 6.25 s | 670,357 | 362,538 | 0.72 m | 974 | 349,094 | 101 | 0.44 MB |
-| circle | 44.4% | 174 s | 6.40 s | 29,252 | 10,470 | 0.71 m | 1,000 | 320,794 | 103 | 0.51 MB |
-| l_corridor | 14.7% | 196 s | 6.16 s | 33,168 | 12,698 | 0.70 m | 953 | 427,371 | 101 | 0.48 MB |
+| bidirectional_corridor | 26.7% | 130 s | 6.38 s | 6,686 | 2,147 | 0.63 m | 946 | 343,476 | 106 | 0.34 MB |
+| crossing | 24.0% | 130 s | 6.27 s | 22,698 | 8,015 | 0.68 m | 969 | 278,838 | 105 | 0.48 MB |
+| bottleneck | 36.0% | 214 s | 6.52 s | 1,092,251 | 632,719 | 0.75 m | 993 | 302,683 | 110 | 0.40 MB |
+| dense_flow | 34.0% | 227 s | 5.91 s | 826,398 | 449,812 | 0.75 m | 979 | 366,178 | 100 | 0.44 MB |
+| circle | 41.8% | 174 s | 6.47 s | 21,518 | 6,596 | 0.70 m | 999 | 313,752 | 104 | 0.51 MB |
+| l_corridor | 14.0% | 198 s | 6.15 s | 31,048 | 10,996 | 0.75 m | 953 | 421,531 | 101 | 0.48 MB |
 
 Reading the columns, because several of these were renamed after review found
 they did not measure what their names claimed:
@@ -119,53 +122,115 @@ Cross-machine identity is **not** claimed and has not been tested.
 ## 5. Quality: what the numbers say
 
 This is the honest weak spot, and the reason a metrics report is worth more
-than a demo.
+than a demo. It is also where a first reading of these numbers was wrong, so
+the diagnosis matters as much as the totals.
 
-**Completion is 15–44%.** Agents that do finish take 124–216 s median. In a
-scene the population can cross in about 90 s unobstructed, that is a crowd
-spending most of its time not making progress.
+### 5.1 Nothing deadlocks. The crowd is slow.
 
-The worst is `l_corridor` at 14.7% — the only scene whose route turns a
-corner. That scene was added *because* review noticed every other route was a
-straight line, so the corridor-following navigation had never been exercised
-at scene scale. It immediately became the hardest scene, which is exactly the
-kind of thing a benchmark exists to reveal.
+Completion of 14–42% reads like failure. It is not. Run each scene to three
+times its duration and the population essentially all arrives:
 
-**Penetration is severe, and concentrated.** Maximum depth of 0.71–0.75 m
-against agent radii of 0.24–0.38 m means pairs overlap by more than a full body
-diameter — agents pass through each other rather than brushing past. The
-constricted scenes are where it happens: `bottleneck` logs 766k penetration
-pair-ticks against 10–14k in the open scenes, a 60x spread that says the
-solver copes in open flow and fails at a doorway.
+| Scene | At scene duration | At 3x duration |
+|---|---|---|
+| bidirectional_corridor | 245 / 1000 | **1000 / 1000** |
+| crossing | 219 / 1000 | **1000 / 1000** |
+| bottleneck | 370 / 1000 | 968 / 1000 |
+| l_corridor | 147 / 1000 | 944 / 1000 |
 
-**Oscillation is high.** Hundreds of thousands of heading reversals per run. The
-smoothness term in the cost function is not enough to suppress the flip-flopping
-that contract section 6.2 names as a production blocker.
+So completion here measures a **duration budget**, not a stuck crowd. Scene
+durations scale with the square root of population, but congestion slowdown is
+superlinear, so the budget falls behind as the crowd grows.
 
-**Stalls are near-universal.** 950–1,000 of the 1,000 agents stall at least
-once in every scene. Every agent in `circle` does.
+The real number underneath is speed. Live agents move at **28–43% of their
+preferred speed** (8% in the bottleneck). A pedestrian crowd at these densities
+should lose perhaps 20–30%, not 60–70%. That, not completion, is the quality
+defect.
 
-The trajectory SVGs corroborate all of this: the enclosed scenes show real
-funnel structure at the doorway, but the flows are tangled rather than laned,
-with visible jitter rather than smooth paths.
+### 5.2 Where the remaining penetration is
 
-### 5.1 What this rules in and out
+Maximum overlap depth of 0.63–0.75 m against agent radii of 0.24–0.38 m means
+pairs reaching near-coincident centres. But the *distribution* is the
+informative part:
+
+- **Open scenes** (corridor, crossing, circle, l_corridor): 2,100–11,000
+  penetration pair-ticks.
+- **Constricted scenes** (bottleneck, dense_flow): 450,000–633,000 — roughly
+  60x more.
+
+The solver copes in open flow and fails at a doorway. That is a specific,
+actionable finding, and it only became visible after a measurement artifact was
+removed — see below.
+
+### 5.3 A measurement artifact that looked like a solver failure
+
+An earlier draft of this report called penetration severe across the board. It
+was not. In `bidirectional_corridor`, all 11,104 penetration pair-ticks occurred
+in the **first tenth of the run and exactly zero afterwards**, with the deepest
+overlap at tick 27 of 5,692.
+
+The cause was spawn placement, not steering: agents were positioned uniformly
+at random with no overlap rejection, so they started inside each other and
+pushed apart. The arithmetic confirms it — a 0.68 m overlap requires two
+near-maximum-radius agents about 0.01 m apart, which steering does not produce
+but random placement does.
+
+Adding rejection sampling to spawn placement cut open-scene penetration about
+fivefold and left the constricted scenes essentially unchanged, which is
+exactly the signature of an artifact being removed rather than a behaviour
+being improved.
+
+### 5.4 The density speed term is counterproductive
+
+Contract section 6.2 requires density-aware speed reduction, and this kernel
+implements it as `speed x 1 / (1 + k * neighbours_within_personal_space)`.
+Measured against `k`:
+
+| `density_speed_factor` | corridor arrived | bottleneck arrived | bottleneck penetration |
+|---|---|---|---|
+| 0.18 (current) | 245 | 370 | 765,639 |
+| 0.06 | 262 | 396 | 335,565 |
+| **0.00** | **358** | **472** | **355,398** |
+
+Disabling it improves completion by 28–46% *and* halves penetration in the
+bottleneck. Slowing agents inside a crowd keeps them in the crowd longer, so
+they accumulate more contact rather than less.
+
+The calibration is also too aggressive on its own terms: at roughly 1.4
+agents/m² of local density it applies a 0.53 speed factor where the empirical
+pedestrian fundamental diagram gives about 0.75.
+
+This is left as-is deliberately. The term is contract-mandated, the fix is
+solver tuning, and the next slice exists to compare three solvers against these
+baselines — tuning one of them now would partly pre-empt that comparison. It is
+recorded here as the single highest-value lead going into it.
+
+### 5.5 Other quality signals
+
+**Oscillation is high.** Hundreds of thousands of heading reversals per run.
+The smoothness term in the cost function does not suppress the flip-flopping
+contract section 6.2 names as a production blocker.
+
+**Stalls are near-universal.** 950–1,000 of 1,000 agents stall at least once in
+every scene.
+
+The trajectory SVGs corroborate this: the constricted scenes show real funnel
+structure, but flows are tangled rather than laned, with visible jitter.
+
+### 5.6 What this rules in and out
 
 The failure is *not* in the parts the slice set out to prove:
 
 - Determinism holds bitwise, including under spawn-order permutation.
-- Throughput exceeds the gate 3x, with the cost concentrated where expected.
+- Throughput exceeds the gate 3x, with cost concentrated where expected.
 - No agent reaches non-finite state, escapes the scene, or exceeds its maximum
   speed, under fuzzing at 800 agents across six scenes and multiple seeds.
-- The crowd never deadlocks wholesale — at least 10% of the unfinished
-  population is always still moving.
+- Nothing deadlocks: every scene drains given time.
 
-The failure is specifically **avoidance quality under sustained density**. That
-is precisely the risk contract section 16 lists first ("avoidance looks robotic
-or deadlocks") and precisely what Phase 0 exists to surface before it is built
-upon.
+The failure is specifically **speed loss and contact under sustained density,
+concentrated at constrictions**. That is the risk contract section 16 lists
+first, and exactly what Phase 0 exists to surface before it is built upon.
 
-### 5.2 Measured alternative: collision cost magnitude
+### 5.7 Measured alternative: collision cost magnitude
 
 One tuning decision was A/B measured rather than argued, and both results are
 recorded here because the difference is within scene-to-scene variation and
@@ -280,11 +345,29 @@ The ones that mattered:
 Do not proceed to the navmesh or the Blender bridge yet.
 
 The throughput and determinism foundations are sound and exceed their gates.
-The avoidance solver does not yet produce crowds worth caching: at 22–44%
-completion with body-diameter interpenetration, a cache of this output would
-record a jam.
+The avoidance solver does not yet produce crowds worth caching: agents move at
+roughly a third of their preferred speed, and a doorway accumulates 60x the
+contact of open flow. Caching that would cache a traffic jam.
 
 The next slice should be the contract's own avoidance bake-off (section 6.2),
-measured against the baselines checked in here. That is the decision Phase 0
-was designed to inform, and this report is the evidence it needs — including
-the finding that the current baseline is not good enough.
+measured against the baselines checked in here. Three concrete leads go into
+it, in descending order of measured value:
+
+1. **The density speed term is counterproductive** (section 5.4). Disabling it
+   gains 28–46% completion and halves bottleneck penetration. It is
+   contract-mandated, so the work is recalibration against the pedestrian
+   fundamental diagram rather than removal — the current constant is roughly
+   30% too aggressive.
+2. **Constrictions are where the solver fails** (section 5.2). Open flow is
+   fine. A doorway is not. Contract section 6.3's explicit queues exist for
+   precisely this, and this measurement is the argument for pulling them
+   forward.
+3. **Oscillation is unsuppressed** (section 5.5). The smoothness term is not
+   doing its job; the bake-off should measure heading reversals as a
+   first-class comparison axis, not a footnote.
+
+Scene durations should also be revisited. They scale with the square root of
+population while congestion slowdown is superlinear, so completion at 1,000
+agents partly measures the budget rather than the crowd. Either scale duration
+against measured travel time, or report completion at a fixed multiple of free
+travel time.

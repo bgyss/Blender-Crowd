@@ -6,15 +6,15 @@
   "solver": "sampled_velocity",
   "metrics": {
     "abrupt_turns": {
-      "value": 8842.0,
+      "value": 13147.0,
       "tolerance": 0.0
     },
     "agents_arrived": {
-      "value": 336.0,
+      "value": 340.0,
       "tolerance": 0.0
     },
     "agents_ever_stalled": {
-      "value": 974.0,
+      "value": 979.0,
       "tolerance": 0.0
     },
     "agents_spawned": {
@@ -26,27 +26,27 @@
       "tolerance": 0.0
     },
     "completion_rate": {
-      "value": 0.335999995470047,
+      "value": 0.3400000035762787,
       "tolerance": 0.0
     },
     "gate_crossings": {
-      "value": 608.0,
+      "value": 629.0,
       "tolerance": 0.0
     },
     "heading_reversals": {
-      "value": 349094.0,
+      "value": 366178.0,
       "tolerance": 0.0
     },
     "max_penetration_depth": {
-      "value": 0.7190742492675781,
+      "value": 0.7500348687171936,
       "tolerance": 0.0
     },
     "mean_time_to_collision": {
-      "value": 6.252125263214111,
+      "value": 5.908799171447754,
       "tolerance": 0.0
     },
     "median_travel_seconds": {
-      "value": 196.56666564941406,
+      "value": 227.36666870117188,
       "tolerance": 0.0
     },
     "min_time_to_collision": {
@@ -54,7 +54,7 @@
       "tolerance": 0.0
     },
     "near_miss_agent_ticks": {
-      "value": 670357.0,
+      "value": 826398.0,
       "tolerance": 0.0
     },
     "nonfinite_corrections": {
@@ -62,7 +62,7 @@
       "tolerance": 0.0
     },
     "p95_travel_seconds": {
-      "value": 362.9666748046875,
+      "value": 362.0333251953125,
       "tolerance": 0.0
     },
     "peak_allocated_bytes": {
@@ -70,19 +70,19 @@
       "tolerance": 0.15
     },
     "penetration_agent_ticks": {
-      "value": 606505.0,
+      "value": 744706.0,
       "tolerance": 0.0
     },
     "penetration_pair_ticks": {
-      "value": 362538.0,
+      "value": 449812.0,
       "tolerance": 0.0
     },
     "stall_agent_ticks": {
-      "value": 7034771.0,
+      "value": 7075857.0,
       "tolerance": 0.0
     },
     "stall_episodes": {
-      "value": 16064.0,
+      "value": 17402.0,
       "tolerance": 0.0
     },
     "ticks": {
@@ -90,15 +90,15 @@
       "tolerance": 0.0
     },
     "ticks_per_second_achieved": {
-      "value": 100.74245039232926,
+      "value": 100.19178716740191,
       "tolerance": 0.5
     },
     "wall_corrections": {
-      "value": 162776.0,
+      "value": 214081.0,
       "tolerance": 0.0
     },
     "wall_time_seconds": {
-      "value": 113.001023458,
+      "value": 113.622087417,
       "tolerance": 0.5
     }
   }
