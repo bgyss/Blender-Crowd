@@ -197,6 +197,19 @@ impl World {
 
     /// A bitwise digest of all authoritative agent state.
     ///
+    /// # What is deliberately omitted, and why that is safe
+    ///
+    /// `population_id`, `radius`, `max_speed`, `preferred_speed`, `route`,
+    /// `destination`, `spawn_tick`, `solver_status`, `stall_ticks` and
+    /// `unrouted` are excluded. Every one is either fixed at spawn or derived
+    /// from state already hashed, so including them would add nothing a
+    /// divergence could hide behind.
+    ///
+    /// **That invariant is load-bearing.** If a later change makes any of them
+    /// mutable within the tick loop, it must be added here — otherwise the
+    /// determinism tests keep passing while silently ignoring the field that
+    /// diverged.
+    ///
     /// Hashes float *bits*, not values, so the determinism tests compare
     /// exactly rather than within a tolerance.
     pub fn state_hash(&self) -> u64 {

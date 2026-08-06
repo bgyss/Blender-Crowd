@@ -64,6 +64,7 @@ pub fn metric_map(summary: &MetricsSummary) -> BTreeMap<String, f64> {
         ("ticks", summary.ticks as f64),
         ("agents_spawned", summary.agents_spawned as f64),
         ("agents_arrived", summary.agents_arrived as f64),
+        ("agents_unrouted", summary.agents_unrouted as f64),
         ("completion_rate", summary.completion_rate as f64),
         (
             "median_travel_seconds",

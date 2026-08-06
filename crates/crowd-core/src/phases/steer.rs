@@ -170,6 +170,16 @@ pub fn steer(
             }
         }
 
+        // Agents that have left the scene do not contribute risk. They are
+        // parked on a destination with zero velocity, and every later agent
+        // routes to that same point, so counting them would accrue phantom
+        // risk in proportion to how *well* the solver does — a solver landing
+        // 500 agents would look worse than one landing 200. That is a perverse
+        // gradient in the metrics meant to compare solvers.
+        if world.arrived[slot] || world.unrouted[slot] {
+            continue;
+        }
+
         min_time_to_collision = min_time_to_collision.min(agent_ttc);
         // Cap before summing so an agent in the clear does not contribute
         // infinity and destroy the mean.

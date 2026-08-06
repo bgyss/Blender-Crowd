@@ -178,6 +178,15 @@ impl Metrics {
         self.ensure_capacity(world.len());
 
         for slot in 0..world.len() {
+            // Agents that have left the scene are not part of the crowd any
+            // more. They park on a destination and every later agent routes to
+            // that same point, so counting them would pile up phantom
+            // penetration in proportion to how many agents actually finished —
+            // penalising a solver for succeeding.
+            if world.arrived[slot] || world.unrouted[slot] {
+                continue;
+            }
+
             let position = world.position(slot as u32);
             let velocity = world.velocity(slot as u32);
 
@@ -358,6 +367,7 @@ impl Metrics {
             ticks: self.ticks,
             agents_spawned: world.len() as u64,
             agents_arrived: self.arrived,
+            agents_unrouted: (0..world.len()).filter(|s| world.unrouted[*s]).count() as u64,
             completion_rate: self.arrived as f32 / total,
             median_travel_seconds: median_travel,
             p95_travel_seconds: p95_travel,
@@ -455,6 +465,10 @@ pub struct MetricsSummary {
     pub ticks: u64,
     pub agents_spawned: u64,
     pub agents_arrived: u64,
+    /// Agents that never got a usable route. Reported separately because a
+    /// routing regression would otherwise surface only as an unexplained drop
+    /// in completion.
+    pub agents_unrouted: u64,
     pub completion_rate: f32,
     pub median_travel_seconds: f32,
     pub p95_travel_seconds: f32,
