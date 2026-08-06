@@ -1,0 +1,105 @@
+{
+  "scene": "l_corridor",
+  "agents": 1000,
+  "seed": 2026,
+  "scene_hash": 14636759244517818061,
+  "solver": "sampled_velocity",
+  "metrics": {
+    "abrupt_turns": {
+      "value": 2326.0,
+      "tolerance": 0.0
+    },
+    "agents_arrived": {
+      "value": 140.0,
+      "tolerance": 0.0
+    },
+    "agents_ever_stalled": {
+      "value": 953.0,
+      "tolerance": 0.0
+    },
+    "agents_spawned": {
+      "value": 1000.0,
+      "tolerance": 0.0
+    },
+    "agents_unrouted": {
+      "value": 0.0,
+      "tolerance": 0.0
+    },
+    "completion_rate": {
+      "value": 0.14000000059604645,
+      "tolerance": 0.0
+    },
+    "gate_crossings": {
+      "value": 0.0,
+      "tolerance": 0.0
+    },
+    "heading_reversals": {
+      "value": 421531.0,
+      "tolerance": 0.0
+    },
+    "max_penetration_depth": {
+      "value": 0.7515780329704285,
+      "tolerance": 0.0
+    },
+    "mean_time_to_collision": {
+      "value": 6.145692825317383,
+      "tolerance": 0.0
+    },
+    "median_travel_seconds": {
+      "value": 197.6666717529297,
+      "tolerance": 0.0
+    },
+    "min_time_to_collision": {
+      "value": 0.0,
+      "tolerance": 0.0
+    },
+    "near_miss_agent_ticks": {
+      "value": 31048.0,
+      "tolerance": 0.0
+    },
+    "nonfinite_corrections": {
+      "value": 0.0,
+      "tolerance": 0.0
+    },
+    "p95_travel_seconds": {
+      "value": 247.39999389648438,
+      "tolerance": 0.0
+    },
+    "peak_allocated_bytes": {
+      "value": 501137.0,
+      "tolerance": 0.15
+    },
+    "penetration_agent_ticks": {
+      "value": 21536.0,
+      "tolerance": 0.0
+    },
+    "penetration_pair_ticks": {
+      "value": 10996.0,
+      "tolerance": 0.0
+    },
+    "stall_agent_ticks": {
+      "value": 3086160.0,
+      "tolerance": 0.0
+    },
+    "stall_episodes": {
+      "value": 16462.0,
+      "tolerance": 0.0
+    },
+    "ticks": {
+      "value": 7589.0,
+      "tolerance": 0.0
+    },
+    "ticks_per_second_achieved": {
+      "value": 101.01408147133193,
+      "tolerance": 0.5
+    },
+    "wall_corrections": {
+      "value": 872.0,
+      "tolerance": 0.0
+    },
+    "wall_time_seconds": {
+      "value": 75.128139458,
+      "tolerance": 0.5
+    }
+  }
+}

@@ -253,7 +253,9 @@ git commit -m "Add Rust workspace with pinned toolchain and macOS linker fix"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `Vec2 { x: f32, y: f32 }` with `new`, `ZERO`, `length`, `length_squared`, `normalize_or_zero`, `perp`, `dot`, `distance_squared`, `clamp_length`, and `Add`/`Sub`/`Mul<f32>`/`Neg` operators. `Aabb { min: Vec2, max: Vec2 }` with `contains`, `center`, `size`. Constants `DEFAULT_TICKS_PER_SECOND: u32 = 30`, `WORLD_TO_METER: f32 = 1.0`.
+- Produces: `Vec2 { x: f32, y: f32 }` with `new`, `ZERO`, `length`, `length_squared`, `normalize_or_zero`, `perp`, `dot`, `distance_squared`, `clamp_length`, `to_yaw`, `from_yaw`, `is_finite`, and `Add`/`Sub`/`Mul<f32>`/`Neg` operators. `Aabb { min: Vec2, max: Vec2 }` with `contains`, `center`, `size`, `expanded`. Free function `wrap_angle(angle: f32) -> f32`. Constants `DEFAULT_TICKS_PER_SECOND: u32 = 30`, `WORLD_TO_METER: f32 = 1.0`.
+
+`wrap_angle` lives here because both the integrate phase and the metrics layer need it; duplicating it in each would be two copies of one convention that must never disagree.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -301,6 +303,31 @@ mod tests {
         let b = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(2.0, 2.0));
         assert!(b.contains(Vec2::new(1.0, 1.0)));
         assert!(!b.contains(Vec2::new(3.0, 1.0)));
+    }
+
+    #[test]
+    fn wrap_angle_leaves_small_angles_alone() {
+        assert!((wrap_angle(0.5) - 0.5).abs() < 1e-6);
+        assert!((wrap_angle(-0.5) + 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn wrap_angle_takes_the_short_way_round() {
+        use std::f32::consts::PI;
+        // Just past +pi must come out just past -pi, not as a near-full turn.
+        let wrapped = wrap_angle(PI + 0.1);
+        assert!(wrapped < 0.0, "got {wrapped}");
+        assert!((wrapped + PI - 0.1).abs() < 1e-4, "got {wrapped}");
+    }
+
+    #[test]
+    fn wrap_angle_output_is_always_within_half_turn() {
+        use std::f32::consts::PI;
+        for step in -50..50 {
+            let angle = step as f32 * 0.7;
+            let wrapped = wrap_angle(angle);
+            assert!(wrapped > -PI - 1e-5 && wrapped <= PI + 1e-5, "got {wrapped}");
+        }
     }
 }
 ```
@@ -462,6 +489,22 @@ impl Aabb {
         )
     }
 }
+
+/// Wrap an angle to `(-pi, pi]` so differences take the short way round.
+///
+/// Shared rather than duplicated: the integrate phase uses it to limit turn
+/// rate and the metrics layer uses it to measure heading change. Two copies of
+/// one convention is two chances for them to disagree about what a reversal is.
+pub fn wrap_angle(angle: f32) -> f32 {
+    use std::f32::consts::{PI, TAU};
+    let mut a = angle % TAU;
+    if a > PI {
+        a -= TAU;
+    } else if a <= -PI {
+        a += TAU;
+    }
+    a
+}
 ```
 
 - [ ] **Step 4: Declare the module**
@@ -475,13 +518,13 @@ Replace the contents of `crates/crowd-core/src/lib.rs`:
 
 pub mod units;
 
-pub use units::{Aabb, Vec2, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER};
+pub use units::{wrap_angle, Aabb, Vec2, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER};
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core units`
-Expected: PASS, 6 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -631,8 +674,10 @@ and extend the re-export line to:
 
 ```rust
 pub use clock::Clock;
-pub use units::{Aabb, Vec2, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER};
+pub use units::{wrap_angle, Aabb, Vec2, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER};
 ```
+
+Later tasks only ever *add* `pub mod` and `pub use` lines here. Never drop an existing export while adding yours.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -1026,7 +1071,8 @@ impl StableRng {
         ((self.next_u64() >> 40) as u32) as f32 * SCALE
     }
 
-    /// Uniform in `[lo, hi]`.
+    /// Uniform in `[lo, hi)` — `hi` is unreachable, because `next_f32_unit`
+    /// never returns exactly 1.0.
     pub fn range_f32(&mut self, lo: f32, hi: f32) -> f32 {
         lo + (hi - lo) * self.next_f32_unit()
     }
@@ -1176,6 +1222,68 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn a_brief_grazing_collision_is_not_stepped_over() {
+        // Regression: this endpoint sits 0.49 from the path against a radius of
+        // 0.5, so the true overlap window is only about 0.2s wide. Any sampled
+        // search coarse enough to be affordable steps straight over it and
+        // reports no collision.
+        let wall = Segment::new(Vec2::new(3.125, 0.49), Vec2::new(3.125, 6.0));
+        let t = time_to_collision_segment(Vec2::ZERO, Vec2::new(1.0, 0.0), 0.5, &wall, 10.0);
+        assert!(t.is_some(), "grazing collision was missed");
+        let t = t.unwrap();
+        assert!(
+            (3.0..3.1).contains(&t),
+            "collision found at the wrong time: {t}"
+        );
+    }
+
+    #[test]
+    fn an_arbitrarily_brief_graze_is_still_detected() {
+        // The window narrows without limit as the miss distance approaches the
+        // radius: at 0.4999 against 0.5 it is under 0.03s. This is the case
+        // that proves sampling cannot work here at any step size.
+        let wall = Segment::new(Vec2::new(4.0, 0.4999), Vec2::new(4.0, 6.0));
+        let t = time_to_collision_segment(Vec2::ZERO, Vec2::new(1.0, 0.0), 0.5, &wall, 10.0);
+        assert!(t.is_some(), "near-tangential graze was missed");
+    }
+
+    #[test]
+    fn contact_past_the_end_of_a_segment_uses_the_endpoint_not_the_edge() {
+        // Travelling parallel to the wall's line but level with its end: the
+        // infinite line would say "never", the capsule cap says otherwise.
+        let wall = Segment::new(Vec2::new(0.0, 5.0), Vec2::new(0.0, 10.0));
+        let t = time_to_collision_segment(
+            Vec2::new(0.0, 0.0),
+            Vec2::new(0.0, 1.0),
+            0.5,
+            &wall,
+            10.0,
+        );
+        assert!((t.unwrap() - 4.5).abs() < 1e-4, "got {t:?}");
+    }
+
+    #[test]
+    fn a_fast_agent_does_not_tunnel_through_a_thin_gap() {
+        // 20 m of travel against a 0.2 m radius: a constant step count would
+        // advance many radii per sample.
+        let wall = Segment::new(Vec2::new(10.0, -1.0), Vec2::new(10.0, 1.0));
+        let t = time_to_collision_segment(Vec2::ZERO, Vec2::new(10.0, 0.0), 0.2, &wall, 2.0);
+        assert!(t.is_some(), "fast agent tunnelled through the wall");
+        assert!((t.unwrap() - 0.98).abs() < 0.02, "got {t:?}");
+    }
+
+    #[test]
+    fn segment_bounds_cover_both_endpoints_in_either_order() {
+        let ascending = Segment::new(Vec2::new(1.0, 2.0), Vec2::new(4.0, 6.0));
+        let descending = Segment::new(Vec2::new(4.0, 6.0), Vec2::new(1.0, 2.0));
+        for seg in [ascending, descending] {
+            let b = seg.bounds();
+            assert_eq!(b.min, Vec2::new(1.0, 2.0));
+            assert_eq!(b.max, Vec2::new(4.0, 6.0));
+        }
+    }
 }
 ```
 
@@ -1275,10 +1383,21 @@ pub fn time_to_collision_disc(
 
 /// Time until a moving disc touches a static segment, within `horizon`.
 ///
-/// Sampled rather than solved in closed form: the exact swept-capsule test is
-/// three cases (two endpoints plus the edge), and at the sample counts the
-/// solver uses, a short bisection is both simpler to keep correct and fast
-/// enough. Determinism is unaffected because the sample count is fixed.
+/// # Why this is solved exactly rather than sampled
+///
+/// Any sampled search tunnels, and no step bound fixes it. The disc's overlap
+/// window with a segment endpoint has width `2·sqrt(r² − d²)` where `d` is the
+/// closest-approach distance — which goes to *zero* as `d` approaches `r`. A
+/// grazing contact can therefore be arbitrarily brief, so for any fixed or
+/// derived step size there exists a real collision that falls entirely between
+/// two samples and is reported as no collision at all. That is silent, and it
+/// happens exactly at the corner and doorframe geometry a crowd meets
+/// constantly.
+///
+/// The exact swept-capsule test is three cases and is also *cheaper* than the
+/// twenty-odd distance evaluations a bisection needs: two endpoint quadratics
+/// (reusing `time_to_collision_disc`, since a capsule cap is a zero-radius
+/// disc) plus one linear crossing of the edge offset by `radius`.
 pub fn time_to_collision_segment(
     pos: Vec2,
     vel: Vec2,
@@ -1293,34 +1412,46 @@ pub fn time_to_collision_segment(
         return None;
     }
 
-    const COARSE_STEPS: u32 = 8;
-    const REFINE_STEPS: u32 = 12;
+    let mut earliest = f32::INFINITY;
 
-    let mut lo = 0.0f32;
-    let mut hit = false;
-    let mut hi = horizon;
-    for i in 1..=COARSE_STEPS {
-        let t = horizon * i as f32 / COARSE_STEPS as f32;
-        if seg.distance_to(pos + vel * t) <= radius {
-            hi = t;
-            hit = true;
-            break;
-        }
-        lo = t;
-    }
-    if !hit {
-        return None;
-    }
-
-    for _ in 0..REFINE_STEPS {
-        let mid = 0.5 * (lo + hi);
-        if seg.distance_to(pos + vel * mid) <= radius {
-            hi = mid;
-        } else {
-            lo = mid;
+    // Endpoint caps. A cap is a stationary zero-radius disc, so the relative
+    // position is endpoint-minus-self and the relative velocity is -vel, per
+    // `time_to_collision_disc`'s convention.
+    for endpoint in [seg.a, seg.b] {
+        if let Some(t) = time_to_collision_disc(endpoint - pos, -vel, radius) {
+            if t <= horizon && t < earliest {
+                earliest = t;
+            }
         }
     }
-    Some(hi)
+
+    // Flat side: cross the line offset by `radius` toward the side we start on.
+    let along = seg.b - seg.a;
+    let len_sq = along.length_squared();
+    if len_sq > f32::MIN_POSITIVE {
+        let normal = along.perp() * (1.0 / len_sq.sqrt());
+        let offset = (pos - seg.a).dot(normal);
+        let approach_rate = vel.dot(normal);
+        if approach_rate.abs() > f32::MIN_POSITIVE {
+            let target = if offset >= 0.0 { radius } else { -radius };
+            let t = (target - offset) / approach_rate;
+            if (0.0..=horizon).contains(&t) && t < earliest {
+                // Only a flat-side hit if contact lands between the endpoints.
+                // Beyond them the caps above are the real geometry.
+                let contact = pos + vel * t;
+                let s = (contact - seg.a).dot(along) / len_sq;
+                if (0.0..=1.0).contains(&s) {
+                    earliest = t;
+                }
+            }
+        }
+    }
+
+    if earliest.is_finite() {
+        Some(earliest)
+    } else {
+        None
+    }
 }
 ```
 
@@ -1331,7 +1462,7 @@ In `crates/crowd-core/src/lib.rs` add `pub mod geometry;` and `pub use geometry:
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core geometry`
-Expected: PASS, 11 tests.
+Expected: PASS, 21 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -1454,6 +1585,21 @@ mod tests {
         world.next_pos_x[0] = 1.0;
         world.commit();
         assert_ne!(world.state_hash(), before);
+    }
+
+    #[test]
+    fn state_hash_ignores_the_sign_of_zero() {
+        // -0.0 == 0.0 numerically but differs bitwise. Without folding, a
+        // component that cancelled to -0.0 on one path would look like a
+        // determinism failure against a state that is numerically identical.
+        let mut positive = World::new();
+        let mut negative = World::new();
+        positive.spawn(spawn_at(1, Vec2::ZERO), 0).unwrap();
+        negative.spawn(spawn_at(1, Vec2::ZERO), 0).unwrap();
+        negative.next_vel_x[0] = -0.0;
+        negative.next_pos_y[0] = -0.0;
+        negative.commit();
+        assert_eq!(positive.state_hash(), negative.state_hash());
     }
 
     #[test]
@@ -1649,6 +1795,18 @@ impl World {
     /// consistent snapshot of the previous tick, which is what makes results
     /// independent of iteration order.
     pub fn commit(&mut self) {
+        // `copy_from_slice` panics on a length mismatch, and the tick loop is
+        // supposed to be infallible. `spawn` is the only mutator that keeps
+        // the columns in step, but phases hold `&mut World` and could push to
+        // one column alone; this catches that in tests rather than in a bake.
+        debug_assert!(
+            self.next_pos_x.len() == self.len()
+                && self.next_pos_y.len() == self.len()
+                && self.next_vel_x.len() == self.len()
+                && self.next_vel_y.len() == self.len()
+                && self.next_yaw.len() == self.len(),
+            "staged columns drifted out of step with the agent count"
+        );
         self.pos_x.copy_from_slice(&self.next_pos_x);
         self.pos_y.copy_from_slice(&self.next_pos_y);
         self.vel_x.copy_from_slice(&self.next_vel_x);
@@ -1664,15 +1822,31 @@ impl World {
         let mut h: u64 = 0xa5a5_5a5a_dead_beef;
         for slot in 0..self.len() {
             h = hash_combine(h, self.agent_id[slot].0);
-            h = hash_combine(h, self.pos_x[slot].to_bits() as u64);
-            h = hash_combine(h, self.pos_y[slot].to_bits() as u64);
-            h = hash_combine(h, self.vel_x[slot].to_bits() as u64);
-            h = hash_combine(h, self.vel_y[slot].to_bits() as u64);
-            h = hash_combine(h, self.yaw[slot].to_bits() as u64);
+            h = hash_combine(h, canonical_bits(self.pos_x[slot]));
+            h = hash_combine(h, canonical_bits(self.pos_y[slot]));
+            h = hash_combine(h, canonical_bits(self.vel_x[slot]));
+            h = hash_combine(h, canonical_bits(self.vel_y[slot]));
+            h = hash_combine(h, canonical_bits(self.yaw[slot]));
             h = hash_combine(h, self.route_index[slot] as u64);
             h = hash_combine(h, self.arrived[slot] as u64);
         }
         h
+    }
+}
+
+/// Float bits, with negative zero folded onto positive zero.
+///
+/// `-0.0 == 0.0` is true, but their bit patterns differ. Without this fold, a
+/// velocity component that cancelled to `-0.0` on one path and `0.0` on
+/// another would report a determinism failure for two states that are
+/// numerically identical — a false alarm on the test the whole slice is built
+/// to trust. Every other value, NaN included, keeps its exact bits: a real
+/// divergence must still be caught.
+fn canonical_bits(value: f32) -> u64 {
+    if value == 0.0 {
+        0
+    } else {
+        value.to_bits() as u64
     }
 }
 ```
@@ -1804,8 +1978,10 @@ impl NeighborArena {
 
     /// Record `neighbors` as belonging to `slot_owner`.
     ///
-    /// Must be called at most once per agent per tick, in ascending slot
-    /// order, which the perceive phase guarantees.
+    /// Entries are indexed by owner, so call order does not affect the result.
+    /// Calling twice for one owner in a tick is still wrong — the first batch
+    /// is stranded in the arena rather than freed — but it is not a
+    /// correctness hazard for readers.
     pub fn push(&mut self, slot_owner: usize, neighbors: &[Neighbor]) {
         self.start[slot_owner] = self.entries.len() as u32;
         self.len[slot_owner] = neighbors.len() as u32;
@@ -1928,6 +2104,36 @@ mod tests {
     }
 
     #[test]
+    fn rebuild_does_not_allocate_once_warmed_up() {
+        // `rebuild` runs every tick. If any buffer reallocates on a steady
+        // agent count, the tick loop is allocating in its hot path.
+        let xs: Vec<f32> = (0..300).map(|i| (i % 17) as f32 * 0.5).collect();
+        let ys: Vec<f32> = (0..300).map(|i| (i % 13) as f32 * 0.6).collect();
+        let mut grid = UniformGrid::new(test_bounds(), 1.0);
+        grid.rebuild(&xs, &ys);
+
+        let warm = (
+            grid.items.capacity(),
+            grid.cursor.capacity(),
+            grid.counts.capacity(),
+            grid.cell_start.capacity(),
+        );
+        for _ in 0..50 {
+            grid.rebuild(&xs, &ys);
+        }
+        assert_eq!(
+            (
+                grid.items.capacity(),
+                grid.cursor.capacity(),
+                grid.counts.capacity(),
+                grid.cell_start.capacity(),
+            ),
+            warm,
+            "a buffer reallocated during steady-state rebuild"
+        );
+    }
+
+    #[test]
     fn segment_index_finds_a_nearby_wall() {
         let walls = vec![
             Segment::new(Vec2::new(2.0, 0.0), Vec2::new(2.0, 10.0)),
@@ -1984,6 +2190,10 @@ pub struct UniformGrid {
     /// Agent slots grouped by cell, ascending within each cell.
     items: Vec<u32>,
     counts: Vec<u32>,
+    /// Per-cell write cursor for the fill pass. A field rather than a local
+    /// because `rebuild` runs every tick, and a local would heap-allocate on
+    /// every one of them.
+    cursor: Vec<u32>,
 }
 
 impl UniformGrid {
@@ -2001,6 +2211,7 @@ impl UniformGrid {
             cell_start: vec![0; (cols * rows + 1) as usize],
             items: Vec::new(),
             counts: vec![0; (cols * rows) as usize],
+            cursor: vec![0; (cols * rows) as usize],
         }
     }
 
@@ -2050,12 +2261,16 @@ impl UniformGrid {
         // monotonically. That ordering is what makes queries reproducible.
         self.items.clear();
         self.items.resize(n, 0);
-        let mut cursor: Vec<u32> = self.cell_start[..self.counts.len()].to_vec();
+        // Refill the cursor in place. `to_vec()` here would allocate on every
+        // tick, which is exactly what this index is built to avoid.
+        self.cursor.clear();
+        self.cursor
+            .extend_from_slice(&self.cell_start[..self.counts.len()]);
         for i in 0..n {
             let (cx, cy) = self.cell_of(pos_x[i], pos_y[i]);
             let cell = self.cell_index(cx, cy);
-            self.items[cursor[cell] as usize] = i as u32;
-            cursor[cell] += 1;
+            self.items[self.cursor[cell] as usize] = i as u32;
+            self.cursor[cell] += 1;
         }
     }
 
@@ -2126,7 +2341,7 @@ In `crates/crowd-core/src/lib.rs` add `pub mod arena;` and `pub mod grid;`, plus
 - [ ] **Step 9: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core`
-Expected: PASS, all tests including 9 grid and 3 arena tests.
+Expected: PASS, all tests including 10 grid and 3 arena tests.
 
 - [ ] **Step 10: Commit**
 
@@ -2275,6 +2490,31 @@ mod tests {
         let mut index = 0;
         assert_eq!(next_target(&[], &mut index, Vec2::ZERO, 0.5), None);
     }
+
+    #[test]
+    fn an_agent_off_the_path_does_not_skip_a_corner_waypoint() {
+        // An L-shaped route: the corner at (0,10) exists to steer around a
+        // wall. An agent displaced to (6,5) is nearer the waypoint *after*
+        // the corner than the corner itself, but it has made no progress
+        // along the route — skipping the corner would send it straight
+        // through the wall the corner was authored to avoid.
+        let points = [Vec2::new(0.0, 0.0), Vec2::new(0.0, 10.0), Vec2::new(10.0, 10.0)];
+        let mut index = 1;
+        let target = next_target(&points, &mut index, Vec2::new(6.0, 5.0), 0.6);
+        assert_eq!(target, Some(Vec2::new(0.0, 10.0)), "cut the corner");
+        assert_eq!(index, 1);
+    }
+
+    #[test]
+    fn an_agent_already_on_the_next_leg_does_skip_the_corner() {
+        // The other side of the same rule: once the agent really is on the
+        // leg past the corner, walking back to the corner would be absurd.
+        let points = [Vec2::new(0.0, 0.0), Vec2::new(0.0, 10.0), Vec2::new(10.0, 10.0)];
+        let mut index = 1;
+        let target = next_target(&points, &mut index, Vec2::new(6.0, 9.9), 0.6);
+        assert_eq!(target, Some(Vec2::new(10.0, 10.0)));
+        assert_eq!(index, 2);
+    }
 }
 ```
 
@@ -2299,6 +2539,7 @@ Prepend to `crates/crowd-core/src/route.rs`:
 //! is precisely what a navmesh polygon corridor will implement. When real
 //! navigation lands, it replaces this module and touches no agent state.
 
+use crate::geometry::Segment;
 use crate::units::Vec2;
 use crate::world::{RouteHandle, NO_ROUTE};
 
@@ -2340,6 +2581,16 @@ impl WaypointGraph {
 
     pub fn position(&self, node: u32) -> Vec2 {
         self.nodes[node as usize]
+    }
+
+    /// Adjacent nodes, ascending. Empty for an unknown index.
+    ///
+    /// Exposed so the scene hash can cover topology: two graphs with identical
+    /// node positions but different edges route differently.
+    pub fn neighbors(&self, node: u32) -> &[u32] {
+        self.adjacency
+            .get(node as usize)
+            .map_or(&[], |list| list.as_slice())
     }
 
     /// The nearest node to `p`, breaking exact ties by lower node index.
@@ -2489,6 +2740,24 @@ impl RouteArena {
 /// Returns `None` once the final waypoint is consumed, which the decide phase
 /// reads as arrival. This signature is the contract a navmesh corridor will
 /// inherit.
+///
+/// Proximity alone is not enough to advance: an agent that overshoots a
+/// waypoint — a long step, or a spawn position already past the first one —
+/// would otherwise turn around and walk backwards to reach it. So a waypoint
+/// also counts as passed once the agent is closer to the *next* one.
+///
+/// # Why that shortcut is fenced by the corridor test
+///
+/// "Closer to the next waypoint" is not by itself evidence of progress. On a
+/// route that turns, an agent standing well off the path can be nearer the
+/// waypoint after the corner than the corner itself — and skipping the corner
+/// means steering straight through the wall the corner exists to route
+/// around, which is the exact failure this module was added to prevent.
+///
+/// So the shortcut applies only when the agent is within `arrive_radius` of
+/// the leg it would be skipping onto. On that leg, being nearer its far end
+/// really does mean progress. Off it, the route still leads the agent back to
+/// the corner first.
 pub fn next_target(
     points: &[Vec2],
     index: &mut u16,
@@ -2497,7 +2766,16 @@ pub fn next_target(
 ) -> Option<Vec2> {
     let arrive_sq = arrive_radius * arrive_radius;
     while (*index as usize) < points.len() {
-        let target = points[*index as usize];
+        let i = *index as usize;
+        let target = points[i];
+        if i + 1 < points.len() {
+            let leg = Segment::new(target, points[i + 1]);
+            let on_leg = leg.distance_to(pos) <= arrive_radius;
+            if on_leg && points[i + 1].distance_squared(pos) < target.distance_squared(pos) {
+                *index += 1;
+                continue;
+            }
+        }
         if target.distance_squared(pos) > arrive_sq {
             return Some(target);
         }
@@ -2516,7 +2794,7 @@ In `crates/crowd-core/src/lib.rs` add `pub mod route;` and `pub use route::{next
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core route`
-Expected: PASS, 13 tests.
+Expected: PASS, 15 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -2672,6 +2950,125 @@ mod tests {
     }
 
     #[test]
+    fn scene_hash_changes_when_graph_topology_changes() {
+        // Same node positions, different edges. Routing follows the edges, so
+        // these simulate differently and must not share a hash.
+        let a = valid_scene().compile().unwrap();
+        let mut scene = valid_scene();
+        let detour = scene.waypoints.add_node(Vec2::new(5.0, 8.0));
+        scene.waypoints.add_edge(0, detour);
+        scene.waypoints.add_edge(detour, 1);
+        let with_detour = scene.compile().unwrap();
+
+        let mut positions_only = valid_scene();
+        positions_only.waypoints.add_node(Vec2::new(5.0, 8.0));
+        positions_only.waypoints.add_edge(0, 2);
+        let without_detour = positions_only.compile().unwrap();
+
+        assert_ne!(a.scene_hash(), with_detour.scene_hash());
+        assert_ne!(with_detour.scene_hash(), without_detour.scene_hash());
+    }
+
+    #[test]
+    fn an_unreachable_destination_is_rejected() {
+        // Two disjoint components: the spawn sits in one, the destination in
+        // the other. Both the connectivity fault and the reachability fault
+        // are real and both must be reported.
+        let mut scene = valid_scene();
+        let island = scene.waypoints.add_node(Vec2::new(9.0, 9.0));
+        scene.destinations[0].node = island;
+        let errors = scene.compile().unwrap_err();
+        assert!(
+            errors.contains(&SceneError::UnreachableDestination {
+                spawn: 0,
+                destination: 0
+            }),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_population_too_slow_to_clamp_safely_is_rejected() {
+        // Below MIN_PREFERRED_SPEED the spawn phase's clamp would have a floor
+        // above its ceiling, and `f32::clamp` panics on inverted bounds — in
+        // release as well as debug. Compilation must reject it first.
+        let mut scene = valid_scene();
+        scene.populations[0].speed_mean = 0.1;
+        let errors = scene.compile().unwrap_err();
+        assert!(
+            errors.contains(&SceneError::InvalidPopulation {
+                population: 0,
+                field: "speed_mean"
+            }),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_population_with_impossible_radii_is_rejected() {
+        let mut scene = valid_scene();
+        scene.populations[0].radius_min = 0.5;
+        scene.populations[0].radius_max = 0.2;
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::InvalidPopulation {
+            population: 0,
+            field: "radius_max"
+        }));
+    }
+
+    #[test]
+    fn a_non_positive_radius_is_rejected() {
+        let mut scene = valid_scene();
+        scene.populations[0].radius_min = 0.0;
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::InvalidPopulation {
+            population: 0,
+            field: "radius_min"
+        }));
+    }
+
+    #[test]
+    fn a_max_speed_below_preferred_speed_is_rejected() {
+        let mut scene = valid_scene();
+        scene.populations[0].max_speed_factor = 0.8;
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::InvalidPopulation {
+            population: 0,
+            field: "max_speed_factor"
+        }));
+    }
+
+    #[test]
+    fn nan_population_values_are_rejected() {
+        // NaN compares false against every bound, so a plain `x < min` check
+        // would wave it through. The validator tests `is_nan()` explicitly.
+        let mut scene = valid_scene();
+        scene.populations[0].speed_mean = f32::NAN;
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::InvalidPopulation {
+            population: 0,
+            field: "speed_mean"
+        }));
+    }
+
+    #[test]
+    fn a_zero_tick_rate_is_rejected() {
+        let mut scene = valid_scene();
+        scene.ticks_per_second = 0;
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::InvalidTickRate {
+            ticks_per_second: 0
+        }));
+    }
+
+    #[test]
+    fn destination_position_is_none_when_out_of_range() {
+        let compiled = valid_scene().compile().unwrap();
+        assert_eq!(compiled.destination_position(0), Some(Vec2::new(9.0, 5.0)));
+        assert_eq!(compiled.destination_position(7), None);
+    }
+
+    #[test]
     fn scene_hash_changes_when_the_seed_changes() {
         let a = valid_scene().compile().unwrap();
         let mut scene = valid_scene();
@@ -2726,6 +3123,15 @@ pub struct SpawnRegion {
     pub destination: u16,
 }
 
+/// Floor on an agent's preferred speed, in metres per second.
+///
+/// The spawn phase clamps sampled speeds to this floor, and compilation
+/// rejects any population whose mean sits below it. Both use this one constant
+/// deliberately: if the clamp's floor could exceed its ceiling, `f32::clamp`
+/// panics — in release as well as debug — and the tick loop is required to be
+/// infallible.
+pub const MIN_PREFERRED_SPEED: f32 = 0.4;
+
 /// Distributions an agent's varied attributes are drawn from.
 #[derive(Clone, Copy, Debug)]
 pub struct PopulationParams {
@@ -2778,6 +3184,8 @@ pub enum SceneError {
     DestinationNodeMissing { destination: u16, node: u32 },
     UnreachableDestination { spawn: u16, destination: u16 },
     InvalidTickRate { ticks_per_second: u32 },
+    /// A population whose distributions cannot produce a usable agent.
+    InvalidPopulation { population: u16, field: &'static str },
 }
 
 /// A validated scene, ready to simulate.
@@ -2821,6 +3229,39 @@ impl SceneDef {
         }
         if self.spawns.is_empty() {
             errors.push(SceneError::NoSpawns);
+        }
+
+        // Populations are validated here rather than defended against in the
+        // spawn phase. A nonsensical distribution is an authoring fault, and
+        // catching it at the boundary keeps the tick loop free of guards.
+        for (index, population) in self.populations.iter().enumerate() {
+            let index = index as u16;
+            let mut reject = |field: &'static str| {
+                errors.push(SceneError::InvalidPopulation {
+                    population: index,
+                    field,
+                })
+            };
+            // NaN is tested explicitly rather than relying on a negated
+            // comparison. Both forms reject it, but `is_nan()` says so out
+            // loud, and clippy rejects the negated form under `-D warnings`.
+            if population.radius_min.is_nan() || population.radius_min <= 0.0 {
+                reject("radius_min");
+            }
+            if population.radius_max.is_nan() || population.radius_max < population.radius_min {
+                reject("radius_max");
+            }
+            // Below this floor the spawn clamp's minimum would exceed its
+            // maximum, and `f32::clamp` panics on inverted bounds.
+            if population.speed_mean.is_nan() || population.speed_mean < MIN_PREFERRED_SPEED {
+                reject("speed_mean");
+            }
+            if population.speed_stddev.is_nan() || population.speed_stddev < 0.0 {
+                reject("speed_stddev");
+            }
+            if population.max_speed_factor.is_nan() || population.max_speed_factor < 1.0 {
+                reject("max_speed_factor");
+            }
         }
 
         for (index, destination) in self.destinations.iter().enumerate() {
@@ -2911,20 +3352,35 @@ fn compute_scene_hash(scene: &SceneDef) -> u64 {
     ] {
         h = hash_combine(h, value.to_bits() as u64);
     }
+    // Each collection folds in its length first. Without it, a differently
+    // shaped sequence of the same values could in principle mix to the same
+    // state — cheap to close, and this hash gates baseline compatibility.
+    h = hash_combine(h, scene.walls.len() as u64);
     for wall in &scene.walls {
         for value in [wall.a.x, wall.a.y, wall.b.x, wall.b.y] {
             h = hash_combine(h, value.to_bits() as u64);
         }
     }
+    h = hash_combine(h, scene.waypoints.node_count() as u64);
     for node in 0..scene.waypoints.node_count() {
         let p = scene.waypoints.position(node);
         h = hash_combine(h, p.x.to_bits() as u64);
         h = hash_combine(h, p.y.to_bits() as u64);
+        // Topology, not just geometry. Routing follows the edges, so a rewired
+        // graph with unmoved nodes simulates differently and must not share a
+        // hash with the original.
+        let neighbors = scene.waypoints.neighbors(node);
+        h = hash_combine(h, neighbors.len() as u64);
+        for neighbor in neighbors {
+            h = hash_combine(h, *neighbor as u64);
+        }
     }
+    h = hash_combine(h, scene.destinations.len() as u64);
     for destination in &scene.destinations {
         h = hash_combine(h, hash_str(&destination.name));
         h = hash_combine(h, destination.node as u64);
     }
+    h = hash_combine(h, scene.spawns.len() as u64);
     for spawn in &scene.spawns {
         h = hash_combine(h, spawn.id as u64);
         h = hash_combine(h, spawn.population_id as u64);
@@ -2963,9 +3419,15 @@ impl CompiledScene {
         self.spawns.iter().map(|s| s.count).sum()
     }
 
-    pub fn destination_position(&self, destination: u16) -> Vec2 {
-        self.waypoints
-            .position(self.destinations[destination as usize].node)
+    /// `None` for an unknown destination index.
+    ///
+    /// Every internally-produced index is validated at compile time, but a
+    /// caller iterating the wrong bound would otherwise panic mid-bake — and
+    /// the error model says diagnose, never crash.
+    pub fn destination_position(&self, destination: u16) -> Option<Vec2> {
+        self.destinations
+            .get(destination as usize)
+            .map(|d| self.waypoints.position(d.node))
     }
 }
 ```
@@ -2977,7 +3439,7 @@ In `crates/crowd-core/src/lib.rs` add `pub mod scene;` and `pub use scene::{Comp
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core scene`
-Expected: PASS, 12 tests.
+Expected: PASS, 21 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -3147,7 +3609,7 @@ Prepend to `crates/crowd-core/src/phases/spawn.rs`:
 use crate::ids::derive_agent_id;
 use crate::rng::{Purpose, StableRng};
 use crate::route::RouteArena;
-use crate::scene::CompiledScene;
+use crate::scene::{CompiledScene, MIN_PREFERRED_SPEED};
 use crate::units::Vec2;
 use crate::world::{AgentSpawn, SpawnError, World, NO_ROUTE};
 
@@ -3214,9 +3676,15 @@ pub fn apply_spawns(
                 StableRng::for_agent(scene.project_seed, agent_id, Purpose::PreferredSpeed);
             // Clamp keeps a rare tail sample from producing a zero or negative
             // preferred speed, which would make an agent permanently stalled.
+            //
+            // The bounds cannot invert: scene compilation rejects any
+            // population with `speed_mean < MIN_PREFERRED_SPEED`, so the
+            // ceiling is always at least twice the floor. That check is what
+            // makes this `clamp` safe — `f32::clamp` panics on inverted
+            // bounds, in release as well as debug.
             let preferred_speed = speed_rng
                 .normal_f32(params.speed_mean, params.speed_stddev)
-                .clamp(0.4, params.speed_mean * 2.0);
+                .clamp(MIN_PREFERRED_SPEED, params.speed_mean * 2.0);
 
             let mut position_rng =
                 StableRng::for_agent(scene.project_seed, agent_id, Purpose::SpawnPosition);
@@ -4129,7 +4597,7 @@ Prepend to `crates/crowd-core/src/avoidance/sampled.rs`:
 //! have, so they never both yield or both push.
 
 use super::{AvoidanceInput, AvoidanceOutput, AvoidanceSolver};
-use crate::geometry::{time_to_collision_disc, time_to_collision_segment, Segment};
+use crate::geometry::{time_to_collision_disc, time_to_collision_segment};
 use crate::units::Vec2;
 use crate::world::SolverStatus;
 
@@ -4156,8 +4624,14 @@ pub struct SampledVelocitySolver {
     /// Extra collision weight carried by the higher-ID agent in a conflict,
     /// which is what makes a symmetric crossing resolve.
     pub yield_factor: f32,
-    /// Below this predicted time to collision, the agent is reported braking.
-    pub critical_time_to_collision: f32,
+    /// Choosing a speed below this fraction of the preferred speed counts as
+    /// braking.
+    ///
+    /// Braking cannot be defined by the chosen candidate's time to collision:
+    /// stopping has an *infinite* one by construction, so the graceful
+    /// fallback would never report itself. What actually distinguishes it is
+    /// that the solver gave up on making progress.
+    pub brake_speed_fraction: f32,
     /// Comfortable clearance beyond touching radii, in meters.
     pub personal_space: f32,
     /// How strongly local crowding reduces preferred speed.
@@ -4179,7 +4653,7 @@ impl Default for SampledVelocitySolver {
             smoothness_weight: 0.35,
             side_bias_weight: 0.6,
             yield_factor: 1.4,
-            critical_time_to_collision: 0.5,
+            brake_speed_fraction: 0.5,
             personal_space: 0.45,
             density_speed_factor: 0.18,
             head_on_cosine: 0.7,
@@ -4372,7 +4846,7 @@ impl AvoidanceSolver for SampledVelocitySolver {
         // when no feasible velocity exists.
         evaluate(Vec2::ZERO, &mut best_velocity, &mut best_cost, &mut best_ttc);
 
-        let status = if best_ttc < self.critical_time_to_collision {
+        let status = if best_velocity.length() < preferred_speed * self.brake_speed_fraction {
             SolverStatus::Braking
         } else if (best_velocity - preferred).length() > 1e-3 {
             SolverStatus::Avoiding
@@ -4401,7 +4875,7 @@ In `crates/crowd-core/src/lib.rs` add `pub mod avoidance;` and `pub use avoidanc
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `cargo test -p crowd-core avoidance`
-Expected: PASS, 13 tests.
+Expected: PASS, 15 tests.
 
 If `a_boxed_in_agent_brakes_rather_than_escaping` fails, the box in the fixture is smaller than the agent diameter plus clearance — widen the walls to ±0.8 rather than weakening the assertion.
 
@@ -4621,10 +5095,15 @@ Prepend to `crates/crowd-core/src/phases/steer.rs`:
 
 use crate::arena::NeighborArena;
 use crate::avoidance::{AvoidanceInput, AvoidanceSolver, NeighborState};
-use crate::geometry::Segment;
+use crate::geometry::{time_to_collision_disc, time_to_collision_segment, Segment};
 use crate::scene::CompiledScene;
 use crate::units::Vec2;
 use crate::world::{SolverStatus, World};
+
+/// Horizon used only for the raw, pre-avoidance wall threat estimate below.
+/// Generous on purpose: this is a metrics figure, not a safety cutoff, so
+/// erring toward reporting a threat is preferable to missing one.
+const RAW_WALL_HORIZON: f32 = 10.0;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SteerConfig {
@@ -4720,9 +5199,37 @@ pub fn steer(
             world.stall_ticks[slot] = 0;
         }
 
-        if output.min_time_to_collision < min_time_to_collision {
-            min_time_to_collision = output.min_time_to_collision;
+        // `output.min_time_to_collision` is the chosen candidate's own risk,
+        // which is legitimately infinite when avoidance fully succeeds. That
+        // alone would make this report unable to see a near miss the solver
+        // just steered around, so also probe the raw, pre-avoidance risk the
+        // agent would have run into on its original preferred velocity.
+        let mut raw_ttc = f32::INFINITY;
+        for neighbor in &scratch.neighbors {
+            let relative_position = neighbor.position - position;
+            let relative_velocity = neighbor.velocity - preferred;
+            let combined_radius = world.radius[slot] + neighbor.radius;
+            if let Some(t) =
+                time_to_collision_disc(relative_position, relative_velocity, combined_radius)
+            {
+                raw_ttc = raw_ttc.min(t);
+            }
         }
+        for wall in &scratch.walls {
+            if let Some(t) = time_to_collision_segment(
+                position,
+                preferred,
+                world.radius[slot],
+                wall,
+                RAW_WALL_HORIZON,
+            ) {
+                raw_ttc = raw_ttc.min(t);
+            }
+        }
+
+        min_time_to_collision = min_time_to_collision
+            .min(output.min_time_to_collision)
+            .min(raw_ttc);
     }
 
     SteerReport {
@@ -4967,7 +5474,7 @@ Prepend to `crates/crowd-core/src/phases/integrate.rs`:
 
 use crate::geometry::Segment;
 use crate::scene::CompiledScene;
-use crate::units::Vec2;
+use crate::units::{wrap_angle, Vec2};
 use crate::world::World;
 
 #[derive(Clone, Copy, Debug)]
@@ -5084,18 +5591,6 @@ pub fn integrate(
     }
 
     report
-}
-
-/// Wrap to `(-pi, pi]` so yaw differences take the short way round.
-fn wrap_angle(angle: f32) -> f32 {
-    use std::f32::consts::{PI, TAU};
-    let mut a = angle % TAU;
-    if a > PI {
-        a -= TAU;
-    } else if a <= -PI {
-        a += TAU;
-    }
-    a
 }
 ```
 
@@ -5328,7 +5823,7 @@ use crate::geometry::Segment;
 use crate::phases::integrate::IntegrateReport;
 use crate::phases::steer::SteerReport;
 use crate::scene::CompiledScene;
-use crate::units::Vec2;
+use crate::units::{wrap_angle, Vec2};
 use crate::world::{SolverStatus, World};
 
 /// Which pipeline phase a timing sample belongs to.
@@ -5724,17 +6219,6 @@ fn gate_side(gate: &Segment, p: Vec2) -> i8 {
     } else {
         0
     }
-}
-
-fn wrap_angle(angle: f32) -> f32 {
-    use std::f32::consts::{PI, TAU};
-    let mut a = angle % TAU;
-    if a > PI {
-        a -= TAU;
-    } else if a <= -PI {
-        a += TAU;
-    }
-    a
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -8057,14 +8541,15 @@ fn command_run(args: &Args) -> Result<(), String> {
 fn command_sweep(args: &Args) -> Result<(), String> {
     for scene in scenes_to_run(args)? {
         for agents in [100u32, 500, 1000, 2000] {
-            let mut sweep_args = Args {
+            // Never record SVGs during a sweep: the per-tick sampling would
+            // skew the very timing numbers the sweep exists to measure.
+            let sweep_args = Args {
                 scene: Some(scene.clone()),
                 agents,
                 seed: args.seed,
                 svg: false,
                 out: args.out.clone(),
             };
-            sweep_args.svg = false;
             let report = run_scene(&options_for(&scene, &sweep_args))?;
             println!(
                 "{scene},{agents},{:.4},{:.1},{}",
