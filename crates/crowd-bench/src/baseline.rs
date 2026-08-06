@@ -50,6 +50,11 @@ pub struct Drift {
 pub struct Comparison {
     pub passed: bool,
     pub drifts: Vec<Drift>,
+    /// `Some((baseline, current))` when the baseline was captured with a
+    /// different solver than the one just run. A cross-solver comparison is
+    /// not a metric drift — the numbers were never expected to agree — so
+    /// this is reported separately rather than folded into `drifts`.
+    pub solver_mismatch: Option<(String, String)>,
 }
 
 /// Flatten a summary into comparable named values.
@@ -158,6 +163,17 @@ pub fn compare(baseline: &Baseline, report: &Report) -> Comparison {
         return Comparison {
             passed: false,
             drifts,
+            solver_mismatch: None,
+        };
+    }
+
+    // A different solver was never expected to reproduce the same numbers, so
+    // report that distinctly rather than as twenty confusing metric drifts.
+    if baseline.solver != report.solver {
+        return Comparison {
+            passed: false,
+            drifts,
+            solver_mismatch: Some((baseline.solver.clone(), report.solver.clone())),
         };
     }
 
@@ -191,6 +207,7 @@ pub fn compare(baseline: &Baseline, report: &Report) -> Comparison {
     Comparison {
         passed: drifts.is_empty(),
         drifts,
+        solver_mismatch: None,
     }
 }
 
@@ -206,6 +223,7 @@ mod tests {
             seed: 2026,
             svg: false,
             out_dir: std::env::temp_dir().join("crowd_bench_baseline_test"),
+            solver: crate::report::SolverKind::SampledVelocity,
         })
         .unwrap()
     }
@@ -264,6 +282,24 @@ mod tests {
         assert!(
             comparison.drifts.iter().any(|d| d.metric == "scene_hash"),
             "a baseline from a different scene must be rejected, not compared"
+        );
+    }
+
+    #[test]
+    fn a_solver_mismatch_fails_immediately_without_metric_drifts() {
+        let report = report();
+        let mut baseline = from_report(&report);
+        baseline.solver = "orca".to_string();
+        let comparison = compare(&baseline, &report);
+        assert!(!comparison.passed);
+        assert_eq!(
+            comparison.solver_mismatch,
+            Some(("orca".to_string(), report.solver.clone()))
+        );
+        assert!(
+            comparison.drifts.is_empty(),
+            "a solver mismatch is not a metric drift: {:?}",
+            comparison.drifts
         );
     }
 

@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crowd_core::avoidance::SampledVelocitySolver;
+use crowd_core::avoidance::{AnticipatorySolver, AvoidanceSolver, OrcaSolver, SampledVelocitySolver};
 use crowd_core::metrics::{MetricsConfig, MetricsSummary};
 use crowd_core::scenes;
 use crowd_core::sim::{SimConfig, Simulation};
@@ -18,6 +18,34 @@ use crate::svg::TrajectoryRecorder;
 /// Bumped whenever the report schema changes incompatibly.
 pub const REPORT_SCHEMA_VERSION: u32 = 1;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SolverKind {
+    SampledVelocity,
+    Orca,
+    Anticipatory,
+}
+
+impl SolverKind {
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "sampled_velocity" => Ok(SolverKind::SampledVelocity),
+            "orca" => Ok(SolverKind::Orca),
+            "anticipatory" => Ok(SolverKind::Anticipatory),
+            other => Err(format!(
+                "unknown solver: {other}; known solvers: sampled_velocity, orca, anticipatory"
+            )),
+        }
+    }
+
+    fn build(self) -> Box<dyn AvoidanceSolver> {
+        match self {
+            SolverKind::SampledVelocity => Box::new(SampledVelocitySolver::default()),
+            SolverKind::Orca => Box::new(OrcaSolver::default()),
+            SolverKind::Anticipatory => Box::new(AnticipatorySolver::default()),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RunOptions {
     pub scene: String,
@@ -25,6 +53,7 @@ pub struct RunOptions {
     pub seed: u64,
     pub svg: bool,
     pub out_dir: PathBuf,
+    pub solver: SolverKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -154,7 +183,7 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
         ..SimConfig::default()
     };
 
-    let mut sim = Simulation::new(scene, Box::new(SampledVelocitySolver::default()), config);
+    let mut sim = Simulation::new(scene, options.solver.build(), config);
 
     // PEAK/LIVE are process-wide (see alloc::measurement_lock), so exclude
     // concurrent measurement windows (parallel tests, or another run_scene on
@@ -223,6 +252,7 @@ mod tests {
             seed: 2026,
             svg: false,
             out_dir: std::env::temp_dir().join("crowd_bench_test"),
+            solver: SolverKind::SampledVelocity,
         }
     }
 

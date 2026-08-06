@@ -26,10 +26,10 @@ const REPORT_DIR: &str = "benchmarks/reports";
 
 fn usage() -> &'static str {
     "usage:
-  crowd-bench run [--scene NAME] [--agents N] [--seed N] [--svg] [--out DIR]
+  crowd-bench run [--scene NAME] [--agents N] [--seed N] [--svg] [--out DIR] [--solver NAME]
   crowd-bench sweep [--scene NAME] [--seed N]
-  crowd-bench baseline [--scene NAME] [--agents N] [--seed N]
-  crowd-bench check [--agents N] [--seed N]
+  crowd-bench baseline [--scene NAME] [--agents N] [--seed N] [--solver NAME]
+  crowd-bench check [--agents N] [--seed N] [--solver NAME]
 
 Omitting --scene runs every scene."
 }
@@ -40,6 +40,7 @@ struct Args {
     seed: u64,
     svg: bool,
     out: PathBuf,
+    solver: crate::report::SolverKind,
 }
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -49,6 +50,7 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         seed: DEFAULT_SEED,
         svg: false,
         out: PathBuf::from(REPORT_DIR),
+        solver: crate::report::SolverKind::SampledVelocity,
     };
     let mut index = 0;
     while index < raw.len() {
@@ -78,6 +80,11 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
                 args.out = PathBuf::from(raw.get(index).ok_or("--out needs a value")?);
             }
             "--svg" => args.svg = true,
+            "--solver" => {
+                index += 1;
+                let name = raw.get(index).ok_or("--solver needs a value")?;
+                args.solver = crate::report::SolverKind::parse(name)?;
+            }
             other => return Err(format!("unknown argument: {other}")),
         }
         index += 1;
@@ -107,6 +114,7 @@ fn options_for(scene: &str, args: &Args) -> RunOptions {
         seed: args.seed,
         svg: args.svg,
         out_dir: args.out.clone(),
+        solver: args.solver,
     }
 }
 
@@ -141,6 +149,7 @@ fn command_sweep(args: &Args) -> Result<(), String> {
                 seed: args.seed,
                 svg: false,
                 out: args.out.clone(),
+                solver: args.solver,
             };
             let report = run_scene(&options_for(&scene, &sweep_args))?;
             println!(
@@ -176,6 +185,11 @@ fn command_check(args: &Args) -> Result<bool, String> {
         let stored: baseline::Baseline =
             serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
 
+        // Replay against the solver the baseline was captured with, not
+        // whatever --solver this invocation passed: `check` verifies the
+        // stored numbers still hold for their own solver, and a mismatched
+        // solver is reported distinctly below rather than silently swapped in.
+        let stored_solver = crate::report::SolverKind::parse(&stored.solver)?;
         let report = run_scene(&options_for(
             &scene,
             &Args {
@@ -184,6 +198,7 @@ fn command_check(args: &Args) -> Result<bool, String> {
                 seed: stored.seed,
                 svg: false,
                 out: args.out.clone(),
+                solver: stored_solver,
             },
         ))?;
 
@@ -193,6 +208,11 @@ fn command_check(args: &Args) -> Result<bool, String> {
         } else {
             all_passed = false;
             println!("{scene}: DRIFT");
+            if let Some((baseline_solver, current_solver)) = &comparison.solver_mismatch {
+                println!(
+                    "  solver: baseline {baseline_solver}, now {current_solver} (not comparable)"
+                );
+            }
             for drift in &comparison.drifts {
                 println!(
                     "  {}: baseline {}, now {} (tolerance {:.0}%)",
