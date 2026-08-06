@@ -29,27 +29,15 @@
 //! collision weight. Both agents can compute that from data both already
 //! have, so they never both yield or both push.
 
-use super::{AvoidanceInput, AvoidanceOutput, AvoidanceSolver};
-use crate::geometry::{time_to_collision_disc, time_to_collision_segment};
+use super::{
+    density_adjusted_preferred, sample_candidates, side_bias_cost, wall_avoidance_cost,
+    AvoidanceInput, AvoidanceOutput, AvoidanceSolver, OVERLAP_URGENCY, MIN_TIME_FOR_COST,
+};
+use crate::geometry::time_to_collision_disc;
 use crate::units::Vec2;
 use crate::world::SolverStatus;
 
 pub use super::NeighborState;
-
-/// Cost scale for an existing overlap.
-///
-/// Deliberately comparable to the other terms rather than dominating them.
-/// An unbounded `1/t` made a single touching neighbour cost ~200 against a
-/// goal term of ~1.4, so once any pair touched the solver stopped steering
-/// toward the destination at all and only jostled to separate -- a crowd that
-/// freezes on contact.
-const OVERLAP_URGENCY: f32 = 8.0;
-
-/// Floor on predicted time-to-collision when converting it to a cost.
-///
-/// Bounds the `1/t` term for the same reason: an imminent collision should
-/// dominate, not annihilate, every other consideration.
-const MIN_TIME_FOR_COST: f32 = 0.25;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SampledVelocitySolver {
@@ -163,93 +151,26 @@ impl SampledVelocitySolver {
             }
         }
 
-        for wall in input.walls {
-            let Some(t) = time_to_collision_segment(
-                input.position,
-                candidate,
-                input.radius,
-                wall,
-                self.wall_horizon,
-            ) else {
-                continue;
-            };
-            if t < earliest {
-                earliest = t;
-            }
-            if t <= 0.0 {
-                // Already inside the wall. As with an overlapping neighbour,
-                // `t` is zero for every candidate, so a penalty derived from
-                // it is a constant that cancels out of the argmin — the wall
-                // becomes invisible for this tick and the agent may steer
-                // deeper in. Penalise by whether the candidate is closing on
-                // the wall or escaping it.
-                let closest = wall.closest_point(input.position);
-                let outward = (input.position - closest).normalize_or_zero();
-                // Exactly on the surface: use the wall's own normal, chosen by
-                // a fixed rule so the result stays deterministic.
-                let outward = if outward == Vec2::ZERO {
-                    (wall.b - wall.a).normalize_or_zero().perp()
-                } else {
-                    outward
-                };
-                let escape_rate = candidate.dot(outward);
-                let relief = (escape_rate / input.max_speed.max(0.1)).clamp(0.0, 1.0);
-                cost += self.collision_weight * self.wall_weight * OVERLAP_URGENCY * (1.0 - relief);
-            } else {
-                // Walls never yield, so they are weighted more heavily than a
-                // neighbor at the same predicted range.
-                cost += self.collision_weight * self.wall_weight / t.max(MIN_TIME_FOR_COST);
-            }
+        let (wall_cost, wall_earliest) = wall_avoidance_cost(
+            input.position,
+            input.max_speed,
+            candidate,
+            input.radius,
+            input.walls,
+            self.wall_horizon,
+            self.collision_weight,
+            self.wall_weight,
+            OVERLAP_URGENCY,
+            MIN_TIME_FOR_COST,
+        );
+        cost += wall_cost;
+        if wall_earliest < earliest {
+            earliest = wall_earliest;
         }
 
         (cost, earliest)
     }
 
-    /// Extra cost for passing a head-on neighbor on the wrong side.
-    ///
-    /// A **fixed** keep-left convention, evaluated in the agent's own frame.
-    /// Deriving the side from an ID comparison would be actively wrong here:
-    /// mirrored agents would derive opposite answers, which in mirrored frames
-    /// means the same world-space deflection, and they would fail to separate.
-    fn side_bias_cost(&self, input: &AvoidanceInput<'_>, candidate: Vec2) -> f32 {
-        let mut cost = 0.0;
-        let heading = input.preferred.normalize_or_zero();
-        if heading == Vec2::ZERO {
-            return 0.0;
-        }
-
-        for neighbor in input.neighbors {
-            let to_neighbor = (neighbor.position - input.position).normalize_or_zero();
-            if to_neighbor == Vec2::ZERO || heading.dot(to_neighbor) < self.head_on_cosine {
-                continue;
-            }
-            // Only bias against neighbors actually closing on us.
-            if (neighbor.velocity - input.velocity).dot(to_neighbor) >= 0.0 {
-                continue;
-            }
-
-            // Positive cross product means the candidate passes to the left as
-            // the agent looks at the neighbor — its own left, in its own frame.
-            let candidate_side = to_neighbor.x * candidate.y - to_neighbor.y * candidate.x;
-            if candidate_side < 0.0 {
-                cost += self.side_bias_weight;
-            }
-        }
-        cost
-    }
-
-    /// Preferred velocity scaled down by local crowding.
-    fn density_adjusted_preferred(&self, input: &AvoidanceInput<'_>) -> Vec2 {
-        let crowding = input
-            .neighbors
-            .iter()
-            .filter(|n| {
-                let clearance = input.radius + n.radius + self.personal_space;
-                (n.position - input.position).length_squared() < clearance * clearance
-            })
-            .count() as f32;
-        input.preferred * (1.0 / (1.0 + self.density_speed_factor * crowding))
-    }
 }
 
 impl AvoidanceSolver for SampledVelocitySolver {
@@ -258,9 +179,15 @@ impl AvoidanceSolver for SampledVelocitySolver {
     }
 
     fn solve(&self, input: &AvoidanceInput<'_>) -> AvoidanceOutput {
-        let preferred = self
-            .density_adjusted_preferred(input)
-            .clamp_length(input.max_speed);
+        let preferred = density_adjusted_preferred(
+            input.preferred,
+            input.position,
+            input.radius,
+            input.neighbors,
+            self.personal_space,
+            self.density_speed_factor,
+        )
+        .clamp_length(input.max_speed);
 
         // A stationary agent with no goal has nothing to solve, and sampling
         // headings around a zero vector would be meaningless.
@@ -293,7 +220,15 @@ impl AvoidanceSolver for SampledVelocitySolver {
                 let cost = self.goal_weight * (candidate - preferred).length()
                     + self.smoothness_weight * (candidate - input.velocity).length()
                     + collision_cost
-                    + self.side_bias_cost(input, candidate);
+                    + side_bias_cost(
+                        input.preferred,
+                        input.position,
+                        input.velocity,
+                        input.neighbors,
+                        candidate,
+                        self.head_on_cosine,
+                        self.side_bias_weight,
+                    );
                 // Strict `<` means the first candidate evaluated wins a tie, and
                 // candidate order is fixed, so ties resolve identically every run.
                 if cost < *best_cost {
@@ -306,20 +241,13 @@ impl AvoidanceSolver for SampledVelocitySolver {
         evaluate(preferred, &mut best_velocity, &mut best_cost, &mut best_ttc);
 
         let speed_reference = preferred_speed.max(input.velocity.length());
-        for speed_index in 1..=self.speed_samples {
-            let speed = speed_reference * speed_index as f32 / self.speed_samples as f32;
-            for heading_index in 0..self.heading_samples {
-                let angle =
-                    std::f32::consts::TAU * heading_index as f32 / self.heading_samples as f32;
-                let direction = rotate(heading, angle);
-                evaluate(
-                    direction * speed,
-                    &mut best_velocity,
-                    &mut best_cost,
-                    &mut best_ttc,
-                );
-            }
-        }
+        sample_candidates(
+            heading,
+            speed_reference,
+            self.speed_samples,
+            self.heading_samples,
+            |candidate| evaluate(candidate, &mut best_velocity, &mut best_cost, &mut best_ttc),
+        );
 
         // Stopping is always available. It is the contract's graceful fallback
         // when no feasible velocity exists.
@@ -343,11 +271,6 @@ impl AvoidanceSolver for SampledVelocitySolver {
             status,
         }
     }
-}
-
-fn rotate(v: Vec2, angle: f32) -> Vec2 {
-    let (sin, cos) = angle.sin_cos();
-    Vec2::new(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
 }
 
 #[cfg(test)]
