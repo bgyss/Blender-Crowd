@@ -30,6 +30,7 @@ fn usage() -> &'static str {
   crowd-bench sweep [--scene NAME] [--seed N]
   crowd-bench baseline [--scene NAME] [--agents N] [--seed N] [--solver NAME]
   crowd-bench check [--agents N] [--seed N] [--solver NAME]
+  crowd-bench compare [--out DIR]
 
 Omitting --scene runs every scene."
 }
@@ -227,6 +228,56 @@ fn command_check(args: &Args) -> Result<bool, String> {
     Ok(all_passed)
 }
 
+const COMPARE_SOLVERS: [(&str, crate::report::SolverKind); 3] = [
+    (
+        "sampled_velocity",
+        crate::report::SolverKind::SampledVelocity,
+    ),
+    ("orca", crate::report::SolverKind::Orca),
+    ("anticipatory", crate::report::SolverKind::Anticipatory),
+];
+const COMPARE_SCALES: [u32; 4] = [100, 500, 1000, 2000];
+
+fn command_compare(args: &Args) -> Result<(), String> {
+    std::fs::create_dir_all(&args.out).map_err(|e| e.to_string())?;
+    let mut reports = Vec::new();
+    for scene in scenes::SCENE_NAMES {
+        for &(_, solver) in &COMPARE_SOLVERS {
+            for &agents in &COMPARE_SCALES {
+                let options = RunOptions {
+                    scene: scene.to_string(),
+                    agents,
+                    seed: args.seed,
+                    svg: false,
+                    out_dir: args.out.clone(),
+                    solver,
+                };
+                let report = run_scene(&options)?;
+                println!(
+                    "{},{},{agents},{:.3},{:.2},{},{},{}",
+                    report.scene,
+                    report.solver,
+                    report.metrics.completion_rate,
+                    report.metrics.mean_time_to_collision,
+                    report.metrics.penetration_pair_ticks,
+                    report.metrics.ticks_per_second_achieved as u64,
+                    report.metrics.peak_allocated_bytes,
+                );
+                reports.push(report);
+            }
+        }
+    }
+    let date = reports
+        .first()
+        .map(|r| r.environment.captured_at[..10].to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let path = args.out.join(format!("compare-{date}.json"));
+    let json = serde_json::to_string_pretty(&reports).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    println!("wrote {}", path.display());
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let Some((command, rest)) = argv.split_first() else {
@@ -247,6 +298,7 @@ fn main() -> ExitCode {
         "sweep" => command_sweep(&args).map(|()| true),
         "baseline" => command_baseline(&args).map(|()| true),
         "check" => command_check(&args),
+        "compare" => command_compare(&args).map(|()| true),
         other => Err(format!("unknown command: {other}\n\n{}", usage())),
     };
 

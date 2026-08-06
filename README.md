@@ -53,8 +53,9 @@ cargo test --workspace                                    # unit, property, dete
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
 cargo clippy --workspace --all-targets -- -D warnings
 
-cargo run --release -p crowd-bench -- run --agents 1000 --svg
+cargo run --release -p crowd-bench -- run --agents 1000 --svg --solver orca
 cargo run --release -p crowd-bench -- check --agents 1000 # regression against baselines
+cargo run --release -p crowd-bench -- compare --out benchmarks/reports  # three-solver, four-scale bake-off
 ```
 
 `cargo test --workspace` runs the density fuzz in debug, which is slow; use the

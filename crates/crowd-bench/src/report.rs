@@ -6,7 +6,9 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crowd_core::avoidance::{AnticipatorySolver, AvoidanceSolver, OrcaSolver, SampledVelocitySolver};
+use crowd_core::avoidance::{
+    AnticipatorySolver, AvoidanceSolver, OrcaSolver, SampledVelocitySolver,
+};
 use crowd_core::metrics::{MetricsConfig, MetricsSummary};
 use crowd_core::scenes;
 use crowd_core::sim::{SimConfig, Simulation};
@@ -64,6 +66,11 @@ pub struct Environment {
     pub ram_bytes: u64,
     pub rustc_version: String,
     pub build_profile: String,
+    /// RFC 3339, e.g. "2026-08-06T00:00:00Z". Best-effort: this project has
+    /// no date/time dependency, so it is read from the system clock via
+    /// `std::time::SystemTime` and formatted by hand rather than pulling one
+    /// in for a single field.
+    pub captured_at: String,
 }
 
 impl Environment {
@@ -79,8 +86,41 @@ impl Environment {
             } else {
                 "release".to_string()
             },
+            captured_at: format_utc_now(),
         }
     }
+}
+
+fn format_utc_now() -> String {
+    let duration = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let days_since_epoch = duration.as_secs() / 86_400;
+    let seconds_today = duration.as_secs() % 86_400;
+    let (year, month, day) = civil_from_days(days_since_epoch as i64);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        seconds_today / 3600,
+        (seconds_today % 3600) / 60,
+        seconds_today % 60
+    )
+}
+
+/// Howard Hinnant's `civil_from_days`: days since the Unix epoch to a
+/// proleptic Gregorian (year, month, day). Small, dependency-free, and exact
+/// -- the usual reason to reach for a date-time crate (leap years, month
+/// lengths) is handled by this one closed-form conversion.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 /// Best-effort CPU name. Unknown is acceptable; a wrong value is not.
@@ -306,5 +346,27 @@ mod tests {
     fn the_report_records_the_scene_hash() {
         let report = run_scene(&options("circle", 32)).unwrap();
         assert_ne!(report.scene_hash, 0);
+    }
+
+    #[test]
+    fn civil_from_days_matches_a_known_date() {
+        // 2026-08-06 is 20,671 days after the Unix epoch (1970-01-01),
+        // cross-checked against Python's `datetime` stdlib:
+        // `date(1970,1,1) + timedelta(days=20671) == date(2026,8,6)`.
+        // (The brief's original constant, 20_306, was independently
+        // verified to correspond to 2025-08-06, not 2026-08-06.)
+        assert_eq!(civil_from_days(20_671), (2026, 8, 6));
+    }
+
+    #[test]
+    fn captured_at_is_well_formed_rfc3339() {
+        let environment = Environment::capture();
+        assert_eq!(
+            environment.captured_at.len(),
+            20,
+            "{}",
+            environment.captured_at
+        );
+        assert!(environment.captured_at.ends_with('Z'));
     }
 }
