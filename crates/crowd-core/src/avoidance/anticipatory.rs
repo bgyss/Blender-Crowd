@@ -49,7 +49,12 @@ pub struct AnticipatorySolver {
     pub personal_space: f32,
     pub density_speed_factor: f32,
     pub head_on_cosine: f32,
-    /// Cheap repulsion weight for neighbors past the lookahead cutoff.
+    /// Repulsion weight for neighbors past the lookahead cutoff. Recalibrated from
+    /// the plan's original 0.15 to 10.0 to bring `far_field_cost` into the same
+    /// order of magnitude as near-field collision cost in typical geometries
+    /// (~13.3 vs ~13.3 in ring tests). The fit is narrow: [8, 15] works,
+    /// [0.6, 3.0] and [20.0+] fail `dense_neighbors_reduce_speed`. May require
+    /// per-scene tuning in Task 9's bake-off due to raw-distance scaling.
     pub far_field_weight: f32,
 }
 
