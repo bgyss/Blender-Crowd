@@ -6,7 +6,7 @@
   "solver": "sampled_velocity",
   "metrics": {
     "abrupt_turns": {
-      "value": 4752.0,
+      "value": 4084.0,
       "tolerance": 0.0
     },
     "agents_arrived": {
@@ -21,6 +21,10 @@
       "value": 1000.0,
       "tolerance": 0.0
     },
+    "agents_unrouted": {
+      "value": 0.0,
+      "tolerance": 0.0
+    },
     "completion_rate": {
       "value": 0.4440000057220459,
       "tolerance": 0.0
@@ -30,7 +34,7 @@
       "tolerance": 0.0
     },
     "heading_reversals": {
-      "value": 324402.0,
+      "value": 320794.0,
       "tolerance": 0.0
     },
     "max_penetration_depth": {
@@ -38,7 +42,7 @@
       "tolerance": 0.0
     },
     "mean_time_to_collision": {
-      "value": 6.247613906860352,
+      "value": 6.4004058837890625,
       "tolerance": 0.0
     },
     "median_travel_seconds": {
@@ -50,7 +54,7 @@
       "tolerance": 0.0
     },
     "near_miss_agent_ticks": {
-      "value": 118571.0,
+      "value": 29252.0,
       "tolerance": 0.0
     },
     "nonfinite_corrections": {
@@ -66,11 +70,11 @@
       "tolerance": 0.15
     },
     "penetration_agent_ticks": {
-      "value": 45530.0,
+      "value": 19786.0,
       "tolerance": 0.0
     },
     "penetration_pair_ticks": {
-      "value": 23681.0,
+      "value": 10470.0,
       "tolerance": 0.0
     },
     "stall_agent_ticks": {
@@ -86,7 +90,7 @@
       "tolerance": 0.0
     },
     "ticks_per_second_achieved": {
-      "value": 101.24571292409107,
+      "value": 103.16012053748996,
       "tolerance": 0.5
     },
     "wall_corrections": {
@@ -94,7 +98,7 @@
       "tolerance": 0.0
     },
     "wall_time_seconds": {
-      "value": 56.219664375,
+      "value": 55.1763605,
       "tolerance": 0.5
     }
   }

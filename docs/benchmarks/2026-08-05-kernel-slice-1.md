@@ -35,12 +35,12 @@ cargo run --release -p crowd-bench -- check --agents 1000
 
 | Scene | Completion | Median travel | Mean TTC | Near-miss agent-ticks | Penetration pair-ticks | Max depth | Agents stalled | Heading reversals | Ticks/s | Peak alloc |
 |---|---|---|---|---|---|---|---|---|---|---|
-| bidirectional_corridor | 24.5% | 124 s | 5.90 s | 370,542 | 188,871 | 0.71 m | 950 | 350,846 | 103 | 0.34 MB |
-| crossing | 21.9% | 128 s | 5.89 s | 253,351 | 109,500 | 0.73 m | 967 | 279,588 | 101 | 0.48 MB |
-| bottleneck | 37.0% | 216 s | 5.57 s | 2,118,866 | 947,983 | 0.75 m | 986 | 334,137 | 105 | 0.40 MB |
-| dense_flow | 33.6% | 197 s | 5.32 s | 2,229,080 | 1,386,087 | 0.73 m | 974 | 352,928 | 99 | 0.44 MB |
-| circle | 44.4% | 174 s | 6.25 s | 118,571 | 23,681 | 0.71 m | 1,000 | 324,402 | 101 | 0.51 MB |
-| l_corridor | 14.7% | 196 s | 5.99 s | 191,599 | 56,447 | 0.71 m | 953 | 428,582 | 98 | 0.48 MB |
+| bidirectional_corridor | 24.5% | 124 s | 6.34 s | 20,481 | 11,104 | 0.68 m | 950 | 348,943 | 104 | 0.34 MB |
+| crossing | 21.9% | 128 s | 6.21 s | 32,894 | 13,705 | 0.73 m | 967 | 277,274 | 102 | 0.48 MB |
+| bottleneck | 37.0% | 216 s | 6.21 s | 1,258,142 | 765,639 | 0.75 m | 986 | 331,504 | 107 | 0.40 MB |
+| dense_flow | 33.6% | 197 s | 6.25 s | 670,357 | 362,538 | 0.72 m | 974 | 349,094 | 101 | 0.44 MB |
+| circle | 44.4% | 174 s | 6.40 s | 29,252 | 10,470 | 0.71 m | 1,000 | 320,794 | 103 | 0.51 MB |
+| l_corridor | 14.7% | 196 s | 6.16 s | 33,168 | 12,698 | 0.70 m | 953 | 427,371 | 101 | 0.48 MB |
 
 Reading the columns, because several of these were renamed after review found
 they did not measure what their names claimed:
@@ -61,6 +61,16 @@ resident set size. It excludes allocator overhead and static data.
 
 Throughput through the constrictions: 412 forward crossings in `bottleneck`
 and 608 in `dense_flow`, against 370 and 336 arrivals respectively.
+
+No agent in any scene failed to get a route (`agents_unrouted` is zero
+throughout), so completion reflects crowd behaviour rather than navigation
+failure.
+
+One caveat worth stating before these numbers are compared across scales:
+`dense_flow`'s mouth is pinned at 6 m, but the corridor *behind* it still
+scales, running 12 m at 100 agents and 38 m at 1,000. The constriction is
+fixed; the tunnel behind it is not. Some of that scene's completion drop is
+the longer run-out, not solver quality.
 
 ## 3. Against the contract's 1K gate
 
@@ -121,12 +131,14 @@ straight line, so the corridor-following navigation had never been exercised
 at scene scale. It immediately became the hardest scene, which is exactly the
 kind of thing a benchmark exists to reveal.
 
-**Penetration is severe.** Maximum depth of 0.71–0.75 m against agent radii of
-0.24–0.38 m means pairs are overlapping by more than a full body diameter —
-agents are passing through each other, not brushing past. `dense_flow` logs
-1.39 million penetration pair-ticks.
+**Penetration is severe, and concentrated.** Maximum depth of 0.71–0.75 m
+against agent radii of 0.24–0.38 m means pairs overlap by more than a full body
+diameter — agents pass through each other rather than brushing past. The
+constricted scenes are where it happens: `bottleneck` logs 766k penetration
+pair-ticks against 10–14k in the open scenes, a 60x spread that says the
+solver copes in open flow and fails at a doorway.
 
-**Oscillation is high.** 280,000–429,000 heading reversals across a run. The
+**Oscillation is high.** Hundreds of thousands of heading reversals per run. The
 smoothness term in the cost function is not enough to suppress the flip-flopping
 that contract section 6.2 names as a production blocker.
 
