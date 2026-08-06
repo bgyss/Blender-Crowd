@@ -1,4 +1,4 @@
-//! The five benchmark scenes.
+//! The six benchmark scenes.
 //!
 //! Chosen to cover the failure modes contract section 6.2 names: lane
 //! formation, perpendicular conflict, doorway congestion, dense convergence,
@@ -591,6 +591,38 @@ mod tests {
             cursor = cursor.max(hi);
         }
         widest
+    }
+
+    #[test]
+    fn agents_actually_cross_the_throughput_gate() {
+        // The gate read zero crossings while 37% of the population walked
+        // through the doorway, because the direction test was inverted and
+        // nothing checked the metric against reality.
+        for scene in ["bottleneck", "dense_flow"] {
+            let compiled = build(scene, 100, 42).unwrap().compile().unwrap();
+            let config = SimConfig {
+                metrics: crate::metrics::MetricsConfig {
+                    throughput_gate: throughput_gate(scene, 100),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut sim =
+                Simulation::new(compiled, Box::new(SampledVelocitySolver::default()), config);
+            sim.run_to_completion();
+            let crossings = sim.metrics().gate_crossings();
+            let arrived = sim.metrics().arrived();
+            assert!(
+                crossings > 0,
+                "{scene}: {arrived} agents arrived but the gate counted none"
+            );
+            // Everyone who arrived had to pass through the constriction, and
+            // only forward crossings count, so the two should be comparable.
+            assert!(
+                crossings >= arrived / 2,
+                "{scene}: {crossings} crossings against {arrived} arrivals"
+            );
+        }
     }
 
     #[test]

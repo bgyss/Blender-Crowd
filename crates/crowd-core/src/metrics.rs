@@ -271,7 +271,10 @@ impl Metrics {
             if let Some(gate) = config.throughput_gate {
                 let side = gate_side(&gate, position);
                 let previous = self.previous_gate_side[slot];
-                let forward = previous < 0 && side > 0;
+                // Forward is positive-to-negative. Gate endpoints must be
+                // ordered so the incoming flow starts on the positive side —
+                // see `scenes::throughput_gate`, which owns that convention.
+                let forward = previous > 0 && side < 0;
                 if forward && within_gate_extent(&gate, position) {
                     self.gate_crossings += 1;
                 }
@@ -306,6 +309,10 @@ impl Metrics {
 
     pub fn penetration_agent_ticks(&self) -> u64 {
         self.penetration_agent_ticks
+    }
+
+    pub fn gate_crossings(&self) -> u64 {
+        self.gate_crossings
     }
 
     pub fn agents_ever_stalled(&self) -> u64 {
