@@ -33,10 +33,11 @@ integration proposal backed by production evidence.
 
 ## Status
 
-Phase 0, slice 1 is implemented: a headless, deterministic Rust simulation
-kernel with structure-of-arrays agents, a fixed tick, spatial queries, one
-sampled-velocity avoidance solver, five benchmark scenes, and a measured
-metrics report. Nothing here touches Blender yet.
+Phase 0 is implemented: a headless, deterministic Rust simulation kernel with
+structure-of-arrays agents, a fixed tick, spatial queries, three avoidance
+solvers, six benchmark scenes, and measured metrics reports. A reproducible
+72-report bake-off selected `sampled_velocity` as the production default.
+Nothing here touches Blender yet.
 
 ![600 agents crossing, sampled_velocity solver](docs/media/crossing-600.gif)
 
@@ -50,6 +51,7 @@ quality gap the benchmark report quantifies. Regenerate it with
 Measured results, including where the current solver falls short:
 
 - [Kernel slice 1 benchmark report](docs/benchmarks/2026-08-05-kernel-slice-1.md)
+- [Avoidance solver comparison and production default](docs/benchmarks/2026-08-06-avoidance-solver-comparison.md)
 
 ## Development
 
