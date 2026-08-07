@@ -8,7 +8,7 @@
 //! linear program in `super::linear_program`.
 
 use super::linear_program::{self, Line};
-use super::{is_head_on_encounter, density_adjusted_preferred, rotate};
+use super::{density_adjusted_preferred, is_head_on_encounter, rotate};
 use super::{AvoidanceInput, AvoidanceOutput, AvoidanceSolver, NeighborState};
 use crate::geometry::Segment;
 use crate::ids::AgentId;
@@ -356,14 +356,47 @@ mod tests {
             agent_id: AgentId(1),
         }];
         let preferred = Vec2::new(1.35, 0.0);
-        let lower_id = solver().solve(&input(5, Vec2::ZERO, preferred, preferred, &neighbors_low, &[]));
-        let higher_id =
-            solver().solve(&input(5, Vec2::ZERO, preferred, preferred, &neighbors_high, &[]));
+        let lower_id = solver().solve(&input(
+            5,
+            Vec2::ZERO,
+            preferred,
+            preferred,
+            &neighbors_low,
+            &[],
+        ));
+        let higher_id = solver().solve(&input(
+            5,
+            Vec2::ZERO,
+            preferred,
+            preferred,
+            &neighbors_high,
+            &[],
+        ));
         assert!(
             lower_id.velocity.y * higher_id.velocity.y > 0.0,
             "head-on side must be a fixed convention: {:?} vs {:?}",
             lower_id.velocity,
             higher_id.velocity
+        );
+    }
+
+    #[test]
+    fn dense_neighbors_reduce_speed() {
+        // Contract section 6.2 density-aware speed reduction.
+        let crowd: Vec<NeighborState> = (0..8)
+            .map(|i| NeighborState {
+                position: Vec2::from_yaw(i as f32) * 0.75,
+                velocity: Vec2::ZERO,
+                radius: 0.3,
+                agent_id: AgentId(100 + i as u64),
+            })
+            .collect();
+        let preferred = Vec2::new(1.35, 0.0);
+        let sparse = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &[], &[]));
+        let dense = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &crowd, &[]));
+        assert!(
+            dense.velocity.length() < sparse.velocity.length(),
+            "density did not slow the agent"
         );
     }
 

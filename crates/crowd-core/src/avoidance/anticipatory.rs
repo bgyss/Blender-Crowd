@@ -6,12 +6,11 @@
 //! time-to-collision per candidate; ORCA solves one closed-form half-plane
 //! per neighbor. This solver instead ranks neighbors by distance and gives
 //! only the nearest few (`lookahead_neighbors`) a multi-step constant-velocity
-//! extrapolation, so its cost is bounded by that count rather than by the
-//! full neighbor list -- see `Task 5` (`lookahead_collision_cost`) for the
-//! part that makes this solver's name accurate. This file starts with
-//! everything *except* that: walls, goal-seeking, smoothness, side bias, and
-//! density-based speed reduction, all reused unchanged from the shared
-//! helpers `sampled.rs` also uses.
+//! extrapolation via `lookahead_collision_cost`, so its cost is bounded by
+//! that count rather than by the full neighbor list -- that scoped lookahead
+//! is what makes this solver's name accurate. Everything else (walls,
+//! goal-seeking, smoothness, side bias, and density-based speed reduction) is
+//! reused unchanged from the shared helpers `sampled.rs` also uses.
 
 use super::{
     density_adjusted_preferred, sample_candidates, side_bias_cost, wall_avoidance_cost,
@@ -53,8 +52,10 @@ pub struct AnticipatorySolver {
     /// the plan's original 0.15 to 10.0 to bring `far_field_cost` into the same
     /// order of magnitude as near-field collision cost in typical geometries
     /// (~13.3 vs ~13.3 in ring tests). The fit is narrow: [8, 15] works,
-    /// [0.6, 3.0] and [20.0+] fail `dense_neighbors_reduce_speed`. May require
-    /// per-scene tuning in Task 9's bake-off due to raw-distance scaling.
+    /// [0.6, 3.0] and [20.0+] fail `dense_neighbors_reduce_speed`. See
+    /// `docs/benchmarks/2026-08-06-avoidance-solver-comparison.md` for the
+    /// measured, per-scene behavior of this value; it may still need
+    /// per-scene tuning due to raw-distance scaling.
     pub far_field_weight: f32,
 }
 
@@ -487,6 +488,50 @@ mod tests {
     }
 
     #[test]
+    fn head_on_side_choice_does_not_depend_on_id_ordering() {
+        // The head-on rule must be a *fixed* convention, not an ID
+        // comparison. Two agents meeting head-on see mirrored geometry, so if
+        // the side were derived from "am I the lower ID?", they would derive
+        // opposite answers, deflect the same way in world space, and stay on
+        // a collision course.
+        let neighbors_low = [NeighborState {
+            position: Vec2::new(4.0, 0.0),
+            velocity: Vec2::new(-1.35, 0.0),
+            radius: 0.3,
+            agent_id: AgentId(99),
+        }];
+        let neighbors_high = [NeighborState {
+            position: Vec2::new(4.0, 0.0),
+            velocity: Vec2::new(-1.35, 0.0),
+            radius: 0.3,
+            agent_id: AgentId(1),
+        }];
+        let preferred = Vec2::new(1.35, 0.0);
+        let lower_id = solver().solve(&input(
+            5,
+            Vec2::ZERO,
+            preferred,
+            preferred,
+            &neighbors_low,
+            &[],
+        ));
+        let higher_id = solver().solve(&input(
+            5,
+            Vec2::ZERO,
+            preferred,
+            preferred,
+            &neighbors_high,
+            &[],
+        ));
+        assert!(
+            lower_id.velocity.y * higher_id.velocity.y > 0.0,
+            "head-on side must be a fixed convention: {:?} vs {:?}",
+            lower_id.velocity,
+            higher_id.velocity
+        );
+    }
+
+    #[test]
     fn the_higher_id_yields_more_in_a_crossing_conflict() {
         let crossing_neighbor = |id: u64| {
             [NeighborState {
@@ -523,9 +568,10 @@ mod tests {
 
     #[test]
     fn only_the_nearest_k_neighbors_receive_full_lookahead() {
-        // Five threats, but lookahead_neighbors defaults to 4: the 5th
-        // (furthest) must not get the full multi-step treatment, so removing
-        // it changes the result less than removing one of the nearest four.
+        // lookahead_neighbors is set to 2 and the two near threats fill that
+        // quota; a third, far threat added on top must not get the full
+        // multi-step treatment, so adding it should change the result far
+        // less than either of the two scoped neighbors would.
         let mut base = solver();
         base.lookahead_neighbors = 2;
         let near: Vec<NeighborState> = (0..2)
