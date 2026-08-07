@@ -360,6 +360,17 @@ gate at every scale tested, `orca`'s extra throughput is not needed to meet
 that gate, and its quality cost is not offset by any requirement that
 demands it.
 
+**Known limitation:** `OrcaSolver` carries a confirmed gap in its physics: it
+has no ID-based tie-break mechanism for symmetric perpendicular crossing
+conflicts (unlike `sampled_velocity` and `anticipatory`, both of which apply
+a `yield_factor` scaled by stable ID). Its only asymmetry-breaking mechanism,
+`HEAD_ON_TIE_BREAK_RADIANS`, applies only to head-on encounters, not general
+crossings. Two agents in a perfectly symmetric perpendicular crossing may
+compute identical corrections and fail to separate via identity alone. This
+does not block this slice's conclusion since `sampled_velocity`, not `orca`,
+is the selected default, but the gap should be resolved before `OrcaSolver`
+is ever considered for promotion to default.
+
 ### Why `anticipatory` was not selected
 
 `anticipatory`'s scoped multi-step lookahead is designed to trade

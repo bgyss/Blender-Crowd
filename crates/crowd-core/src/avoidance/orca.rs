@@ -32,6 +32,21 @@ const COLLISION_TIME_STEP: f32 = 1.0 / 30.0;
 const HEAD_ON_TIE_BREAK_RADIANS: f32 = 0.03;
 
 #[derive(Clone, Copy, Debug)]
+/// Reciprocal velocity obstacle (ORCA) avoidance solver.
+///
+/// # Known limitation: no ID-based tie-break for symmetric crossing conflicts
+///
+/// `OrcaSolver` has no asymmetry-breaking mechanism for perpendicular crossing
+/// conflicts—only for head-on encounters. `HEAD_ON_TIE_BREAK_RADIANS` applies
+/// only to meetings detected as head-on; general perpendicular crossings receive
+/// no ID-based correction. Unlike `sampled_velocity` and `anticipatory`, which
+/// both apply a `yield_factor` scaled by stable ID to break symmetry in
+/// crossing conflicts, `OrcaSolver` offers no equivalent tie-break. Two agents
+/// in a perfectly symmetric perpendicular crossing may compute identical
+/// corrections and fail to separate via identity alone. This gap does not block
+/// this slice's conclusion—`sampled_velocity` is the selected default, not
+/// `orca`—but should be resolved before `OrcaSolver` is considered for promotion
+/// to default.
 pub struct OrcaSolver {
     /// How far ahead, in seconds, a neighbor's velocity obstacle is built.
     pub time_horizon: f32,
