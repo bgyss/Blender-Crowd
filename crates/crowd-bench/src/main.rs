@@ -30,7 +30,7 @@ fn usage() -> &'static str {
   crowd-bench sweep [--scene NAME] [--seed N]
   crowd-bench baseline [--scene NAME] [--agents N] [--seed N] [--solver NAME]
   crowd-bench check [--agents N] [--seed N] [--solver NAME]
-  crowd-bench compare [--out DIR]
+  crowd-bench compare [--scene NAME] [--out DIR]
 
 Omitting --scene runs every scene."
 }
@@ -186,11 +186,14 @@ fn command_check(args: &Args) -> Result<bool, String> {
         let stored: baseline::Baseline =
             serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
 
-        // Replay against the solver the baseline was captured with, not
-        // whatever --solver this invocation passed: `check` verifies the
-        // stored numbers still hold for their own solver, and a mismatched
-        // solver is reported distinctly below rather than silently swapped in.
-        let stored_solver = crate::report::SolverKind::parse(&stored.solver)?;
+        // Replay with the solver the caller actually asked for via --solver
+        // (defaulting like `run`/`baseline` to sampled_velocity), NOT the
+        // stored baseline's own solver field. Using the stored solver here
+        // would make `report.solver` equal `stored.solver` by construction,
+        // which makes `comparison.solver_mismatch` below unreachable outside
+        // its unit test. Comparing against what was actually requested is
+        // what lets a `--solver` typo (or an intentional cross-solver check)
+        // be caught instead of silently passing.
         let report = run_scene(&options_for(
             &scene,
             &Args {
@@ -199,7 +202,7 @@ fn command_check(args: &Args) -> Result<bool, String> {
                 seed: stored.seed,
                 svg: false,
                 out: args.out.clone(),
-                solver: stored_solver,
+                solver: args.solver,
             },
         ))?;
 
@@ -241,11 +244,14 @@ const COMPARE_SCALES: [u32; 4] = [100, 500, 1000, 2000];
 fn command_compare(args: &Args) -> Result<(), String> {
     std::fs::create_dir_all(&args.out).map_err(|e| e.to_string())?;
     let mut reports = Vec::new();
-    for scene in scenes::SCENE_NAMES {
+    println!(
+        "scene,agents,solver,completion_rate,mean_time_to_collision,penetration_pair_ticks,ticks_per_second_achieved,peak_allocated_bytes"
+    );
+    for scene in scenes_to_run(args)? {
         for &(_, solver) in &COMPARE_SOLVERS {
             for &agents in &COMPARE_SCALES {
                 let options = RunOptions {
-                    scene: scene.to_string(),
+                    scene: scene.clone(),
                     agents,
                     seed: args.seed,
                     svg: false,
@@ -254,7 +260,7 @@ fn command_compare(args: &Args) -> Result<(), String> {
                 };
                 let report = run_scene(&options)?;
                 println!(
-                    "{},{},{agents},{:.3},{:.2},{},{},{}",
+                    "{},{agents},{},{:.3},{:.2},{},{},{}",
                     report.scene,
                     report.solver,
                     report.metrics.completion_rate,
@@ -271,7 +277,13 @@ fn command_compare(args: &Args) -> Result<(), String> {
         .first()
         .map(|r| r.environment.captured_at[..10].to_string())
         .unwrap_or_else(|| "unknown".to_string());
-    let path = args.out.join(format!("compare-{date}.json"));
+    // When chunking by --scene, each chunk must get its own file: they all
+    // share the same date, so without the scene in the name a second chunk
+    // run the same day would silently overwrite the first chunk's JSON.
+    let path = match &args.scene {
+        Some(scene) => args.out.join(format!("compare-{scene}-{date}.json")),
+        None => args.out.join(format!("compare-{date}.json")),
+    };
     let json = serde_json::to_string_pretty(&reports).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     println!("wrote {}", path.display());
