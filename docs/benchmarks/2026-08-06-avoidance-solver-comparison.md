@@ -36,9 +36,20 @@ rejecting them, are below.
 Reproduce with:
 
 ```sh
-cargo run --release -p crowd-bench -- compare --out benchmarks/reports
+for scene in bidirectional_corridor crossing bottleneck dense_flow circle l_corridor; do
+  cargo run --release -p crowd-bench -- compare --scene "$scene" --out benchmarks/reports
+done
 cargo run --release -p crowd-bench -- check --agents 1000
 ```
+
+(`compare --out benchmarks/reports` with no `--scene` reproduces the same 72
+reports in one continuous run instead of six chunks, writing them to a single
+`compare-<date>.json`; `--scene` is what makes the chunked form above possible
+for a long-running sweep, and each chunk writes its own
+`compare-<scene>-<date>.json` so six same-day chunks do not overwrite each
+other. The original capture's six chunks were merged by hand into the single
+`compare-2026-08-07.json` referenced above; a chunked reproduction today
+produces six separate per-scene files with the same combined content.)
 
 `benchmarks/reports/` is gitignored by project convention (informational,
 per-run, per-machine output, the same category as `target/`); this markdown
