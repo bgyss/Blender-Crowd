@@ -15,6 +15,7 @@ use crowd_core::sim::{SimConfig, Simulation};
 use serde::{Deserialize, Serialize};
 
 use crate::alloc;
+use crate::frames::FrameWriter;
 use crate::svg::TrajectoryRecorder;
 
 /// Bumped whenever the report schema changes incompatibly.
@@ -54,6 +55,10 @@ pub struct RunOptions {
     pub agents: u32,
     pub seed: u64,
     pub svg: bool,
+    /// Write one PPM per sampled tick, for assembly into an animation.
+    pub frames: bool,
+    /// Ticks between emitted frames. Ignored unless `frames` is set.
+    pub frame_interval: u64,
     pub out_dir: PathBuf,
     pub solver: SolverKind,
 }
@@ -237,16 +242,45 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
     } else {
         None
     };
-    match recorder.as_mut() {
-        // Recording costs a per-tick sample, so the un-recorded path stays a
-        // tight loop and the timing metric is not skewed by visualisation.
-        Some(recorder) => {
-            while sim.clock().tick() < duration_ticks {
-                sim.step();
+    let frame_writer = if options.frames {
+        let dir = options
+            .out_dir
+            .join(format!("frames-{}-{}", options.scene, options.agents));
+        Some(FrameWriter::new(
+            dir,
+            sim.scene().bounds,
+            options.frame_interval,
+        )?)
+    } else {
+        None
+    };
+    // Recording costs a per-tick sample and, for frames, a rasterise and a
+    // file write. The un-recorded path stays a tight loop so the timing metric
+    // is not skewed by visualisation; a recorded run's `ticks_per_second` is
+    // not comparable to a baseline and must not be quoted as a result.
+    if recorder.is_some() || frame_writer.is_some() {
+        let mut frame_writer = frame_writer;
+        while sim.clock().tick() < duration_ticks {
+            sim.step();
+            if let Some(recorder) = recorder.as_mut() {
                 recorder.record(&sim);
             }
+            if let Some(writer) = frame_writer.as_mut() {
+                writer.record(&sim)?;
+            }
         }
-        None => sim.run_to_completion(),
+        if let Some(writer) = frame_writer.as_ref() {
+            println!(
+                "{}: wrote {} frames ({}x{}) to {}",
+                options.scene,
+                writer.written(),
+                writer.dimensions().0,
+                writer.dimensions().1,
+                writer.dir().display()
+            );
+        }
+    } else {
+        sim.run_to_completion();
     }
     let wall_time_seconds = started.elapsed().as_secs_f64();
     let peak_allocated_bytes = alloc::peak_bytes() as u64;
@@ -291,6 +325,8 @@ mod tests {
             agents,
             seed: 2026,
             svg: false,
+            frames: false,
+            frame_interval: crate::frames::DEFAULT_FRAME_INTERVAL_TICKS,
             out_dir: std::env::temp_dir().join("crowd_bench_test"),
             solver: SolverKind::SampledVelocity,
         }

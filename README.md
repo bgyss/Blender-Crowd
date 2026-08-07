@@ -38,6 +38,15 @@ kernel with structure-of-arrays agents, a fixed tick, spatial queries, one
 sampled-velocity avoidance solver, five benchmark scenes, and a measured
 metrics report. Nothing here touches Blender yet.
 
+![600 agents crossing, sampled_velocity solver](docs/media/crossing-600.gif)
+
+The `crossing` scene, 600 agents, `sampled_velocity` solver, seed 2026, coloured
+by destination. It shows both the working part and the open problem: the streams
+resolve into lanes, and they also jam hard where they intersect, which is the
+quality gap the benchmark report quantifies. Regenerate it with
+`scripts/make-gif.sh` (needs `ffmpeg`; the frames themselves come from
+`crowd-bench run --frames` and need nothing extra).
+
 Measured results, including where the current solver falls short:
 
 - [Kernel slice 1 benchmark report](docs/benchmarks/2026-08-05-kernel-slice-1.md)
@@ -56,7 +65,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo run --release -p crowd-bench -- run --agents 1000 --svg --solver sampled_velocity
 cargo run --release -p crowd-bench -- check --agents 1000 # regression against baselines
 cargo run --release -p crowd-bench -- compare --out benchmarks/reports  # three-solver, four-scale bake-off
+
+cargo run --release -p crowd-bench -- run --scene crossing --agents 600 --frames
+scripts/make-gif.sh crossing 600                          # frames -> docs/media/crossing-600.gif
 ```
+
+`--svg` and `--frames` sample the simulation every tick, so a run recorded with
+either reports a `ticks_per_second` that is not a performance measurement. Quote
+timings only from unrecorded runs.
 
 `cargo test --workspace` runs the density fuzz in debug, which is slow; use the
 release invocation above when iterating.

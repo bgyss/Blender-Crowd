@@ -19,7 +19,13 @@ cargo fmt                                                 # before every commit
 cargo run --release -p crowd-bench -- run --agents 1000 --svg --solver sampled_velocity
 cargo run --release -p crowd-bench -- check --agents 1000 # regression against baselines
 cargo run --release -p crowd-bench -- compare --out benchmarks/reports  # three-solver, four-scale bake-off
+
+cargo run --release -p crowd-bench -- run --scene crossing --agents 600 --frames
+scripts/make-gif.sh crossing 600           # frames -> docs/media/crossing-600.gif (needs ffmpeg)
 ```
+
+`--svg` and `--frames` sample every tick, so a recorded run's `ticks_per_second`
+is not a performance measurement and must not be quoted as one.
 
 The toolchain is pinned in `rust-toolchain.toml` (`mise install` sets it up).
 On macOS, `.cargo/config.toml` points the linker at the system clang; without

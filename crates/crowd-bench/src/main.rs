@@ -6,6 +6,7 @@
 
 mod alloc;
 mod baseline;
+mod frames;
 mod report;
 mod svg;
 
@@ -26,7 +27,7 @@ const REPORT_DIR: &str = "benchmarks/reports";
 
 fn usage() -> &'static str {
     "usage:
-  crowd-bench run [--scene NAME] [--agents N] [--seed N] [--svg] [--out DIR] [--solver NAME]
+  crowd-bench run [--scene NAME] [--agents N] [--seed N] [--svg] [--frames] [--frame-interval N] [--out DIR] [--solver NAME]
   crowd-bench sweep [--scene NAME] [--seed N]
   crowd-bench baseline [--scene NAME] [--agents N] [--seed N] [--solver NAME]
   crowd-bench check [--agents N] [--seed N] [--solver NAME]
@@ -40,6 +41,8 @@ struct Args {
     agents: u32,
     seed: u64,
     svg: bool,
+    frames: bool,
+    frame_interval: u64,
     out: PathBuf,
     solver: crate::report::SolverKind,
 }
@@ -50,6 +53,8 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         agents: DEFAULT_AGENTS,
         seed: DEFAULT_SEED,
         svg: false,
+        frames: false,
+        frame_interval: frames::DEFAULT_FRAME_INTERVAL_TICKS,
         out: PathBuf::from(REPORT_DIR),
         solver: crate::report::SolverKind::SampledVelocity,
     };
@@ -81,6 +86,15 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
                 args.out = PathBuf::from(raw.get(index).ok_or("--out needs a value")?);
             }
             "--svg" => args.svg = true,
+            "--frames" => args.frames = true,
+            "--frame-interval" => {
+                index += 1;
+                args.frame_interval = raw
+                    .get(index)
+                    .ok_or("--frame-interval needs a value")?
+                    .parse()
+                    .map_err(|_| "--frame-interval must be a number")?;
+            }
             "--solver" => {
                 index += 1;
                 let name = raw.get(index).ok_or("--solver needs a value")?;
@@ -114,6 +128,8 @@ fn options_for(scene: &str, args: &Args) -> RunOptions {
         agents: args.agents,
         seed: args.seed,
         svg: args.svg,
+        frames: args.frames,
+        frame_interval: args.frame_interval,
         out_dir: args.out.clone(),
         solver: args.solver,
     }
@@ -149,6 +165,8 @@ fn command_sweep(args: &Args) -> Result<(), String> {
                 agents,
                 seed: args.seed,
                 svg: false,
+                frames: false,
+                frame_interval: args.frame_interval,
                 out: args.out.clone(),
                 solver: args.solver,
             };
@@ -201,6 +219,8 @@ fn command_check(args: &Args) -> Result<bool, String> {
                 agents: stored.agents,
                 seed: stored.seed,
                 svg: false,
+                frames: false,
+                frame_interval: args.frame_interval,
                 out: args.out.clone(),
                 solver: args.solver,
             },
@@ -255,6 +275,8 @@ fn command_compare(args: &Args) -> Result<(), String> {
                     agents,
                     seed: args.seed,
                     svg: false,
+                    frames: false,
+                    frame_interval: args.frame_interval,
                     out_dir: args.out.clone(),
                     solver,
                 };

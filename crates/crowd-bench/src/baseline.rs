@@ -222,6 +222,8 @@ mod tests {
             agents: 40,
             seed: 2026,
             svg: false,
+            frames: false,
+            frame_interval: crate::frames::DEFAULT_FRAME_INTERVAL_TICKS,
             out_dir: std::env::temp_dir().join("crowd_bench_baseline_test"),
             solver: crate::report::SolverKind::SampledVelocity,
         })
