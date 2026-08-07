@@ -5,7 +5,9 @@
 
 use std::collections::BTreeMap;
 
-use crowd_core::avoidance::{AnticipatorySolver, AvoidanceSolver, OrcaSolver, SampledVelocitySolver};
+use crowd_core::avoidance::{
+    AnticipatorySolver, AvoidanceSolver, OrcaSolver, SampledVelocitySolver,
+};
 use crowd_core::ids::AgentId;
 use crowd_core::scenes;
 use crowd_core::sim::{SimConfig, Simulation};
@@ -60,7 +62,11 @@ fn repeated_runs_are_bitwise_identical_in_every_scene() {
         for name in scenes::SCENE_NAMES {
             let a = simulate(solver_name, name, 200, 2026, 300);
             let b = simulate(solver_name, name, 200, 2026, 300);
-            assert_eq!(a.state_hash(), b.state_hash(), "{solver_name}/{name} diverged");
+            assert_eq!(
+                a.state_hash(),
+                b.state_hash(),
+                "{solver_name}/{name} diverged"
+            );
             assert_eq!(
                 state_by_id(a.world()),
                 state_by_id(b.world()),

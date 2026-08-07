@@ -31,7 +31,7 @@
 
 use super::{
     density_adjusted_preferred, sample_candidates, side_bias_cost, wall_avoidance_cost,
-    AvoidanceInput, AvoidanceOutput, AvoidanceSolver, OVERLAP_URGENCY, MIN_TIME_FOR_COST,
+    AvoidanceInput, AvoidanceOutput, AvoidanceSolver, MIN_TIME_FOR_COST, OVERLAP_URGENCY,
 };
 use crate::geometry::time_to_collision_disc;
 use crate::units::Vec2;
@@ -170,7 +170,6 @@ impl SampledVelocitySolver {
 
         (cost, earliest)
     }
-
 }
 
 impl AvoidanceSolver for SampledVelocitySolver {

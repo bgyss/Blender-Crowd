@@ -1,7 +1,9 @@
 //! Randomised density stress, contract section 15.1: checked for NaN, escape,
 //! and deadlock.
 
-use crowd_core::avoidance::{AnticipatorySolver, AvoidanceSolver, OrcaSolver, SampledVelocitySolver};
+use crowd_core::avoidance::{
+    AnticipatorySolver, AvoidanceSolver, OrcaSolver, SampledVelocitySolver,
+};
 use crowd_core::scenes;
 use crowd_core::sim::{SimConfig, Simulation};
 
