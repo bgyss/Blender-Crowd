@@ -1,17 +1,19 @@
 //! Local avoidance, contract section 6.2.
 //!
 //! The trait exists so the ORCA-style and scoped time-to-collision candidates
-//! can be measured against this baseline in the next slice without touching
-//! any tick phase.
+//! can be measured against the sampled-velocity baseline without touching any
+//! tick phase. That comparison has now been run; see
+//! `docs/benchmarks/2026-08-06-avoidance-solver-comparison.md` for the
+//! measured results and the production-default decision.
 
-pub mod sampled;
+pub mod anticipatory;
 mod linear_program;
 pub mod orca;
-pub mod anticipatory;
+pub mod sampled;
 
-pub use sampled::SampledVelocitySolver;
-pub use orca::OrcaSolver;
 pub use anticipatory::AnticipatorySolver;
+pub use orca::OrcaSolver;
+pub use sampled::SampledVelocitySolver;
 
 use crate::geometry::Segment;
 use crate::ids::AgentId;
@@ -189,9 +191,13 @@ pub(crate) fn wall_avoidance_cost(
     let mut cost = 0.0;
     let mut earliest = f32::INFINITY;
     for wall in walls {
-        let Some(t) =
-            crate::geometry::time_to_collision_segment(position, candidate, radius, wall, wall_horizon)
-        else {
+        let Some(t) = crate::geometry::time_to_collision_segment(
+            position,
+            candidate,
+            radius,
+            wall,
+            wall_horizon,
+        ) else {
             continue;
         };
         if t < earliest {

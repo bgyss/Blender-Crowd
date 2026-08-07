@@ -7,11 +7,6 @@
 //! worst constraint violation instead of leaving the caller with an undefined
 //! or non-finite result -- the graceful-failure path a boxed-in agent needs.
 
-// The entire module is unused until Task 3 of the avoidance-solver-comparison plan
-// wires the `solve` function into the ORCA solver. Suppressing dead_code warnings
-// for all items rather than individually annotating each one.
-#![allow(dead_code)]
-
 use crate::units::Vec2;
 
 const EPSILON: f32 = 1e-5;
@@ -77,7 +72,10 @@ fn solve_line_toward_point(
         return false;
     };
     let line = lines[line_no];
-    let t = line.direction.dot(preferred - line.point).clamp(t_left, t_right);
+    let t = line
+        .direction
+        .dot(preferred - line.point)
+        .clamp(t_left, t_right);
     *result = line.point + line.direction * t;
     true
 }
@@ -174,8 +172,12 @@ fn solve_fallback(lines: &[Line], first_failed: usize, radius: f32, result: &mut
             }
             let search_direction = Vec2::new(-lines[i].direction.y, lines[i].direction.x);
             let mut candidate = *result;
-            let solved =
-                solve_incremental_toward_direction(&projected, radius, search_direction, &mut candidate);
+            let solved = solve_incremental_toward_direction(
+                &projected,
+                radius,
+                search_direction,
+                &mut candidate,
+            );
             if solved == projected.len() {
                 *result = candidate;
             }
