@@ -9,8 +9,10 @@
 //! See `docs/superpowers/specs/2026-08-07-blender-bridge-slice-design.md`.
 
 pub mod header;
+pub mod record;
 
 pub use header::{Header, FORMAT_VERSION, HEADER_BYTES, MAGIC};
+pub use record::{AgentRecord, FLAG_ACTIVE, FLAG_ARRIVED, RECORD_BYTES};
 
 /// Every way reading a trace can fail.
 #[derive(Debug)]
