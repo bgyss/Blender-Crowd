@@ -70,7 +70,18 @@ cargo run --release -p crowd-bench -- compare --out benchmarks/reports  # three-
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 600 --frames
 scripts/make-gif.sh crossing 600                          # frames -> docs/media/crossing-600.gif
+
+scripts/build-wheel.sh                                    # abi3 wheel -> addon/blender_crowd/wheels/
+scripts/verify-wheel.sh                                   # trace + wheel round trip in a plain CPython
 ```
+
+The wheel build needs `maturin`, pinned in `mise.toml` and installed by
+`mise install`. It is pinned through the `pipx:` backend (uv) rather than
+`cargo:`, because building maturin from source happens outside this repo,
+where the nix `cc` on `PATH` is the linker and cannot resolve libSystem.
+Built wheels are not committed. The wheel is `abi3` on purpose: Blender 5.2
+treats an `abi3` tag as "any CPython 3", so a single wheel survives Blender
+moving to a newer CPython.
 
 `--svg` and `--frames` sample the simulation every tick, so a run recorded with
 either reports a `ticks_per_second` that is not a performance measurement. Quote

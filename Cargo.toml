@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/crowd-core", "crates/crowd-bench", "crates/crowd-trace"]
+members = [
+    "crates/crowd-core",
+    "crates/crowd-bench",
+    "crates/crowd-trace",
+    "crates/crowd-blender",
+]
 resolver = "2"
 
 [workspace.package]

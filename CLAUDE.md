@@ -22,7 +22,14 @@ cargo run --release -p crowd-bench -- compare --out benchmarks/reports  # three-
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 600 --frames
 scripts/make-gif.sh crossing 600           # frames -> docs/media/crossing-600.gif (needs ffmpeg)
+
+scripts/build-wheel.sh                     # abi3 wheel -> addon/blender_crowd/wheels/ (needs maturin)
+scripts/verify-wheel.sh                    # trace + wheel round trip in a plain CPython
 ```
+
+`maturin` is pinned in `mise.toml` via the `pipx:` backend and installed by
+`mise install`; the `cargo:` backend cannot build it here because outside this
+repo the nix `cc` on `PATH` is the linker. Built wheels are gitignored.
 
 `--svg` and `--frames` sample every tick, so a recorded run's `ticks_per_second`
 is not a performance measurement and must not be quoted as one.

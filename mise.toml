@@ -1,5 +1,10 @@
 [tools]
 rust = "1.94.1"
+# The `pipx:` backend (uv under the hood) fetches maturin's prebuilt wheel.
+# `cargo:maturin` would build it from source outside this repo, where the
+# nix `cc` on PATH is the linker and cannot resolve libSystem -- the same
+# failure `.cargo/config.toml` works around for the workspace itself.
+"pipx:maturin" = "1.9.6"
 
 [env]
 # Reports record this; it never gates compilation.

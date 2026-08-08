@@ -1,0 +1,16 @@
+[package]
+name = "crowd-blender"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "blender_crowd_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+crowd-trace = { path = "../crowd-trace" }
+pyo3 = { version = "0.29", features = ["abi3-py311", "extension-module"] }
+
+[build-dependencies]
+pyo3-build-config = "0.29"
