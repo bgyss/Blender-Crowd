@@ -37,21 +37,25 @@ def main():
     positions = np.empty(playback.agent_count * 3, dtype=np.float32)
     ids_lo = np.empty(playback.agent_count, dtype=np.int32)
     ids_hi = np.empty(playback.agent_count, dtype=np.int32)
+    flags = np.empty(playback.agent_count, dtype=np.int32)
 
     # Scenes spawn agents on a stagger (see `SpawnRegion::per_tick` in
     # crowd-core), so tick 0 has only a handful of agents assigned real IDs;
     # the rest of the point cloud reads as the all-zero padding record
     # documented in crowd-trace until that slot's agent spawns. That is
     # expected spawn-ramp behaviour, not ID instability. Find the first tick
-    # where every slot has a real (non-zero) ID and use THAT as the
-    # stability baseline, not tick 0. This scan runs before the timed
-    # playback loop below, so it does not pollute the playback timing.
+    # where every slot has a real agent (flags != 0, the discriminant the
+    # trace format itself defines for "this slot holds no agent yet") and
+    # use THAT as the stability baseline, not tick 0. This scan runs before
+    # the timed playback loop below, so it does not pollute the playback
+    # timing.
     settle_tick = None
     for tick in range(playback.tick_count):
         playback.sync_to_tick(tick)
         data.attributes["agent_id_lo"].data.foreach_get("value", ids_lo)
         data.attributes["agent_id_hi"].data.foreach_get("value", ids_hi)
-        if np.all(ids_lo | ids_hi):
+        data.attributes["flags"].data.foreach_get("value", flags)
+        if np.all(flags != 0):
             settle_tick = tick
             break
     if settle_tick is None:
@@ -91,9 +95,16 @@ def main():
 
     from bl_ext.user_default.blender_crowd import geometry_nodes
 
+    # Re-sync to the settle tick (computed above) rather than leaving the
+    # object at tick 0: at tick 0 only a handful of the 1,000 agents have
+    # actually spawned, so counting instances there would only prove that
+    # every point -- spawned or padded -- gets instanced. Geometry Nodes
+    # must hide flags == 0 padding records per the trace format contract,
+    # so the real assertion is that every agent that HAS spawned gets one
+    # instance, once every slot in the scene holds a real agent.
+    playback.sync_to_tick(settle_tick)
     geometry_nodes.attach(playback.object)
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    evaluated = playback.object.evaluated_get(depsgraph)
     instance_count = sum(
         1 for instance in depsgraph.object_instances if instance.is_instance
     )

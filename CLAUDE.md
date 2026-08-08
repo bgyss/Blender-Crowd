@@ -45,7 +45,11 @@ installed extensions, so the native module name `blender_crowd_native` must
 stay distinctive.
 
 `--svg` and `--frames` sample every tick, so a recorded run's `ticks_per_second`
-is not a performance measurement and must not be quoted as one.
+is not a performance measurement and must not be quoted as one. `--trace` also
+writes every tick to disk, so a wall-clock time wrapped around a `--trace` run
+(simulate + serialize) is likewise not an isolated simulation-throughput
+measurement — it includes the trace write and the invoking process's own
+overhead — and must not be quoted as one either.
 
 The toolchain is pinned in `rust-toolchain.toml` (`mise install` sets it up).
 On macOS, `.cargo/config.toml` points the linker at the system clang; without

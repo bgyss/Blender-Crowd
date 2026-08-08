@@ -42,8 +42,12 @@ fn emitted_trace_matches_the_simulation() {
         assert_eq!(record.position[1], world.pos_y[slot]);
         assert_eq!(record.orientation, world.yaw[slot]);
     }
-    // By tick 24 every spawn region has finished staggering agents in, so
-    // there should be no padded slots left (all agents have spawned).
+    // Any slots beyond `world.len()` have not spawned into the live sim yet.
+    // Confirm they are written as empty padded records (flags == 0), not
+    // that there are none of them -- by tick 24 this scene has usually
+    // finished staggering everyone in, making the loop a no-op, but the
+    // check stays correct (rather than vacuous-by-assumption) if that ever
+    // changes.
     for record in out.iter().skip(world.len()) {
         assert_eq!(record.flags, 0);
     }

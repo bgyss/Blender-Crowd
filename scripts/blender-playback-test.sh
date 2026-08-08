@@ -15,8 +15,12 @@ AGENTS="${AGENTS:-1000}"
 mkdir -p "$OUT_DIR"
 
 echo "== simulation =="
-# Not recorded with --svg or --frames, so this run's timing is a real
-# measurement rather than a sampling-inflated one.
+# Not recorded with --svg or --frames, so this run's timing is not inflated
+# by their per-tick sampling overhead. It is still not an isolated
+# simulation-throughput number: --trace also writes every tick to disk, and
+# the measured window below wraps the whole `cargo run` invocation
+# (including cargo's freshness check and the ~190 MiB trace write). Treat
+# this as a bake time (simulate + serialize), not a pure simulator figure.
 SIM_START=$(python3 -c "import time; print(time.perf_counter())")
 cargo run --release -p crowd-bench -- run \
     --scene "$SCENE" --agents "$AGENTS" --trace --out "$OUT_DIR"

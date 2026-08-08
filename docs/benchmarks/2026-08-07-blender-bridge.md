@@ -21,7 +21,7 @@ Design: [Blender bridge slice](../superpowers/specs/2026-08-07-blender-bridge-sl
 |---|---|
 | Agents | 1000 |
 | Ticks | 5692 |
-| Simulation wall time | 55.91 s |
+| Bake wall time (simulation + 199 MB trace write, measured around `cargo run`) | 55.91 s |
 | Trace size on disk | 199,220,032 bytes (190.0 MiB) |
 | Blender playback total | 0.1621 s |
 | Blender playback per tick | 0.0285 ms |
@@ -46,6 +46,10 @@ Simulation and playback costs are listed separately and must not be summed.
   production navigation.
 - The instanced cone is a stand-in, not a character asset. No armature
   evaluation or render cost was measured.
+- The bake wall time above wraps the whole `cargo run --trace` invocation,
+  including cargo's own freshness check and the disk write of the ~190 MiB
+  trace file. It is a bake time (simulate + serialize to disk), not an
+  isolated simulation-throughput figure, and must not be quoted as one.
 
 ## Next gate
 

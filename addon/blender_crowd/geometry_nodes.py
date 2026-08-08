@@ -51,10 +51,27 @@ def ensure_crowd_node_group():
     combine = nodes.new("ShaderNodeCombineXYZ")
     combine.location = (-150, 200)
 
+    # flags == 0 means the slot has no agent yet (agents spawn gradually, so
+    # early ticks are mostly unspawned/padded slots). Per the trace format
+    # contract in crowd-trace, such records must be hidden rather than
+    # rendered as an agent standing at the origin.
+    flags = nodes.new("GeometryNodeInputNamedAttribute")
+    flags.location = (-300, 400)
+    flags.data_type = "INT"
+    flags.inputs["Name"].default_value = "flags"
+
+    is_spawned = nodes.new("FunctionNodeCompare")
+    is_spawned.location = (-150, 400)
+    is_spawned.data_type = "INT"
+    is_spawned.operation = "NOT_EQUAL"
+    is_spawned.inputs["B"].default_value = 0
+
     links.new(group_in.outputs[0], instance.inputs["Points"])
     links.new(cone.outputs["Mesh"], instance.inputs["Instance"])
     links.new(orientation.outputs["Attribute"], combine.inputs["Z"])
     links.new(combine.outputs["Vector"], instance.inputs["Rotation"])
+    links.new(flags.outputs["Attribute"], is_spawned.inputs["A"])
+    links.new(is_spawned.outputs["Result"], instance.inputs["Selection"])
     links.new(instance.outputs["Instances"], group_out.inputs[0])
 
     return group

@@ -91,8 +91,12 @@ treats an `abi3` tag as "any CPython 3", so a single wheel survives Blender
 moving to a newer CPython.
 
 `--svg` and `--frames` sample the simulation every tick, so a run recorded with
-either reports a `ticks_per_second` that is not a performance measurement. Quote
-timings only from unrecorded runs.
+either reports a `ticks_per_second` that is not a performance measurement.
+`--trace` also writes every tick to disk and is not an isolated simulation-
+throughput measurement either: a wall-clock wrapped around a `--trace` run
+includes that per-tick disk I/O plus the invoking process's own overhead
+(e.g. cargo's freshness check), so it measures a bake (simulate + serialize),
+not the simulator alone. Quote timings only from unrecorded runs.
 
 `cargo test --workspace` runs the density fuzz in debug, which is slow; use the
 release invocation above when iterating.
