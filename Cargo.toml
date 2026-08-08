@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/crowd-core", "crates/crowd-bench"]
+members = ["crates/crowd-core", "crates/crowd-bench", "crates/crowd-trace"]
 resolver = "2"
 
 [workspace.package]
