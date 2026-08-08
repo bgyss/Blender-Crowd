@@ -1734,14 +1734,13 @@ def main():
         playback.sync_to_tick(tick)
     elapsed = time.perf_counter() - start
 
-    # Stable IDs must not drift across playback.
-    data.attributes["agent_id_lo"].data.foreach_get("value", ids_lo)
-    data.attributes["agent_id_hi"].data.foreach_get("value", ids_hi)
-    playback.sync_to_tick(0)
+    # Stable IDs must not drift across playback. Read them at the LAST tick
+    # the loop reached: re-syncing to tick 0 and re-reading tick 0 would only
+    # prove the reader is repeatable, which is not the invariant at issue.
     data.attributes["agent_id_lo"].data.foreach_get("value", ids_lo)
     data.attributes["agent_id_hi"].data.foreach_get("value", ids_hi)
     if not np.array_equal(ids_lo, first_ids[0]) or not np.array_equal(ids_hi, first_ids[1]):
-        fail("agent IDs changed across playback")
+        fail("agent IDs changed between the first and last tick of playback")
 
     # Positions must match the Rust reader exactly, not approximately.
     import blender_crowd_native
