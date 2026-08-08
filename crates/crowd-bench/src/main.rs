@@ -107,6 +107,15 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         }
         index += 1;
     }
+    // A trace samples every tick via its own stepping loop in `write_trace`
+    // (see report.rs), which is mutually exclusive with the svg/frames
+    // sampling loop. Silently picking one (as the branch order in report.rs
+    // otherwise would) means `--trace --svg` writes no trace file and says
+    // nothing, so the user asked for a trace and never finds out they didn't
+    // get one. Reject the combination up front instead.
+    if args.trace && (args.svg || args.frames) {
+        return Err("--trace cannot be combined with --svg or --frames".to_string());
+    }
     Ok(args)
 }
 
@@ -353,5 +362,46 @@ fn main() -> ExitCode {
             eprintln!("error: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn trace_combined_with_svg_is_rejected() {
+        let error = match parse_args(&strings(&["--trace", "--svg"])) {
+            Err(error) => error,
+            Ok(_) => panic!("expected --trace --svg to be rejected"),
+        };
+        assert!(
+            error.contains("--trace") && error.contains("--svg"),
+            "unhelpful error: {error}"
+        );
+    }
+
+    #[test]
+    fn trace_combined_with_frames_is_rejected() {
+        let error = match parse_args(&strings(&["--trace", "--frames"])) {
+            Err(error) => error,
+            Ok(_) => panic!("expected --trace --frames to be rejected"),
+        };
+        assert!(
+            error.contains("--trace") && error.contains("--frames"),
+            "unhelpful error: {error}"
+        );
+    }
+
+    #[test]
+    fn trace_alone_is_accepted() {
+        let args = parse_args(&strings(&["--trace"])).unwrap();
+        assert!(args.trace);
+        assert!(!args.svg);
+        assert!(!args.frames);
     }
 }

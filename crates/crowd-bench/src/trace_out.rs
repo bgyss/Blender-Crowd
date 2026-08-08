@@ -60,6 +60,18 @@ pub fn write_trace(sim: &mut Simulation, path: &Path, ticks: u64) -> Result<u64,
                 render_tier: 0,
             });
         }
+        // `resize` pads *or truncates* to `agent_count`. Padding is the only
+        // path this loop is meant to take -- `world.len()` is bounded above
+        // by `agent_count` because spawns only add agents and never exceed
+        // the scene's declared total. If that invariant were ever broken by
+        // a future spawn-logic change, `resize` would silently truncate the
+        // tail of `batch`, dropping live agents from every recorded tick
+        // instead of failing loudly.
+        debug_assert!(
+            world.len() <= agent_count as usize,
+            "world has {} agents but the trace header declares only {agent_count}",
+            world.len()
+        );
         batch.resize(agent_count as usize, EMPTY_SLOT);
         writer.write_tick(&batch)?;
     }
