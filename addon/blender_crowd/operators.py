@@ -7,6 +7,7 @@ from bpy.types import Operator
 # Relative import: extensions are imported as `bl_ext.user_default.blender_crowd`,
 # so an absolute `from blender_crowd.x import y` fails with "package not found".
 from .trace_playback import TracePlayback
+from . import geometry_nodes
 
 _ACTIVE = {}
 
@@ -25,6 +26,7 @@ class CROWD_OT_load_trace(Operator):
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
         _ACTIVE["playback"] = playback
+        geometry_nodes.attach(playback.object)
         playback.sync_to_tick(0)
         self.report(
             {"INFO"},

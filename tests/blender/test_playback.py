@@ -89,6 +89,18 @@ def main():
     if not np.array_equal(positions, expected):
         fail("point positions do not match the Rust reader")
 
+    from bl_ext.user_default.blender_crowd import geometry_nodes
+
+    geometry_nodes.attach(playback.object)
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = playback.object.evaluated_get(depsgraph)
+    instance_count = sum(
+        1 for instance in depsgraph.object_instances if instance.is_instance
+    )
+    print("instances: {}".format(instance_count))
+    if instance_count != EXPECTED_AGENTS:
+        fail("expected {} instances, got {}".format(EXPECTED_AGENTS, instance_count))
+
     per_tick_ms = (elapsed / max(playback.tick_count, 1)) * 1000.0
     print("agents: {}".format(playback.agent_count))
     print("ticks: {}".format(playback.tick_count))
