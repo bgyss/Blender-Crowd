@@ -97,34 +97,58 @@ def main(path):
             f"{name} is {expected} bytes ({per_agent} x 4 per agent)",
         )
 
-    # Pick an agent that actually exists: unspawned slots are all-zero padding,
-    # so a zero id there would make the round trip pass without proving it.
-    index = None
-    for candidate in range(agents):
-        if read_record(path, 0, candidate, agents)[0] != 0:
-            index = candidate
-            break
-    check(index is not None, "tick 0 has at least one spawned agent")
+    # Check every spawned slot, not just one: a bug where every agent gets
+    # agent 0's values would pass a single-slot check trivially, because
+    # agent 0's own offset is 0. Unspawned slots are all-zero padding
+    # (flags == 0) and are skipped, per trace v0's padding contract.
+    spawned = [
+        candidate
+        for candidate in range(agents)
+        if read_record(path, 0, candidate, agents)[4] != 0
+    ]
+    check(len(spawned) > 0, "tick 0 has at least one spawned agent")
 
-    on_disk = read_record(path, 0, index, agents)
-    agent_id, x, y, orientation, flags, clip, phase, rate, tier = on_disk
-
-    def field(name, offset=0, count=1, fmt="i"):
+    def field(name, index, offset=0, count=1, fmt="i"):
         return struct.unpack_from(f"<{fmt}", buffers[name], (index * count + offset) * 4)[0]
 
-    print(f"agent slot {index} (id {agent_id}):")
-    lo = field("agent_id_lo") & 0xFFFFFFFF
-    hi = field("agent_id_hi") & 0xFFFFFFFF
-    check(lo | (hi << 32) == agent_id, f"agent_id_lo | (agent_id_hi << 32) == {agent_id}")
-    check(field("position", 0, 3, "f") == x, f"position.x == {x}")
-    check(field("position", 1, 3, "f") == y, f"position.y == {y}")
-    check(field("position", 2, 3, "f") == 0.0, "position.z == 0.0")
-    check(field("orientation", fmt="f") == orientation, f"orientation == {orientation}")
-    check(field("flags") == flags, f"flags == {flags}")
-    check(field("clip_index") == clip, f"clip_index == {clip}")
-    check(field("phase", fmt="f") == phase, f"phase == {phase}")
-    check(field("playback_rate", fmt="f") == rate, f"playback_rate == {rate}")
-    check(field("render_tier") == tier, f"render_tier == {tier}")
+    print(f"agent slots ({len(spawned)} spawned of {agents}):")
+    for index in spawned:
+        on_disk = read_record(path, 0, index, agents)
+        agent_id, x, y, orientation, flags, clip, phase, rate, tier = on_disk
+
+        lo = field("agent_id_lo", index) & 0xFFFFFFFF
+        hi = field("agent_id_hi", index) & 0xFFFFFFFF
+        check(
+            lo | (hi << 32) == agent_id,
+            f"slot {index}: agent_id_lo | (agent_id_hi << 32) == {agent_id}",
+        )
+        check(
+            field("position", index, 0, 3, "f") == x,
+            f"slot {index}: position.x == {x}",
+        )
+        check(
+            field("position", index, 1, 3, "f") == y,
+            f"slot {index}: position.y == {y}",
+        )
+        check(
+            field("position", index, 2, 3, "f") == 0.0,
+            f"slot {index}: position.z == 0.0",
+        )
+        check(
+            field("orientation", index, fmt="f") == orientation,
+            f"slot {index}: orientation == {orientation}",
+        )
+        check(field("flags", index) == flags, f"slot {index}: flags == {flags}")
+        check(field("clip_index", index) == clip, f"slot {index}: clip_index == {clip}")
+        check(
+            field("phase", index, fmt="f") == phase,
+            f"slot {index}: phase == {phase}",
+        )
+        check(
+            field("playback_rate", index, fmt="f") == rate,
+            f"slot {index}: playback_rate == {rate}",
+        )
+        check(field("render_tier", index) == tier, f"slot {index}: render_tier == {tier}")
 
     print("errors:")
     try:
@@ -139,6 +163,12 @@ def main(path):
         print(f"  ok: out-of-range tick raises OSError ({exc})")
     else:
         raise Failure("out-of-range tick did not raise OSError")
+    try:
+        trace.read_tick(-1)
+    except OSError as exc:
+        print(f"  ok: negative tick raises OSError ({exc})")
+    else:
+        raise Failure("negative tick did not raise OSError")
 
     print("PASS")
 
