@@ -7,6 +7,22 @@
 use crate::TraceError;
 
 /// Agent is simulating.
+///
+/// A record with **no** flags set (`flags == 0`, i.e. neither `FLAG_ACTIVE`
+/// nor `FLAG_ARRIVED`) means the slot holds no agent yet, not an agent with
+/// unknown status.
+///
+/// The header declares one fixed agent population for the whole trace (see
+/// `Header::agent_count`), but agents spawn gradually over the run rather
+/// than all existing on tick 0. Every tick still writes exactly
+/// `agent_count` records — that fixed stride is what lets `TraceReader`
+/// seek to any tick in O(1) and lets a Blender point cloud be sized once
+/// instead of resized every tick — so slots not yet occupied by a spawned
+/// agent are padded with an all-default record (`agent_id: 0`,
+/// `position: [0.0, 0.0]`, `orientation: 0.0`, `flags: 0`). A real agent's
+/// record always sets `FLAG_ACTIVE` or `FLAG_ARRIVED`, so `flags == 0` is
+/// unambiguous: consumers must skip or hide such records rather than
+/// rendering them as an agent standing at the origin.
 pub const FLAG_ACTIVE: u32 = 1 << 0;
 /// Agent has reached its destination.
 pub const FLAG_ARRIVED: u32 = 1 << 1;

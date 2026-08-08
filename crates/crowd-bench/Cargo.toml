@@ -4,7 +4,16 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+[lib]
+name = "crowd_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "crowd-bench"
+path = "src/main.rs"
+
 [dependencies]
 crowd-core = { path = "../crowd-core" }
+crowd-trace = { path = "../crowd-trace" }
 serde = { workspace = true }
 serde_json = { workspace = true }

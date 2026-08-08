@@ -40,6 +40,7 @@ name = "crowd-bench"
 version = "0.1.0"
 dependencies = [
  "crowd-core",
+ "crowd-trace",
  "serde",
  "serde_json",
 ]

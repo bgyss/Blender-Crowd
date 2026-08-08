@@ -61,6 +61,10 @@ pub struct RunOptions {
     pub frame_interval: u64,
     pub out_dir: PathBuf,
     pub solver: SolverKind,
+    /// Emit a trace v0 file (`crowd-trace`) instead of stepping via
+    /// `run_to_completion`. Like `svg`/`frames`, this samples every tick, so
+    /// a traced run's `ticks_per_second` is not a performance measurement.
+    pub trace: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -279,6 +283,19 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
                 writer.dir().display()
             );
         }
+    } else if options.trace {
+        // Replaces `run_to_completion` rather than following it: once the
+        // scene's duration has elapsed there are no ticks left to record,
+        // so a trace written afterwards would be empty. `write_trace` does
+        // its own stepping, one tick per record batch, so this is the only
+        // place `sim` is advanced when tracing is on.
+        let path = options
+            .out_dir
+            .join(format!("{}-{}.crowdtrace", options.scene, options.agents));
+        let remaining = duration_ticks.saturating_sub(sim.clock().tick());
+        let ticks = crowd_bench::trace_out::write_trace(&mut sim, &path, remaining)
+            .map_err(|e| format!("writing trace: {e}"))?;
+        println!("trace: {} ({ticks} ticks)", path.display());
     } else {
         sim.run_to_completion();
     }
@@ -329,6 +346,7 @@ mod tests {
             frame_interval: crate::frames::DEFAULT_FRAME_INTERVAL_TICKS,
             out_dir: std::env::temp_dir().join("crowd_bench_test"),
             solver: SolverKind::SampledVelocity,
+            trace: false,
         }
     }
 

@@ -27,7 +27,7 @@ const REPORT_DIR: &str = "benchmarks/reports";
 
 fn usage() -> &'static str {
     "usage:
-  crowd-bench run [--scene NAME] [--agents N] [--seed N] [--svg] [--frames] [--frame-interval N] [--out DIR] [--solver NAME]
+  crowd-bench run [--scene NAME] [--agents N] [--seed N] [--svg] [--frames] [--frame-interval N] [--out DIR] [--solver NAME] [--trace]
   crowd-bench sweep [--scene NAME] [--seed N]
   crowd-bench baseline [--scene NAME] [--agents N] [--seed N] [--solver NAME]
   crowd-bench check [--agents N] [--seed N] [--solver NAME]
@@ -45,6 +45,7 @@ struct Args {
     frame_interval: u64,
     out: PathBuf,
     solver: crate::report::SolverKind,
+    trace: bool,
 }
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -57,6 +58,7 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         frame_interval: frames::DEFAULT_FRAME_INTERVAL_TICKS,
         out: PathBuf::from(REPORT_DIR),
         solver: crate::report::SolverKind::SampledVelocity,
+        trace: false,
     };
     let mut index = 0;
     while index < raw.len() {
@@ -87,6 +89,7 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
             }
             "--svg" => args.svg = true,
             "--frames" => args.frames = true,
+            "--trace" => args.trace = true,
             "--frame-interval" => {
                 index += 1;
                 args.frame_interval = raw
@@ -132,6 +135,7 @@ fn options_for(scene: &str, args: &Args) -> RunOptions {
         frame_interval: args.frame_interval,
         out_dir: args.out.clone(),
         solver: args.solver,
+        trace: args.trace,
     }
 }
 
@@ -158,8 +162,9 @@ fn command_run(args: &Args) -> Result<(), String> {
 fn command_sweep(args: &Args) -> Result<(), String> {
     for scene in scenes_to_run(args)? {
         for agents in [100u32, 500, 1000, 2000] {
-            // Never record SVGs during a sweep: the per-tick sampling would
-            // skew the very timing numbers the sweep exists to measure.
+            // Never record SVGs, frames, or a trace during a sweep: the
+            // per-tick sampling would skew the very timing numbers the
+            // sweep exists to measure.
             let sweep_args = Args {
                 scene: Some(scene.clone()),
                 agents,
@@ -169,6 +174,7 @@ fn command_sweep(args: &Args) -> Result<(), String> {
                 frame_interval: args.frame_interval,
                 out: args.out.clone(),
                 solver: args.solver,
+                trace: false,
             };
             let report = run_scene(&options_for(&scene, &sweep_args))?;
             println!(
@@ -223,6 +229,7 @@ fn command_check(args: &Args) -> Result<bool, String> {
                 frame_interval: args.frame_interval,
                 out: args.out.clone(),
                 solver: args.solver,
+                trace: false,
             },
         ))?;
 
@@ -279,6 +286,7 @@ fn command_compare(args: &Args) -> Result<(), String> {
                     frame_interval: args.frame_interval,
                     out_dir: args.out.clone(),
                     solver,
+                    trace: false,
                 };
                 let report = run_scene(&options)?;
                 println!(
