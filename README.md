@@ -59,6 +59,9 @@ Requires the pinned Rust toolchain in `rust-toolchain.toml`; `mise install`
 sets it up. On macOS, `.cargo/config.toml` points the linker at the system
 clang — without it, nothing links.
 
+The Blender runners require Blender 5.2 LTS at
+/Applications/Blender.app/Contents/MacOS/Blender (override with BLENDER=...).
+
 ```sh
 cargo test --workspace                                    # unit, property, determinism
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
@@ -73,6 +76,10 @@ scripts/make-gif.sh crossing 600                          # frames -> docs/media
 
 scripts/build-wheel.sh                                    # abi3 wheel -> addon/blender_crowd/wheels/
 scripts/verify-wheel.sh                                   # trace + wheel round trip in a plain CPython
+scripts/blender-install-test.sh                           # clean install + native module load
+scripts/blender-playback-test.sh                          # 1,000-point playback, costs reported separately
+
+cargo run --release -p crowd-bench -- run --scene crossing --agents 1000 --trace
 ```
 
 The wheel build needs `maturin`, pinned in `mise.toml` and installed by

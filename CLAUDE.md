@@ -25,11 +25,24 @@ scripts/make-gif.sh crossing 600           # frames -> docs/media/crossing-600.g
 
 scripts/build-wheel.sh                     # abi3 wheel -> addon/blender_crowd/wheels/ (needs maturin)
 scripts/verify-wheel.sh                    # trace + wheel round trip in a plain CPython
+scripts/blender-install-test.sh            # clean install + native module load
+scripts/blender-playback-test.sh           # 1,000-point playback, costs reported separately
+
+cargo run --release -p crowd-bench -- run --scene crossing --agents 1000 --trace
 ```
 
 `maturin` is pinned in `mise.toml` via the `pipx:` backend and installed by
 `mise install`; the `cargo:` backend cannot build it here because outside this
 repo the nix `cc` on `PATH` is the linker. Built wheels are gitignored.
+
+The Blender runners require Blender 5.2 LTS at
+/Applications/Blender.app/Contents/MacOS/Blender (override with BLENDER=...).
+
+The addon package uses relative imports throughout: extensions are imported
+as `bl_ext.user_default.blender_crowd`, so absolute imports of the package
+name fail. Bundled wheels unpack into a site-packages directory shared by all
+installed extensions, so the native module name `blender_crowd_native` must
+stay distinctive.
 
 `--svg` and `--frames` sample every tick, so a recorded run's `ticks_per_second`
 is not a performance measurement and must not be quoted as one.

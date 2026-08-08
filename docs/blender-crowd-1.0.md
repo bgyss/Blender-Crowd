@@ -1,7 +1,8 @@
 # Blender Crowd 1.0 architecture and MVP
 
 Status: proposed canonical product and engineering contract
-Target host: Blender 4.x LTS-compatible API surface
+Target host: Blender 5.2 LTS (bundled CPython 3.13). Widening the support
+matrix is an M3 decision requiring measured evidence, not a default.
 Implementation: Blender Python add-on, Rust simulation core, Geometry Nodes
 presentation assets
 

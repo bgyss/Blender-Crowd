@@ -1,0 +1,53 @@
+# Blender bridge and native packaging — M0 item 6
+
+Date: 2026-08-07
+Milestone: [M0 — Proving grounds](../milestones/M0-proving-grounds.md)
+Design: [Blender bridge slice](../superpowers/specs/2026-08-07-blender-bridge-slice-design.md)
+
+## Environment
+
+| | |
+|---|---|
+| CPU | Apple M1 Max |
+| OS | macOS 27.0 (BuildVersion 26A5378n) |
+| Blender | 5.2.0 LTS, hash fbe6228777e7 |
+| Bundled CPython | 3.13.13 |
+| Rust | 1.94.1 |
+| Wheel | blender_crowd_native-0.1.0-cp311-abi3-macosx_11_0_arm64.whl |
+
+## Results
+
+| Measure | Value |
+|---|---|
+| Agents | 1000 |
+| Ticks | 5692 |
+| Simulation wall time | 55.91 s |
+| Trace size on disk | 199,220,032 bytes (190.0 MiB) |
+| Blender playback total | 0.1621 s |
+| Blender playback per tick | 0.0285 ms |
+| Instances evaluated | 1000 |
+
+Simulation and playback costs are listed separately and must not be summed.
+
+## Acceptance criteria addressed
+
+- M0 criterion 5 (clean install, no contributor-environment links):
+  `scripts/blender-install-test.sh`.
+- M0 criterion 6 (1,000 cached point transforms, stable IDs, separated costs):
+  `scripts/blender-playback-test.sh`.
+
+## Known limitations and unsupported claims
+
+- macOS arm64 only. No Linux or Windows wheel was built or tested.
+- Single machine. No claim is made about any other hardware.
+- Trace v0 is not the cache format: it has no chunking, quantization,
+  checksums, or cancellation, and cache v0 must still decide all four.
+- Navigation still uses the waypoint stand-in, which M0 forbids treating as
+  production navigation.
+- The instanced cone is a stand-in, not a character asset. No armature
+  evaluation or render cost was measured.
+
+## Next gate
+
+M0 items 4 (tiled navigation), 5 (cache v0), and 7 (Python/Rust facade)
+remain open. M1 stays blocked until they close.
