@@ -9,10 +9,14 @@
 //! See `docs/superpowers/specs/2026-08-07-blender-bridge-slice-design.md`.
 
 pub mod header;
+pub mod reader;
 pub mod record;
+pub mod writer;
 
 pub use header::{Header, FORMAT_VERSION, HEADER_BYTES, MAGIC};
+pub use reader::TraceReader;
 pub use record::{AgentRecord, FLAG_ACTIVE, FLAG_ARRIVED, RECORD_BYTES};
+pub use writer::TraceWriter;
 
 /// Every way reading a trace can fail.
 #[derive(Debug)]
@@ -21,6 +25,8 @@ pub enum TraceError {
     UnsupportedVersion { found: u32, expected: u32 },
     Truncated { expected: usize, found: usize },
     Io(std::io::Error),
+    AgentCountMismatch { expected: u32, found: usize },
+    TickOutOfRange { requested: u64, tick_count: u64 },
 }
 
 impl std::fmt::Display for TraceError {
@@ -38,6 +44,17 @@ impl std::fmt::Display for TraceError {
                 )
             }
             Self::Io(e) => write!(f, "io error reading trace: {e}"),
+            Self::AgentCountMismatch { expected, found } => write!(
+                f,
+                "tick has {found} records but the header declares {expected} agents"
+            ),
+            Self::TickOutOfRange {
+                requested,
+                tick_count,
+            } => write!(
+                f,
+                "tick {requested} is out of range (trace has {tick_count} ticks)"
+            ),
         }
     }
 }

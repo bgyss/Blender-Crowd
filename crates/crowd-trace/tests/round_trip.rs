@@ -187,3 +187,118 @@ fn record_layout_is_pinned_to_the_spec() {
 
     assert_eq!(r.encode(), expected);
 }
+
+use crowd_trace::{TraceReader, TraceWriter};
+
+fn record_for(tick: u64, agent: u64) -> AgentRecord {
+    AgentRecord {
+        agent_id: agent * 1_000_003,
+        position: [tick as f32, agent as f32],
+        orientation: 0.1 * tick as f32,
+        flags: crowd_trace::FLAG_ACTIVE,
+        clip_index: 0,
+        phase: 0.0,
+        playback_rate: 1.0,
+        render_tier: 0,
+    }
+}
+
+#[test]
+fn trace_file_round_trips() {
+    let dir = std::env::temp_dir().join("crowd-trace-round-trip");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("t.crowdtrace");
+
+    let agents = 4u32;
+    let ticks = 3u64;
+    let mut w = TraceWriter::create(&path, agents, 30, 1.0).unwrap();
+    for tick in 0..ticks {
+        let batch: Vec<_> = (0..agents as u64).map(|a| record_for(tick, a)).collect();
+        w.write_tick(&batch).unwrap();
+    }
+    assert_eq!(w.finish().unwrap(), ticks);
+
+    let mut r = TraceReader::open(&path).unwrap();
+    let header = r.header();
+    assert_eq!(header.tick_count, ticks);
+    assert_eq!(header.agent_count, agents);
+    assert_eq!(header.ticks_per_second, 30);
+
+    let mut out = Vec::new();
+    for tick in 0..ticks {
+        r.read_tick(tick, &mut out).unwrap();
+        assert_eq!(out.len(), agents as usize);
+        for (a, got) in out.iter().enumerate() {
+            assert_eq!(*got, record_for(tick, a as u64));
+        }
+    }
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn reader_rejects_out_of_range_tick() {
+    let dir = std::env::temp_dir().join("crowd-trace-range");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("t.crowdtrace");
+    let mut w = TraceWriter::create(&path, 2, 30, 1.0).unwrap();
+    w.write_tick(&[record_for(0, 0), record_for(0, 1)]).unwrap();
+    w.finish().unwrap();
+
+    let mut r = TraceReader::open(&path).unwrap();
+    let mut out = Vec::new();
+    assert!(r.read_tick(5, &mut out).is_err());
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn reader_rejects_truncated_file() {
+    let dir = std::env::temp_dir().join("crowd-trace-trunc");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("t.crowdtrace");
+    let mut w = TraceWriter::create(&path, 2, 30, 1.0).unwrap();
+    w.write_tick(&[record_for(0, 0), record_for(0, 1)]).unwrap();
+    w.finish().unwrap();
+
+    // Chop the last record off; the header still claims one full tick.
+    let bytes = std::fs::read(&path).unwrap();
+    std::fs::write(&path, &bytes[..bytes.len() - crowd_trace::RECORD_BYTES]).unwrap();
+
+    let mut r = TraceReader::open(&path).unwrap();
+    let mut out = Vec::new();
+    assert!(r.read_tick(0, &mut out).is_err());
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn writer_rejects_wrong_agent_count() {
+    let dir = std::env::temp_dir().join("crowd-trace-count");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("t.crowdtrace");
+    let mut w = TraceWriter::create(&path, 4, 30, 1.0).unwrap();
+    assert!(w.write_tick(&[record_for(0, 0)]).is_err());
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn finish_patches_tick_count_at_the_documented_offset() {
+    // The writer patches tick_count in place at offset 12 (see header.rs:
+    // magic 0..8, version 8..12, tick_count 12..20) because the count is
+    // unknown until writing ends. This reads the raw bytes directly,
+    // bypassing TraceReader/Header::decode entirely, so a wrong seek offset
+    // in `finish` cannot hide behind matching encode/decode logic.
+    let dir = std::env::temp_dir().join("crowd-trace-patch-offset");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("t.crowdtrace");
+
+    let ticks = 5u64;
+    let mut w = TraceWriter::create(&path, 1, 30, 1.0).unwrap();
+    for tick in 0..ticks {
+        w.write_tick(&[record_for(tick, 0)]).unwrap();
+    }
+    assert_eq!(w.finish().unwrap(), ticks);
+
+    let bytes = std::fs::read(&path).unwrap();
+    let patched = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
+    assert_eq!(patched, ticks);
+    std::fs::remove_file(&path).ok();
+}
