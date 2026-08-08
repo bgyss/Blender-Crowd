@@ -496,7 +496,8 @@ git commit -m "Add the packed trace v0 agent record"
 - Consumes: `Header`, `AgentRecord`, `TraceError`, `HEADER_BYTES`, `RECORD_BYTES`.
 - Produces:
   - `pub struct TraceWriter<W: Write + Seek>`
-  - `impl TraceWriter<std::fs::File> { pub fn create(path: &Path, agent_count: u32, ticks_per_second: u32, world_to_meter: f32) -> Result<Self, TraceError> }`
+  - `impl TraceWriter<BufWriter<File>> { pub fn create(path: &Path, agent_count: u32, ticks_per_second: u32, world_to_meter: f32) -> Result<Self, TraceError> }` — note the concrete type is `TraceWriter<BufWriter<File>>`, **not** `TraceWriter<File>`. Callers must let it infer (`let mut w = TraceWriter::create(...)`) rather than annotating.
+  - `impl<W: Write + Seek> TraceWriter<W> { pub fn new(inner: W, agent_count: u32, ticks_per_second: u32, world_to_meter: f32) -> Result<Self, TraceError> }`
   - `impl<W: Write + Seek> TraceWriter<W> { pub fn write_tick(&mut self, records: &[AgentRecord]) -> Result<(), TraceError>; pub fn finish(self) -> Result<u64, TraceError> }`
   - `pub struct TraceReader`
   - `impl TraceReader { pub fn open(path: &Path) -> Result<Self, TraceError>; pub fn header(&self) -> Header; pub fn read_tick(&mut self, tick: u64, out: &mut Vec<AgentRecord>) -> Result<(), TraceError> }`
