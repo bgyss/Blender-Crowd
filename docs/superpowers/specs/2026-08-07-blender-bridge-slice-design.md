@@ -93,7 +93,7 @@ Per-agent record, tick-major, fixed stride, little-endian:
 
 | Field | Type | Notes |
 |---|---|---|
-| `agent_id` | `u32` | stable ID from `crowd_core::ids` |
+| `agent_id` | `u64` | stable ID; `crowd_core::ids::AgentId` is a `u64` newtype |
 | `position` | `[f32; 2]` | world units |
 | `orientation` | `f32` | radians; agents are upright on a walkable surface |
 | `flags` | `u32` | active/arrived, matching what `frames.rs` already distinguishes |
@@ -102,8 +102,10 @@ Per-agent record, tick-major, fixed stride, little-endian:
 | `playback_rate` | `f32` | stubbed |
 | `render_tier` | `u8` | stubbed |
 
-Records are **packed, not padded**: stride is exactly 31 bytes, and readers
-must not assume natural alignment. Uncompressed. No chunking, no quantization,
+Records are **packed, not padded**: stride is exactly 35 bytes, and readers
+must not assume natural alignment. Blender's point attributes are 32-bit, so
+`agent_id` is exposed to Python as two `INT` attributes (`agent_id_lo`,
+`agent_id_hi`) rather than being narrowed, which would break stable identity. Uncompressed. No chunking, no quantization,
 no checksums. **Those four
 omissions are the point**: they are precisely the cache v0 design decisions
 that require their own measured review, so trace v0 leaves them open rather
@@ -120,6 +122,11 @@ absent: both depend on the archetype and appearance system, which does not
 exist, and stubbing them would prove nothing the four stubbed channels do not
 already prove. The cost is roughly 11 bytes per agent per
 tick of zeros.
+
+Records store `agent_id` at full 64-bit width. Narrowing to 32 bits would be
+smaller and would map directly onto a Blender `INT` point attribute, but stable
+identity is a contract guarantee (section 5.1) and a truncated ID is not a
+stable ID.
 
 `format_version` is validated on read; a mismatch is a hard error. When cache
 v0 supersedes this format, old files fail loudly instead of being misread.
