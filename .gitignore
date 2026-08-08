@@ -1,3 +1,4 @@
 /target
 /benchmarks/reports
 /addon/blender_crowd/wheels/*.whl
+__pycache__/
