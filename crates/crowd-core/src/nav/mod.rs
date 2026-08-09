@@ -2,10 +2,12 @@
 //!
 //! See `docs/superpowers/specs/2026-08-08-tiled-navmesh-prototype-design.md`.
 
+pub mod debug;
 pub mod grid;
 pub mod pathfind;
 pub mod portal;
 
+pub use debug::NavDebugSnapshot;
 pub use grid::TileGrid;
 pub use pathfind::{corridor_points, find_path};
 pub use portal::{Portal, PortalId, TileGraph};

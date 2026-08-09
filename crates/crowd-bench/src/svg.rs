@@ -7,6 +7,7 @@
 use std::fmt::Write;
 
 use crowd_core::geometry::Segment;
+use crowd_core::nav::NavDebugSnapshot;
 use crowd_core::sim::Simulation;
 use crowd_core::units::{Aabb, Vec2};
 
@@ -131,6 +132,144 @@ impl TrajectoryRecorder {
 
         out.push_str("</svg>\n");
         out
+    }
+
+    // Not called from the CLI; part of the module's required interface and
+    // exercised directly by tests.
+    #[allow(dead_code)]
+    pub fn write_svg_with_nav(
+        &self,
+        scene_name: &str,
+        bounds: Aabb,
+        walls: &[Segment],
+        nav: Option<&NavDebugSnapshot>,
+    ) -> String {
+        let size = bounds.size();
+        let width = size.x * SCALE + MARGIN * 2.0;
+        let height = size.y * SCALE + MARGIN * 2.0;
+        let project = |p: Vec2| -> (f32, f32) {
+            (
+                (p.x - bounds.min.x) * SCALE + MARGIN,
+                height - ((p.y - bounds.min.y) * SCALE + MARGIN),
+            )
+        };
+
+        let mut out = String::new();
+        let _ = write!(
+            out,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0}" height="{height:.0}" viewBox="0 0 {width:.0} {height:.0}">"#
+        );
+        let _ = write!(out, r##"<rect width="100%" height="100%" fill="#111"/>"##);
+
+        if let Some(nav) = nav {
+            for tile in 0..(nav.cols * nav.rows) {
+                if !nav.walkable[tile as usize] {
+                    continue;
+                }
+                let col = tile % nav.cols;
+                let row = tile / nav.cols;
+                let center = Vec2::new(
+                    nav.origin.x + (col as f32 + 0.5) * nav.tile_size,
+                    nav.origin.y + (row as f32 + 0.5) * nav.tile_size,
+                );
+                let (x, y) = project(center);
+                let cost = nav.cost[tile as usize];
+                let fill = if cost > 1.01 { "#553311" } else { "#1a2a1a" };
+                let half = nav.tile_size * SCALE * 0.5;
+                let _ = write!(
+                    out,
+                    r##"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="{fill}"/>"##,
+                    x - half,
+                    y - half,
+                    half * 2.0,
+                    half * 2.0
+                );
+            }
+            for (portal, midpoint) in &nav.portals {
+                let (x, y) = project(*midpoint);
+                let color = if portal.open { "#4caf50" } else { "#f44336" };
+                let _ = write!(
+                    out,
+                    r##"<circle cx="{x:.1}" cy="{y:.1}" r="3" fill="{color}"/>"##
+                );
+            }
+            for (_, corridor) in &nav.corridors {
+                let mut points = String::new();
+                for p in corridor {
+                    let (x, y) = project(*p);
+                    let _ = write!(points, "{x:.1},{y:.1} ");
+                }
+                let _ = write!(
+                    out,
+                    r##"<polyline points="{}" fill="none" stroke="#00bcd4" stroke-width="1" opacity="0.6"/>"##,
+                    points.trim_end()
+                );
+            }
+        }
+
+        for wall in walls {
+            let (x1, y1) = project(wall.a);
+            let (x2, y2) = project(wall.b);
+            if [x1, y1, x2, y2].iter().all(|v| v.is_finite()) {
+                let _ = write!(
+                    out,
+                    r##"<line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}" stroke="#888" stroke-width="2"/>"##
+                );
+            }
+        }
+
+        let _ = write!(
+            out,
+            r##"<text x="{MARGIN:.0}" y="{:.0}" fill="#eee" font-family="monospace" font-size="14">{scene_name}</text>"##,
+            MARGIN - 4.0
+        );
+
+        out.push_str("</svg>\n");
+        out
+    }
+}
+
+#[cfg(test)]
+mod nav_svg_tests {
+    use super::*;
+    use crowd_core::nav::{NavDebugSnapshot, NavMeshDef};
+    use crowd_core::route::RouteArena;
+    use crowd_core::units::{Aabb, Vec2};
+    use crowd_core::world::World;
+
+    #[test]
+    fn nav_debug_svg_renders_tiles_and_portals() {
+        let graph = NavMeshDef {
+            tile_size: 1.0,
+            agent_radius: 0.3,
+            cost_areas: Vec::new(),
+            named_portals: Vec::new(),
+        }
+        .build_graph(Aabb::new(Vec2::ZERO, Vec2::new(3.0, 3.0)), &[]);
+        let world = World::new();
+        let routes = RouteArena::new();
+        let snapshot = NavDebugSnapshot::capture(&graph, &world, &routes, 100);
+        let recorder = TrajectoryRecorder::new(5, 100);
+        let svg = recorder.write_svg_with_nav(
+            "two_room",
+            Aabb::new(Vec2::ZERO, Vec2::new(3.0, 3.0)),
+            &[],
+            Some(&snapshot),
+        );
+        assert!(svg.contains("<rect"));
+        assert!(svg.contains("<circle"));
+    }
+
+    #[test]
+    fn nav_debug_svg_without_a_snapshot_still_renders() {
+        let recorder = TrajectoryRecorder::new(5, 100);
+        let svg = recorder.write_svg_with_nav(
+            "empty",
+            Aabb::new(Vec2::ZERO, Vec2::new(3.0, 3.0)),
+            &[],
+            None,
+        );
+        assert!(svg.starts_with("<svg"));
     }
 }
 
