@@ -27,6 +27,7 @@ scripts/build-wheel.sh                     # abi3 wheel -> addon/blender_crowd/w
 scripts/verify-wheel.sh                    # trace + wheel round trip in a plain CPython
 scripts/blender-install-test.sh            # clean install + native module load
 scripts/blender-playback-test.sh           # 1,000-point playback, costs reported separately
+scripts/make-blender-recording.sh crossing 1000  # playback clip -> docs/media/ (needs ffmpeg)
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 1000 --trace
 ```

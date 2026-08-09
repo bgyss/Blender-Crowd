@@ -37,7 +37,31 @@ Phase 0 is implemented: a headless, deterministic Rust simulation kernel with
 structure-of-arrays agents, a fixed tick, spatial queries, three avoidance
 solvers, six benchmark scenes, and measured metrics reports. A reproducible
 72-report bake-off selected `sampled_velocity` as the production default.
-Nothing here touches Blender yet.
+
+The Blender bridge slice has since landed: the kernel bakes a run to a trace
+file, and a Blender extension with a bundled native wheel reads that trace back
+and instances the agents through Geometry Nodes.
+
+![1,000 baked agents playing back in Blender through Geometry Nodes](docs/media/blender-playback-crossing-1000.gif)
+
+A 1,000-agent `crossing` bake played back inside Blender 5.2 LTS, coloured by
+which stream each agent entered from: orange enters from the west heading east,
+blue from the south heading north. Every frame is a Blender render of the point
+cloud the shipped `TracePlayback` synced, instanced by the shipped node group.
+
+This clip is a visualisation, not a measurement. Frames are rendered one at a
+time with a sync between them, so neither its length nor its frame rate says
+anything about playback speed; it runs at roughly 10x simulation time by
+design. The measured playback cost is in the
+[Blender bridge benchmark report](docs/benchmarks/2026-08-07-blender-bridge.md),
+and it is reported separately from the bake that produced the trace.
+
+It also shows the open problem, the same one the 600-agent GIF below shows: the
+two streams jam where they intersect and only a trickle escapes. That is the
+24% completion rate in the metrics, not a rendering artefact.
+
+Regenerate it with `scripts/make-blender-recording.sh` (needs Blender and
+`ffmpeg`). An `.mp4` of the same run is written alongside the GIF.
 
 ![600 agents crossing, sampled_velocity solver](docs/media/crossing-600.gif)
 
@@ -78,6 +102,7 @@ scripts/build-wheel.sh                                    # abi3 wheel -> addon/
 scripts/verify-wheel.sh                                   # trace + wheel round trip in a plain CPython
 scripts/blender-install-test.sh                           # clean install + native module load
 scripts/blender-playback-test.sh                          # 1,000-point playback, costs reported separately
+scripts/make-blender-recording.sh crossing 1000           # playback clip -> docs/media/ (needs ffmpeg)
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 1000 --trace
 ```
