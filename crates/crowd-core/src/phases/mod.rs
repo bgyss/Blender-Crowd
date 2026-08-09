@@ -7,11 +7,13 @@
 pub mod decide;
 pub mod integrate;
 pub mod perceive;
+pub mod plan;
 pub mod spawn;
 pub mod steer;
 
 pub use decide::{decide, DecideConfig};
 pub use integrate::{integrate, IntegrateConfig, IntegrateReport, IntegrateScratch};
 pub use perceive::{perceive, PerceiveConfig, PerceiveScratch};
+pub use plan::{invalidate_portal, plan, PlanConfig, PlanState};
 pub use spawn::{apply_spawns, SpawnState};
 pub use steer::{steer, SteerConfig, SteerReport, SteerScratch};
