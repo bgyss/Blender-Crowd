@@ -21,6 +21,7 @@ pub enum Phase {
     Spawn,
     Index,
     Perceive,
+    Plan,
     Decide,
     Steer,
     Integrate,
@@ -28,10 +29,11 @@ pub enum Phase {
 }
 
 impl Phase {
-    pub const ALL: [Phase; 7] = [
+    pub const ALL: [Phase; 8] = [
         Phase::Spawn,
         Phase::Index,
         Phase::Perceive,
+        Phase::Plan,
         Phase::Decide,
         Phase::Steer,
         Phase::Integrate,
@@ -43,10 +45,11 @@ impl Phase {
             Phase::Spawn => 0,
             Phase::Index => 1,
             Phase::Perceive => 2,
-            Phase::Decide => 3,
-            Phase::Steer => 4,
-            Phase::Integrate => 5,
-            Phase::Metrics => 6,
+            Phase::Plan => 3,
+            Phase::Decide => 4,
+            Phase::Steer => 5,
+            Phase::Integrate => 6,
+            Phase::Metrics => 7,
         }
     }
 
@@ -55,6 +58,7 @@ impl Phase {
             Phase::Spawn => "spawn",
             Phase::Index => "index",
             Phase::Perceive => "perceive",
+            Phase::Plan => "plan",
             Phase::Decide => "decide",
             Phase::Steer => "steer",
             Phase::Integrate => "integrate",
@@ -121,7 +125,7 @@ pub struct Metrics {
     ever_stalled: Vec<bool>,
     previous_gate_side: Vec<i8>,
 
-    phase_nanos: [u64; 7],
+    phase_nanos: [u64; 8],
 }
 
 impl Metrics {

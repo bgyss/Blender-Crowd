@@ -199,16 +199,24 @@ impl World {
     ///
     /// # What is deliberately omitted, and why that is safe
     ///
-    /// `population_id`, `radius`, `max_speed`, `preferred_speed`, `route`,
+    /// `population_id`, `radius`, `max_speed`, `preferred_speed`,
     /// `destination`, `spawn_tick`, `solver_status`, `stall_ticks` and
     /// `unrouted` are excluded. Every one is either fixed at spawn or derived
     /// from state already hashed, so including them would add nothing a
     /// divergence could hide behind.
     ///
-    /// **That invariant is load-bearing.** If a later change makes any of them
-    /// mutable within the tick loop, it must be added here — otherwise the
-    /// determinism tests keep passing while silently ignoring the field that
-    /// diverged.
+    /// `route` is **included**, unlike the fields above: the tiled-navmesh
+    /// plan phase can reassign it mid-run (a portal close invalidates and
+    /// reroutes a corridor), so it is no longer fixed at spawn for every
+    /// scene. Hashing the raw handle index is enough — it is deterministic
+    /// given deterministic `RouteArena` push order, so two runs that assign
+    /// different routes to the same agent diverge here immediately, rather
+    /// than only once the resulting steering difference shows up in position.
+    ///
+    /// **This invariant is load-bearing.** If a later change makes any
+    /// currently-excluded field mutable within the tick loop, it must be
+    /// added here — otherwise the determinism tests keep passing while
+    /// silently ignoring the field that diverged.
     ///
     /// Hashes float *bits*, not values, so the determinism tests compare
     /// exactly rather than within a tolerance.
@@ -221,6 +229,7 @@ impl World {
             h = hash_combine(h, canonical_bits(self.vel_x[slot]));
             h = hash_combine(h, canonical_bits(self.vel_y[slot]));
             h = hash_combine(h, canonical_bits(self.yaw[slot]));
+            h = hash_combine(h, self.route[slot].0 as u64);
             h = hash_combine(h, self.route_index[slot] as u64);
             h = hash_combine(h, self.arrived[slot] as u64);
         }
@@ -364,5 +373,19 @@ mod tests {
             b.spawn(spawn_at(i, Vec2::new(i as f32, 0.0)), 0).unwrap();
         }
         assert_eq!(a.state_hash(), b.state_hash());
+    }
+
+    #[test]
+    fn state_hash_changes_when_the_route_handle_changes() {
+        let mut a = World::new();
+        let mut b = World::new();
+        a.spawn(spawn_at(1, Vec2::ZERO), 0).unwrap();
+        b.spawn(spawn_at(1, Vec2::ZERO), 0).unwrap();
+        b.route[0] = RouteHandle(7);
+        assert_ne!(
+            a.state_hash(),
+            b.state_hash(),
+            "a mid-run route reassignment must be visible to the determinism hash"
+        );
     }
 }
