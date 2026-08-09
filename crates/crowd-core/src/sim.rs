@@ -477,18 +477,18 @@ mod tests {
             SimConfig::default(),
         );
         sim.run(10);
-        let route_before: Vec<_> = (0..sim.world().len())
-            .map(|s| sim.world().route[s])
-            .collect();
         let portal = sim.nav().unwrap().portal_between(0, 1);
         if let Some(portal) = portal {
+            // This test only proves `set_portal_open` is wired up and does
+            // not panic or desync `commit()` — real reroute selectivity is
+            // proven by the dedicated `two_room` integration test, which
+            // controls geometry precisely enough to assert it. Stepping
+            // after a close with every agent's state staying finite is the
+            // meaningful, non-tautological property available here.
             sim.set_portal_open(portal, false);
             sim.step();
-            // Every agent whose recorded route used this portal must now be
-            // NO_ROUTE or freshly reassigned (never the pre-close handle).
-            for (slot, before) in route_before.iter().enumerate() {
-                let after = sim.world().route[slot];
-                assert!(after == crate::world::NO_ROUTE || after != *before || true);
+            for slot in 0..sim.world().len() {
+                assert!(sim.world().position(slot as u32).is_finite());
             }
         }
     }
