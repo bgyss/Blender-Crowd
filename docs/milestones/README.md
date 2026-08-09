@@ -51,12 +51,49 @@ production evaluation. M8 consumes stable outputs from M4 through M6.
 
 ## Current baseline
 
-The repository is still documentation-only. The detailed
-[deterministic kernel implementation plan](../superpowers/plans/2026-08-04-crowd-sim-kernel.md)
-is the first executable slice of M0; it has not been implemented merely because
-the plan exists.
+As of 2026-08-08, M0 is in progress and not yet accepted. M1 is blocked.
 
-Current documentation checks:
+Implemented: a Rust workspace of four crates (`crowd-core` kernel,
+`crowd-trace` trace v0, `crowd-blender` PyO3 bridge, `crowd-bench` harness)
+and the `addon/blender_crowd` extension with a bundled `abi3` wheel. There is
+no `schemas/` or `assets/reference/` yet, because no implemented behavior owns
+one.
+
+### M0 in-scope items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Clock, IDs, SoA state, spatial index, tick phases, metrics | Done |
+| 2 | Avoidance scenes at 100/500/1,000/2,000 agents | Done — six scenes, exceeding the five required |
+| 3 | Three avoidance candidates behind one interface, compared | Done — `sampled_velocity` selected |
+| 4 | Tiled navmesh/corridor prototype, portal change, path budgeting | **Open** — navigation is still the waypoint stand-in |
+| 5 | Cache v0 experiments | **Open** — trace v0 is not the cache format |
+| 6 | Extension skeleton, packaging spike, 1,000-point GN playback | Done |
+| 7 | Coarse Python/Rust facade and bundled-CPython ABI validation | **Partial** — ABI validated, facade not built |
+
+### M0 acceptance criteria
+
+Met: 1 (comparable solver reports with documented tradeoffs), 2 (strict rerun,
+spawn-order permutation, and add-one-agent tests all pass), 5 (clean Blender
+install loads the native module), 6 (1,000 cached point transforms with stable
+IDs, costs reported separately).
+
+Not met: 3 and 4, neither of which can be attempted before items 4 and 5 exist.
+Criterion 7 is partial — the kernel slice report records the contract's
+real-time 1K budget as met with margin, but the consolidated dated M0 report
+that criterion asks for is not written.
+
+Evidence to date, each with its own environment and unsupported-claims section:
+
+- [Kernel slice 1](../benchmarks/2026-08-05-kernel-slice-1.md)
+- [Avoidance solver comparison](../benchmarks/2026-08-06-avoidance-solver-comparison.md)
+- [Blender bridge and native packaging](../benchmarks/2026-08-07-blender-bridge.md)
+
+### Checks
+
+`README.md` and `AGENTS.md` carry the copy-ready runners for the workspace
+tests, density stress, benchmark scenes, wheel build, and the two Blender
+runners. The documentation checks remain required alongside them:
 
 ```sh
 git diff --check
