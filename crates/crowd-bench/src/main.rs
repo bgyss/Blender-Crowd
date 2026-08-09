@@ -7,6 +7,7 @@
 mod alloc;
 mod baseline;
 mod frames;
+mod nav_bench;
 mod report;
 mod svg;
 
@@ -32,6 +33,7 @@ fn usage() -> &'static str {
   crowd-bench baseline [--scene NAME] [--agents N] [--seed N] [--solver NAME]
   crowd-bench check [--agents N] [--seed N] [--solver NAME]
   crowd-bench compare [--scene NAME] [--out DIR]
+  crowd-bench nav-reroute [--agents N] [--seed N] [--out DIR] [--svg]
 
 Omitting --scene runs every scene."
 }
@@ -329,6 +331,31 @@ fn command_compare(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
+fn command_nav_reroute(args: &Args) -> Result<(), String> {
+    std::fs::create_dir_all(&args.out).map_err(|e| e.to_string())?;
+    let options = nav_bench::NavRerouteOptions {
+        agents: args.agents,
+        seed: args.seed,
+        out_dir: args.out.clone(),
+        svg: args.svg,
+        settle_ticks: 600,
+    };
+    let report = nav_bench::run_nav_reroute(&options)?;
+    let path = args
+        .out
+        .join(format!("two_room-reroute-{}.json", args.agents));
+    let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    println!(
+        "two_room: {} invalidated / {} untouched on close, {} arrived after reroute -> {}",
+        report.invalidated_on_close,
+        report.untouched_on_close,
+        report.arrived_after_reroute,
+        path.display()
+    );
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let Some((command, rest)) = argv.split_first() else {
@@ -350,6 +377,7 @@ fn main() -> ExitCode {
         "baseline" => command_baseline(&args).map(|()| true),
         "check" => command_check(&args),
         "compare" => command_compare(&args).map(|()| true),
+        "nav-reroute" => command_nav_reroute(&args).map(|()| true),
         other => Err(format!("unknown command: {other}\n\n{}", usage())),
     };
 

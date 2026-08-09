@@ -134,9 +134,6 @@ impl TrajectoryRecorder {
         out
     }
 
-    // Not called from the CLI; part of the module's required interface and
-    // exercised directly by tests.
-    #[allow(dead_code)]
     pub fn write_svg_with_nav(
         &self,
         scene_name: &str,
