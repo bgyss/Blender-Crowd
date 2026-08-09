@@ -10,6 +10,7 @@ pub mod grid;
 pub mod ids;
 pub mod metrics;
 pub mod nav;
+pub mod nav_scenes;
 pub mod phases;
 pub mod rng;
 pub mod route;
