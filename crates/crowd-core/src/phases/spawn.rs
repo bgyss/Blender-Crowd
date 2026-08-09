@@ -137,25 +137,37 @@ pub fn apply_spawns(
                 SPAWN_CLEARANCE,
             );
 
-            let destination_node = scene.destinations[region.destination as usize].node;
-            let route = match scene.waypoints.nearest_node(position) {
-                Some(from) => match scene.waypoints.shortest_path(from, destination_node) {
-                    Some(path) => {
-                        let points: Vec<Vec2> =
-                            path.iter().map(|n| scene.waypoints.position(*n)).collect();
-                        routes.push_route(&points)
-                    }
-                    // Compilation already proved reachability from the region
-                    // centre; an individual sample can still fail only if the
-                    // graph is malformed, and an unrouted agent is preferable
-                    // to a panic mid-bake.
+            let (route, heading) = if let Some(dest_point) = scene
+                .nav
+                .as_ref()
+                .and(scene.nav_destinations.get(region.destination as usize))
+            {
+                // A nav-routed scene assigns no route at spawn time: the new
+                // `plan` phase (Task 6) budgets pathfinding across ticks. The
+                // agent starts `NO_ROUTE` and is picked up by `plan` this
+                // tick or a later one.
+                (NO_ROUTE, (*dest_point - position).normalize_or_zero())
+            } else {
+                let destination_node = scene.destinations[region.destination as usize].node;
+                let route = match scene.waypoints.nearest_node(position) {
+                    Some(from) => match scene.waypoints.shortest_path(from, destination_node) {
+                        Some(path) => {
+                            let points: Vec<Vec2> =
+                                path.iter().map(|n| scene.waypoints.position(*n)).collect();
+                            routes.push_route(&points)
+                        }
+                        // Compilation already proved reachability from the
+                        // region centre; an individual sample can still fail
+                        // only if the graph is malformed, and an unrouted
+                        // agent is preferable to a panic mid-bake.
+                        None => NO_ROUTE,
+                    },
                     None => NO_ROUTE,
-                },
-                None => NO_ROUTE,
+                };
+                let heading =
+                    (scene.waypoints.position(destination_node) - position).normalize_or_zero();
+                (route, heading)
             };
-
-            let heading =
-                (scene.waypoints.position(destination_node) - position).normalize_or_zero();
 
             let spawn = AgentSpawn {
                 agent_id,
@@ -213,6 +225,8 @@ mod tests {
             project_seed: 42,
             ticks_per_second: 30,
             duration_ticks: 100,
+            nav: None,
+            nav_destinations: Vec::new(),
         }
         .compile()
         .unwrap()
@@ -246,6 +260,8 @@ mod tests {
             project_seed: 42,
             ticks_per_second: 30,
             duration_ticks: 100,
+            nav: None,
+            nav_destinations: Vec::new(),
         }
         .compile()
         .unwrap()

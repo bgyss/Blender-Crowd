@@ -8,6 +8,7 @@
 use crate::geometry::Segment;
 use crate::grid::SegmentIndex;
 use crate::ids::{hash_combine, hash_str, mix64};
+use crate::nav::{NavMeshDef, TileGraph};
 use crate::route::WaypointGraph;
 use crate::units::{Aabb, Vec2};
 
@@ -78,6 +79,12 @@ pub struct SceneDef {
     pub project_seed: u64,
     pub ticks_per_second: u32,
     pub duration_ticks: u64,
+    /// `None` for waypoint-routed scenes (every scene today). `Some` opts the
+    /// scene into the tiled navmesh instead — `waypoints` is then unused and
+    /// may be left as `WaypointGraph::new()`.
+    pub nav: Option<NavMeshDef>,
+    /// Parallel to `destinations`; meaningful only when `nav.is_some()`.
+    pub nav_destinations: Vec<Vec2>,
 }
 
 /// A bake-blocking authoring fault. Each names the entity at fault.
@@ -113,6 +120,13 @@ pub enum SceneError {
         population: u16,
         field: &'static str,
     },
+    EmptyNavMesh,
+    UnwalkableDestination {
+        destination: u16,
+    },
+    UnknownNamedPortal {
+        name: String,
+    },
 }
 
 /// A validated scene, ready to simulate.
@@ -129,6 +143,8 @@ pub struct CompiledScene {
     pub project_seed: u64,
     pub ticks_per_second: u32,
     pub duration_ticks: u64,
+    pub nav: Option<TileGraph>,
+    pub nav_destinations: Vec<Vec2>,
     scene_hash: u64,
 }
 
@@ -146,10 +162,12 @@ impl SceneDef {
                 ticks_per_second: self.ticks_per_second,
             });
         }
-        if self.waypoints.node_count() == 0 {
-            errors.push(SceneError::EmptyWaypointGraph);
-        } else if !self.waypoints.is_connected() {
-            errors.push(SceneError::DisconnectedWaypointGraph);
+        if self.nav.is_none() {
+            if self.waypoints.node_count() == 0 {
+                errors.push(SceneError::EmptyWaypointGraph);
+            } else if !self.waypoints.is_connected() {
+                errors.push(SceneError::DisconnectedWaypointGraph);
+            }
         }
         if self.destinations.is_empty() {
             errors.push(SceneError::NoDestinations);
@@ -191,12 +209,33 @@ impl SceneDef {
             }
         }
 
-        for (index, destination) in self.destinations.iter().enumerate() {
-            if destination.node >= self.waypoints.node_count() {
-                errors.push(SceneError::DestinationNodeMissing {
-                    destination: index as u16,
-                    node: destination.node,
-                });
+        if self.nav.is_none() {
+            for (index, destination) in self.destinations.iter().enumerate() {
+                if destination.node >= self.waypoints.node_count() {
+                    errors.push(SceneError::DestinationNodeMissing {
+                        destination: index as u16,
+                        node: destination.node,
+                    });
+                }
+            }
+        }
+
+        let nav_graph = self
+            .nav
+            .as_ref()
+            .map(|def| def.build_graph(self.bounds, &self.walls));
+        if let Some(graph) = &nav_graph {
+            if graph.grid().tile_count() == 0
+                || (0..graph.grid().tile_count()).all(|t| !graph.grid().is_walkable(t))
+            {
+                errors.push(SceneError::EmptyNavMesh);
+            }
+            for (index, point) in self.nav_destinations.iter().enumerate() {
+                if graph.grid().nearest_walkable_tile(*point).is_none() {
+                    errors.push(SceneError::UnwalkableDestination {
+                        destination: index as u16,
+                    });
+                }
             }
         }
 
@@ -217,8 +256,25 @@ impl SceneDef {
                 });
                 continue;
             };
-            // Reachability is only meaningful once the graph itself is sound.
-            if self.waypoints.node_count() > 0 && destination.node < self.waypoints.node_count() {
+            // Reachability is only meaningful once routing itself is sound.
+            if let Some(graph) = &nav_graph {
+                if let Some(dest_point) = self.nav_destinations.get(spawn.destination as usize) {
+                    let from = graph.grid().nearest_walkable_tile(spawn.area.center());
+                    let to = graph.grid().nearest_walkable_tile(*dest_point);
+                    let reachable = match (from, to) {
+                        (Some(from), Some(to)) => crate::nav::find_path(graph, from, to).is_some(),
+                        _ => false,
+                    };
+                    if !reachable {
+                        errors.push(SceneError::UnreachableDestination {
+                            spawn: spawn.id,
+                            destination: spawn.destination,
+                        });
+                    }
+                }
+            } else if self.waypoints.node_count() > 0
+                && destination.node < self.waypoints.node_count()
+            {
                 let from = self
                     .waypoints
                     .nearest_node(spawn.area.center())
@@ -259,6 +315,8 @@ impl SceneDef {
             project_seed: self.project_seed,
             ticks_per_second: self.ticks_per_second,
             duration_ticks: self.duration_ticks,
+            nav: nav_graph,
+            nav_destinations: self.nav_destinations,
             scene_hash,
         })
     }
@@ -396,7 +454,93 @@ mod tests {
             project_seed: 42,
             ticks_per_second: 30,
             duration_ticks: 300,
+            nav: None,
+            nav_destinations: Vec::new(),
         }
+    }
+
+    use crate::nav::NavMeshDef;
+
+    fn nav_scene() -> SceneDef {
+        SceneDef {
+            name: "nav_corridor".into(),
+            bounds: Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(10.0, 3.0)),
+            walls: vec![
+                Segment::new(Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0)),
+                Segment::new(Vec2::new(0.0, 3.0), Vec2::new(10.0, 3.0)),
+            ],
+            waypoints: WaypointGraph::new(),
+            destinations: vec![Destination {
+                name: "exit".into(),
+                node: 0,
+            }],
+            spawns: vec![SpawnRegion {
+                id: 0,
+                population_id: 0,
+                area: Aabb::new(Vec2::new(0.5, 1.0), Vec2::new(1.5, 2.0)),
+                count: 10,
+                per_tick: 2,
+                destination: 0,
+            }],
+            populations: vec![PopulationParams::default()],
+            project_seed: 42,
+            ticks_per_second: 30,
+            duration_ticks: 300,
+            nav: Some(NavMeshDef {
+                tile_size: 1.0,
+                agent_radius: 0.3,
+                cost_areas: Vec::new(),
+                named_portals: Vec::new(),
+            }),
+            nav_destinations: vec![Vec2::new(9.0, 1.5)],
+        }
+    }
+
+    #[test]
+    fn a_nav_routed_scene_compiles_without_a_waypoint_graph() {
+        assert!(nav_scene().compile().is_ok());
+    }
+
+    #[test]
+    fn an_unwalkable_nav_destination_is_rejected() {
+        let mut scene = nav_scene();
+        // Outside the corridor walls entirely.
+        scene.nav_destinations[0] = Vec2::new(9.0, 50.0);
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::UnwalkableDestination { destination: 0 }));
+    }
+
+    #[test]
+    fn an_unreachable_nav_destination_is_rejected() {
+        let mut scene = nav_scene();
+        // A wall straight across the corridor, with no doorway. Runs through
+        // the centers of the tile column at x=5.5 (tile_size is 1.0, origin
+        // 0.0) so every tile in that column is guaranteed blocked regardless
+        // of how rasterization treats a wall sitting exactly on a tile edge.
+        scene
+            .walls
+            .push(Segment::new(Vec2::new(5.5, 0.0), Vec2::new(5.5, 3.0)));
+        let errors = scene.compile().unwrap_err();
+        assert!(errors.contains(&SceneError::UnreachableDestination {
+            spawn: 0,
+            destination: 0
+        }));
+    }
+
+    #[test]
+    fn a_nav_scene_does_not_require_a_waypoint_graph() {
+        // The waypoint-only checks must not fire for a nav-routed scene, even
+        // though its `waypoints` field is the empty default.
+        let scene = nav_scene();
+        assert!(scene.waypoints.node_count() == 0);
+        assert!(scene.compile().is_ok());
+    }
+
+    #[test]
+    fn a_waypoint_scene_is_unaffected_by_the_nav_field_existing() {
+        // `valid_scene()` (the pre-existing helper) has `nav: None` and must
+        // compile exactly as before.
+        assert!(valid_scene().compile().is_ok());
     }
 
     #[test]

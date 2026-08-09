@@ -28,6 +28,7 @@ pub use geometry::Segment;
 pub use grid::{SegmentIndex, UniformGrid};
 pub use ids::{derive_agent_id, AgentId};
 pub use metrics::{Metrics, MetricsConfig, MetricsSummary, Phase};
+pub use nav::{NavMeshDef, PortalId, TileGraph};
 pub use rng::{Purpose, StableRng};
 pub use route::{next_target, RouteArena, WaypointGraph};
 pub use scene::{CompiledScene, Destination, PopulationParams, SceneDef, SceneError, SpawnRegion};

@@ -188,6 +188,8 @@ fn bidirectional_corridor(agents: u32, seed: u64) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: 1800,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -241,6 +243,8 @@ fn crossing(agents: u32, seed: u64) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: 1800,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -298,6 +302,8 @@ fn bottleneck(agents: u32, seed: u64, scale: f32) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: (3600.0 * scale).round() as u64,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -362,6 +368,8 @@ fn dense_flow(agents: u32, seed: u64, scale: f32) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: (3600.0 * scale).round() as u64,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -409,6 +417,8 @@ fn l_corridor(agents: u32, seed: u64) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: 2400,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -468,6 +478,8 @@ fn circle(agents: u32, seed: u64) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: 1800,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 

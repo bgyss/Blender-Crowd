@@ -258,6 +258,8 @@ mod tests {
             project_seed: 2026,
             ticks_per_second: 30,
             duration_ticks: 900,
+            nav: None,
+            nav_destinations: Vec::new(),
         }
         .compile()
         .unwrap()
