@@ -95,6 +95,9 @@ cargo run --release -p crowd-bench -- run --agents 1000 --svg --solver sampled_v
 cargo run --release -p crowd-bench -- check --agents 1000 # regression against baselines
 cargo run --release -p crowd-bench -- compare --out benchmarks/reports  # three-solver, four-scale bake-off
 
+cargo run --release -p crowd-bench -- nav-reroute --agents 1000 --svg  # tiled-navmesh portal reroute (M0 item 4)
+cargo test --release -p crowd-core --test two_room_reroute -- --ignored  # 1,000-agent reroute acceptance test
+
 cargo run --release -p crowd-bench -- run --scene crossing --agents 600 --frames
 scripts/make-gif.sh crossing 600                          # frames -> docs/media/crossing-600.gif
 

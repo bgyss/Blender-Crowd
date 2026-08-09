@@ -66,7 +66,7 @@ one.
 | 1 | Clock, IDs, SoA state, spatial index, tick phases, metrics | Done |
 | 2 | Avoidance scenes at 100/500/1,000/2,000 agents | Done — six scenes, exceeding the five required |
 | 3 | Three avoidance candidates behind one interface, compared | Done — `sampled_velocity` selected |
-| 4 | Tiled navmesh/corridor prototype, portal change, path budgeting | **Open** — navigation is still the waypoint stand-in |
+| 4 | Tiled navmesh/corridor prototype, portal change, path budgeting | Done — `crowd_core::nav`, the `plan` phase, and the `two_room` scene |
 | 5 | Cache v0 experiments | **Open** — trace v0 is not the cache format |
 | 6 | Extension skeleton, packaging spike, 1,000-point GN playback | Done |
 | 7 | Coarse Python/Rust facade and bundled-CPython ABI validation | **Partial** — ABI validated, facade not built |
@@ -74,11 +74,12 @@ one.
 ### M0 acceptance criteria
 
 Met: 1 (comparable solver reports with documented tradeoffs), 2 (strict rerun,
-spawn-order permutation, and add-one-agent tests all pass), 5 (clean Blender
-install loads the native module), 6 (1,000 cached point transforms with stable
-IDs, costs reported separately).
+spawn-order permutation, and add-one-agent tests all pass), 3 (a 1,000-agent
+tiled-navigation case reroutes after a portal change without corrupting
+unrelated corridors), 5 (clean Blender install loads the native module), 6
+(1,000 cached point transforms with stable IDs, costs reported separately).
 
-Not met: 3 and 4, neither of which can be attempted before items 4 and 5 exist.
+Not met: 4, which cannot be attempted before item 5 exists.
 Criterion 7 is partial — the kernel slice report records the contract's
 real-time 1K budget as met with margin, but the consolidated dated M0 report
 that criterion asks for is not written.
@@ -88,6 +89,7 @@ Evidence to date, each with its own environment and unsupported-claims section:
 - [Kernel slice 1](../benchmarks/2026-08-05-kernel-slice-1.md)
 - [Avoidance solver comparison](../benchmarks/2026-08-06-avoidance-solver-comparison.md)
 - [Blender bridge and native packaging](../benchmarks/2026-08-07-blender-bridge.md)
+- [Tiled navmesh/corridor prototype](../benchmarks/2026-08-08-tiled-navmesh-prototype.md)
 
 ### Checks
 
