@@ -3,5 +3,7 @@
 //! See `docs/superpowers/specs/2026-08-08-tiled-navmesh-prototype-design.md`.
 
 pub mod grid;
+pub mod portal;
 
 pub use grid::TileGrid;
+pub use portal::{Portal, PortalId, TileGraph};
