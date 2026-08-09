@@ -164,7 +164,7 @@ impl TileGraph {
     /// near the doorway point: for a doorway in a vertical wall, both the
     /// genuine crossing portals *and* nearby north-south portals fully on
     /// one side of the wall can have midpoints within any radius wide enough
-    /// to span a multi-tile-row doorway. Prefer `portals_within_axis` for
+    /// to span a multi-tile-row doorway. Prefer `portals_crossing` for
     /// named-door resolution; this method is kept for callers (and the tests
     /// below) that want raw proximity without axis filtering.
     pub fn portals_within(&self, point: Vec2, radius: f32) -> Vec<PortalId> {
@@ -194,43 +194,124 @@ impl TileGraph {
         }
     }
 
-    /// Every portal within `radius` of `point` (as `portals_within`) that
-    /// both (a) runs along `axis` and (b) actually straddles `point`'s
-    /// coordinate along that axis — the two tile centers lie on opposite
-    /// sides of `point.x` (`EastWest`) or `point.y` (`NorthSouth`). Ascending
-    /// by `PortalId`.
-    ///
-    /// This is the correct primitive for resolving a named doorway. Axis
-    /// alone is not enough: an east-west portal entirely inside one room,
-    /// near the wall but not crossing it, still passes an axis-only filter
-    /// if its midpoint happens to fall within the radius. Requiring the
-    /// doorway point to sit *between* the portal's two tile centers is what
-    /// actually distinguishes "this portal crosses the doorway" from "this
-    /// portal is merely nearby" — it works because a named door's point is
+    /// Whether a portal runs along `axis` and straddles `point`'s coordinate
+    /// along that axis — its two tile centers lie on opposite sides of
+    /// `point.x` (`EastWest`) or `point.y` (`NorthSouth`). This is the exact
+    /// per-portal test for "does this portal actually cross the doorway
+    /// authored at `point`" — it works because a named door's point is
     /// authored on the wall's centerline (e.g. `(divider_x, door_y)` for a
     /// doorway in a vertical wall at `x = divider_x`), so only a portal
     /// whose two tiles are on opposite sides of that line can straddle it.
-    pub fn portals_within_axis(
-        &self,
-        point: Vec2,
-        radius: f32,
-        axis: CrossingAxis,
-    ) -> Vec<PortalId> {
-        self.portals_within(point, radius)
-            .into_iter()
-            .filter(|&id| {
-                if self.portal_axis(id) != axis {
-                    return false;
-                }
-                let p = self.portal(id);
-                let a = self.grid.tile_center(p.tile_a);
-                let b = self.grid.tile_center(p.tile_b);
-                match axis {
-                    CrossingAxis::EastWest => (a.x - point.x) * (b.x - point.x) <= 0.0,
-                    CrossingAxis::NorthSouth => (a.y - point.y) * (b.y - point.y) <= 0.0,
-                }
+    fn straddles(&self, id: PortalId, point: Vec2, axis: CrossingAxis) -> bool {
+        if self.portal_axis(id) != axis {
+            return false;
+        }
+        let p = self.portal(id);
+        let a = self.grid.tile_center(p.tile_a);
+        let b = self.grid.tile_center(p.tile_b);
+        match axis {
+            CrossingAxis::EastWest => (a.x - point.x) * (b.x - point.x) <= 0.0,
+            CrossingAxis::NorthSouth => (a.y - point.y) * (b.y - point.y) <= 0.0,
+        }
+    }
+
+    /// A portal's row (`EastWest`) or column (`NorthSouth`) index — the
+    /// coordinate that varies as you walk along the wall the portal crosses,
+    /// as opposed to the coordinate the portal crosses *through*. An
+    /// `EastWest` portal connects same-row tiles, so its row index is fixed;
+    /// a `NorthSouth` portal connects same-column tiles, so its column index
+    /// is fixed.
+    fn portal_lane(&self, id: PortalId) -> u32 {
+        let p = self.portal(id);
+        let (col, row) = self.grid.col_row(p.tile_a);
+        match self.portal_axis(id) {
+            CrossingAxis::EastWest => row,
+            CrossingAxis::NorthSouth => col,
+        }
+    }
+
+    /// Every portal that actually crosses the doorway named by `point` and
+    /// `axis`, ascending by `PortalId`.
+    ///
+    /// A named door has no author-chosen radius: instead, every portal in
+    /// the whole graph that (a) runs along `axis` and (b) straddles
+    /// `point`'s coordinate along that axis is a *candidate* ("crosses the
+    /// wall's line somewhere"), and then only the candidates in the
+    /// connected run of lanes (rows for `EastWest`, columns for
+    /// `NorthSouth`) immediately adjacent to the lane nearest `point` are
+    /// kept — found by walking outward, one lane at a time, until a lane
+    /// with no straddling portal is hit.
+    ///
+    /// This makes silent under-capture structurally impossible: a doorway
+    /// gap in a wall is bounded on both sides by tiles the wall makes
+    /// non-walkable, so no portal exists on those bounding lanes at all,
+    /// which means the walk always stops exactly at the doorway's true
+    /// edges — however many lanes wide the doorway is. It also can't
+    /// over-capture into a *different* doorway further down the same wall
+    /// line, because reaching it would require crossing at least one lane
+    /// with no straddling portal (the solid wall between the two doorways),
+    /// which halts the walk. A fixed Euclidean radius could not guarantee
+    /// both properties at once: wide enough to span an arbitrarily wide
+    /// doorway risks reaching a neighboring doorway on the same line; narrow
+    /// enough to stay clear of a neighbor risks stopping short of a wide
+    /// doorway's far edge. Walking the connected run has no such tradeoff.
+    pub fn portals_crossing(&self, point: Vec2, axis: CrossingAxis) -> Vec<PortalId> {
+        let mut by_lane: HashMap<u32, PortalId> = HashMap::new();
+        for portal in &self.portals {
+            if self.straddles(portal.id, point, axis) {
+                by_lane.insert(self.portal_lane(portal.id), portal.id);
+            }
+        }
+        if by_lane.is_empty() {
+            return Vec::new();
+        }
+
+        // Seed lane: whichever straddling candidate's own tile-center
+        // coordinate along the wall (y for EastWest, x for NorthSouth) is
+        // nearest point's coordinate along that same direction.
+        let perpendicular = |id: PortalId| -> f32 {
+            let mid = self.portal_midpoint(id);
+            match axis {
+                CrossingAxis::EastWest => mid.y,
+                CrossingAxis::NorthSouth => mid.x,
+            }
+        };
+        let target = match axis {
+            CrossingAxis::EastWest => point.y,
+            CrossingAxis::NorthSouth => point.x,
+        };
+        let seed_lane = *by_lane
+            .iter()
+            .min_by(|(_, &a), (_, &b)| {
+                (perpendicular(a) - target)
+                    .abs()
+                    .total_cmp(&(perpendicular(b) - target).abs())
             })
-            .collect()
+            .map(|(lane, _)| lane)
+            .expect("by_lane is non-empty");
+
+        let mut lanes = vec![seed_lane];
+        let mut lane = seed_lane;
+        while let Some(next) = lane.checked_sub(1) {
+            if !by_lane.contains_key(&next) {
+                break;
+            }
+            lanes.push(next);
+            lane = next;
+        }
+        let mut lane = seed_lane;
+        loop {
+            let next = lane + 1;
+            if !by_lane.contains_key(&next) {
+                break;
+            }
+            lanes.push(next);
+            lane = next;
+        }
+
+        let mut ids: Vec<PortalId> = lanes.into_iter().map(|l| by_lane[&l]).collect();
+        ids.sort();
+        ids
     }
 
     /// Name a set of portals as one door. Deduplicates and sorts so repeated
@@ -332,6 +413,236 @@ mod tests {
             wide, sorted,
             "portals_within must return ascending PortalId order"
         );
+    }
+
+    /// A 12x12 grid (tile_size 0.5, agent_radius 0.3 — the same ratio
+    /// `two_room` uses, so a wall at a column boundary blocks both tiles
+    /// immediately either side of it) split by a vertical wall at x=3 with
+    /// an open gap in `open_y`, everywhere else solid.
+    fn vertical_divider_grid(open_y: (f32, f32)) -> TileGrid {
+        let mut walls = Vec::new();
+        if open_y.0 > 0.0 {
+            walls.push(crate::geometry::Segment::new(
+                Vec2::new(3.0, 0.0),
+                Vec2::new(3.0, open_y.0),
+            ));
+        }
+        if open_y.1 < 6.0 {
+            walls.push(crate::geometry::Segment::new(
+                Vec2::new(3.0, open_y.1),
+                Vec2::new(3.0, 6.0),
+            ));
+        }
+        TileGrid::build(
+            Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(6.0, 6.0)),
+            0.5,
+            &walls,
+            0.3,
+            &[],
+        )
+    }
+
+    /// Same layout, rotated 90 degrees: a horizontal wall at y=3 with an
+    /// open gap in `open_x`.
+    fn horizontal_divider_grid(open_x: (f32, f32)) -> TileGrid {
+        let mut walls = Vec::new();
+        if open_x.0 > 0.0 {
+            walls.push(crate::geometry::Segment::new(
+                Vec2::new(0.0, 3.0),
+                Vec2::new(open_x.0, 3.0),
+            ));
+        }
+        if open_x.1 < 6.0 {
+            walls.push(crate::geometry::Segment::new(
+                Vec2::new(open_x.1, 3.0),
+                Vec2::new(6.0, 3.0),
+            ));
+        }
+        TileGrid::build(
+            Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(6.0, 6.0)),
+            0.5,
+            &walls,
+            0.3,
+            &[],
+        )
+    }
+
+    #[test]
+    fn portal_axis_classifies_east_west_and_north_south_correctly() {
+        let graph = TileGraph::build(open_grid());
+        // open_grid is 3 tiles wide, 1 tall: only east-west adjacency exists.
+        let ew = graph.portal_between(0, 1).unwrap();
+        assert_eq!(graph.portal_axis(ew), CrossingAxis::EastWest);
+
+        // A taller grid adds a north (same-column) neighbor.
+        let tall = TileGraph::build(TileGrid::build(
+            Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(1.0, 2.0)),
+            1.0,
+            &[],
+            0.3,
+            &[],
+        ));
+        let ns = tall.portal_between(0, 1).unwrap();
+        assert_eq!(tall.portal_axis(ns), CrossingAxis::NorthSouth);
+    }
+
+    #[test]
+    fn portals_crossing_captures_a_north_south_axis_door() {
+        // A horizontal wall at y=3 with a 2-column gap in x=[1,2] — the
+        // NorthSouth-axis case, never exercised by any checked-in test
+        // before this one (only `two_room`'s two EastWest doors were).
+        let graph = TileGraph::build(horizontal_divider_grid((1.0, 2.0)));
+        let door = Vec2::new(1.5, 3.0);
+        let ids = graph.portals_crossing(door, CrossingAxis::NorthSouth);
+        assert_eq!(
+            ids.len(),
+            2,
+            "expected exactly 2 north-south crossings of the 2-column gap: {ids:?}"
+        );
+        let grid = graph.grid();
+        for &id in &ids {
+            assert_eq!(graph.portal_axis(id), CrossingAxis::NorthSouth);
+            let p = graph.portal(id);
+            let a = grid.tile_center(p.tile_a);
+            let b = grid.tile_center(p.tile_b);
+            assert!(
+                (a.y < 3.0) != (b.y < 3.0),
+                "portal {id:?} does not straddle y=3: a={a:?} b={b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn portals_crossing_excludes_wrong_axis_and_non_straddling_portals() {
+        // Vertical wall at x=3, gap in y=[2,4] (4 rows: tile rows 4..7 at
+        // this grid's 0.5 m tile size, centers y=2.25..3.75).
+        let graph = TileGraph::build(vertical_divider_grid((2.0, 4.0)));
+        let grid = graph.grid();
+        let cols = grid.cols();
+        let door = Vec2::new(3.0, 3.0);
+        let correct = graph.portals_crossing(door, CrossingAxis::EastWest);
+        assert!(!correct.is_empty());
+        for &id in &correct {
+            let p = graph.portal(id);
+            let a = grid.tile_center(p.tile_a);
+            let b = grid.tile_center(p.tile_b);
+            assert!(
+                (a.x < 3.0) != (b.x < 3.0),
+                "portal {id:?} returned by portals_crossing does not straddle x=3: a={a:?} b={b:?}"
+            );
+        }
+
+        // A north-south portal sitting right at the doorway (same row range,
+        // same columns straddling x=3) is on the wrong axis for this
+        // east-west doorway and must not appear, even though it is exactly
+        // at the door point.
+        let col_at_wall = 5; // center x=2.75, immediately left of the wall
+        let row_in_gap = 5; // center y=2.75, inside the open gap
+        let tile = row_in_gap * cols + col_at_wall;
+        let tile_north = tile + cols;
+        let wrong_axis_portal = graph.portal_between(tile, tile_north).unwrap();
+        assert_eq!(
+            graph.portal_axis(wrong_axis_portal),
+            CrossingAxis::NorthSouth
+        );
+        assert!(
+            !correct.contains(&wrong_axis_portal),
+            "a north-south portal at the doorway must not be captured by an \
+             east-west door query: {wrong_axis_portal:?}"
+        );
+
+        // An east-west portal deep inside room A, in the same row range as
+        // the doorway (so spatially close to the door point), but between
+        // two tiles that are both left of x=3 — it never straddles the
+        // wall, so it must be excluded even though it shares axis and row.
+        let non_straddling_portal = graph
+            .portal_between(row_in_gap * cols, row_in_gap * cols + 1)
+            .unwrap();
+        assert_eq!(
+            graph.portal_axis(non_straddling_portal),
+            CrossingAxis::EastWest
+        );
+        assert!(
+            !correct.contains(&non_straddling_portal),
+            "an east-west, non-straddling in-room portal must not be captured: \
+             {non_straddling_portal:?}"
+        );
+    }
+
+    #[test]
+    fn portals_crossing_captures_an_arbitrarily_wide_doorway_without_a_radius() {
+        // Regression for the under-capture gap: an 8-tile-row-wide doorway
+        // (4 m at this grid's 0.5 m tile size) — wide enough that a
+        // radius-based capture picked "generously" (e.g. the previous
+        // round's half-width-plus-one-tile heuristic) would still miss some
+        // of its crossings, exactly as a re-review demonstrated concretely
+        // for a 4 m doorway with radius 1.3 (6 of 8 genuine crossings
+        // captured, silently). `portals_crossing` takes no radius at all —
+        // it walks the connected run of straddling portals outward until
+        // the doorway's own bounding wall stops it — so under-capture here
+        // is structurally impossible, not just unlikely.
+        let graph = TileGraph::build(vertical_divider_grid((1.0, 5.0)));
+        let door = Vec2::new(3.0, 3.0);
+        let ids = graph.portals_crossing(door, CrossingAxis::EastWest);
+        assert_eq!(
+            ids.len(),
+            8,
+            "an 8-row-wide doorway must resolve to all 8 crossing portals, not a \
+             radius-limited subset: got {} portals: {ids:?}",
+            ids.len()
+        );
+    }
+
+    #[test]
+    fn portals_crossing_does_not_spill_into_a_neighboring_doorway() {
+        // Two separate gaps in the same vertical wall line (x=3), like
+        // two_room's north/south doors: y=[1,2] and y=[4,5], separated by a
+        // solid stretch y=[2,4]. A door point named at the first gap's
+        // center must resolve only to that gap's portals — the walk halts
+        // at the solid wall between the two gaps.
+        let walls = vec![
+            crate::geometry::Segment::new(Vec2::new(3.0, 0.0), Vec2::new(3.0, 1.0)),
+            crate::geometry::Segment::new(Vec2::new(3.0, 2.0), Vec2::new(3.0, 4.0)),
+            crate::geometry::Segment::new(Vec2::new(3.0, 5.0), Vec2::new(3.0, 6.0)),
+        ];
+        let graph = TileGraph::build(TileGrid::build(
+            Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(6.0, 6.0)),
+            0.5,
+            &walls,
+            0.3,
+            &[],
+        ));
+        let south = graph.portals_crossing(Vec2::new(3.0, 1.5), CrossingAxis::EastWest);
+        let north = graph.portals_crossing(Vec2::new(3.0, 4.5), CrossingAxis::EastWest);
+        assert!(!south.is_empty());
+        assert!(!north.is_empty());
+        assert!(
+            south.iter().all(|s| !north.contains(s)),
+            "the two doorways must not share a portal: south={south:?} north={north:?}"
+        );
+        let grid = graph.grid();
+        for &id in &south {
+            let p = graph.portal(id);
+            let y = grid
+                .tile_center(p.tile_a)
+                .y
+                .min(grid.tile_center(p.tile_b).y);
+            assert!(
+                y < 2.0,
+                "south portal {id:?} leaked past the solid wall at y=2"
+            );
+        }
+        for &id in &north {
+            let p = graph.portal(id);
+            let y = grid
+                .tile_center(p.tile_a)
+                .y
+                .max(grid.tile_center(p.tile_b).y);
+            assert!(
+                y > 4.0,
+                "north portal {id:?} leaked past the solid wall at y=4"
+            );
+        }
     }
 
     #[test]

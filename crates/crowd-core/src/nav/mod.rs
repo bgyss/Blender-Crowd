@@ -25,31 +25,23 @@ pub struct NavMeshDef {
     pub agent_radius: f32,
     pub cost_areas: Vec<(Aabb, f32)>,
     /// Author-friendly portal lookup points, resolved to every `PortalId`
-    /// within the given capture radius *and* sharing the given crossing
-    /// axis, once the graph is built. E.g.
-    /// `("north_door", Vec2::new(20.0, 20.0), 1.0, CrossingAxis::EastWest)`.
+    /// that actually crosses the named doorway once the graph is built. E.g.
+    /// `("north_door", Vec2::new(20.0, 20.0), CrossingAxis::EastWest)`.
     ///
     /// A doorway wider than one tile (after agent-radius inflation) crosses
     /// the dividing wall through more than one adjacent tile row, so it has
-    /// more than one portal. The radius must be wide enough to capture every
-    /// portal that actually spans the doorway (a good default is the
-    /// doorway's half-width plus one tile size of margin) — but proximity
-    /// alone is not sufficient: a radius wide enough to span a multi-tile
-    /// doorway can also reach ordinary in-room portals that merely sit near
-    /// the doorway point without ever crossing the wall (e.g. north-south
-    /// portals near a doorway in a vertical wall, both fully on one side of
-    /// the divider, or even an east-west portal entirely inside one room
-    /// close to the wall). `CrossingAxis` filters the radius-based
-    /// candidates down to only the portals whose orientation is
-    /// perpendicular to the wall the door sits in, and `portals_within_axis`
-    /// additionally requires the doorway point to sit *between* the
-    /// portal's two tile centers along that axis — i.e. the portal's tiles
-    /// are genuinely on opposite sides of the wall, not merely nearby it.
-    /// Pick `EastWest` for a doorway in a wall that runs north-south
-    /// (constant x), `NorthSouth` for a doorway in a wall that runs
-    /// east-west (constant y), and author the point on the wall's
+    /// more than one portal. There is no radius to tune: `portals_crossing`
+    /// walks the connected run of straddling portals outward from `point`
+    /// until it runs out of doorway (a lane with no straddling portal, which
+    /// only happens where the wall is solid), so it captures exactly the
+    /// doorway's full width regardless of how many tile rows/columns it
+    /// spans, and never spills into a different doorway further down the
+    /// same wall line. `CrossingAxis` picks which portal orientation can
+    /// cross this wall: `EastWest` for a doorway in a wall that runs
+    /// north-south (constant x), `NorthSouth` for a doorway in a wall that
+    /// runs east-west (constant y). Author the point on the wall's
     /// centerline (e.g. `(divider_x, door_y)`) so the straddle check works.
-    pub named_portals: Vec<(String, Vec2, f32, CrossingAxis)>,
+    pub named_portals: Vec<(String, Vec2, CrossingAxis)>,
 }
 
 impl NavMeshDef {
@@ -62,8 +54,8 @@ impl NavMeshDef {
             &self.cost_areas,
         );
         let mut graph = TileGraph::build(grid);
-        for (name, point, radius, axis) in &self.named_portals {
-            let ids = graph.portals_within_axis(*point, *radius, *axis);
+        for (name, point, axis) in &self.named_portals {
+            let ids = graph.portals_crossing(*point, *axis);
             graph.name_portals(name.clone(), ids);
         }
         graph

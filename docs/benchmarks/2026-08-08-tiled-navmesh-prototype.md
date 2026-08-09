@@ -81,16 +81,55 @@ never routed, forever `unrouted`.
 The fix: `TileGraph::portal_axis` classifies each portal as `EastWest`
 (column-adjacent tiles, same row) or `NorthSouth` (row-adjacent tiles, same
 column) — matching exactly how `TileGraph::build` constructs them. A named
-door now also carries a `CrossingAxis`, and `TileGraph::portals_within_axis`
-filters the radius-based candidates down to only portals that (a) run along
-the given axis *and* (b) straddle the doorway point along that axis — i.e.
-the portal's two tile centers are genuinely on opposite sides of the wall,
-not merely nearby it. For `two_room`'s two doors this resolves to exactly 2
-portals each, verified against every divider-straddling portal in the whole
-graph (not just those within the radius), so no genuine crossing is missed
-either. `crates/crowd-core/src/nav_scenes.rs`'s
+door now also carries a `CrossingAxis`, and (at the time) a new
+`TileGraph::portals_within_axis` filtered the radius-based candidates down to
+only portals that (a) run along the given axis *and* (b) straddle the
+doorway point along that axis. For `two_room`'s two doors this happened to
+resolve to exactly 2 portals each — but the checked-in test at that point
+only asserted that those 2 portals were valid crossings, not that no other
+crossing existed outside the radius; the "verified against every
+divider-straddling portal in the whole graph" claim previously made here
+described a manual, un-checked-in scan done during development, not
+something the test suite itself enforced. See the next section for why that
+gap mattered and how it was closed for good.
+
+### The radius itself could still silently under-capture a doorway
+
+A third re-review pointed out that axis-and-straddle filtering only
+*removes* false positives from a proximity-radius candidate set — it can
+never add back a genuine crossing that the radius was too narrow to reach in
+the first place. Concretely: a 4 m doorway authored with a radius of 1.3 (a
+plausible, not-unreasonable author choice) captures only 6 of its 8 genuine
+crossing portals, silently — no error, no diagnostic — which is exactly the
+original Critical bug from the first section above, reachable again, this
+time via ordinary scene authoring rather than via `nearest_portal`.
+
+The fix removes the radius parameter entirely.
+`TileGraph::portals_crossing(point, axis)` collects every axis-matching,
+straddling portal in the *whole* graph, then keeps only the connected run of
+tile rows (or columns) reachable by walking outward from the row/column
+nearest `point` while a straddling portal keeps being found — stopping the
+instant a row/column has none, which only happens where the wall the
+doorway sits in is solid. A doorway gap is bounded on both sides by
+non-walkable tiles, so this walk always terminates exactly at the doorway's
+true edges, however many rows wide it is, and can never spill into a
+different doorway further down the same wall line (reaching one would
+require crossing a solid stretch, which halts the walk first). Under-capture
+is therefore not just harder to trigger — it is structurally impossible for
+this mechanism, independent of any radius an author might have picked.
+
+`crates/crowd-core/src/nav/portal.rs` gained direct unit tests for this:
+axis classification both ways, a `NorthSouth`-axis door capture (the
+previous round's only checked-in coverage was `EastWest`, via `two_room`),
+exclusion of a same-axis-but-non-straddling and a wrong-axis portal near the
+door point, an 8-row-wide doorway resolving to all 8 crossings with no
+radius involved (the direct regression test for the third re-review's 4 m/
+radius-1.3 scenario), and confirmation that two doorways on the same wall
+line never bleed into each other. `two_room`'s
 `named_doors_resolve_to_exactly_the_portals_that_cross_the_divider` test
-pins this down permanently.
+still pins its two doors to exactly 2 portals each — and now that assertion
+follows from the capture mechanism's construction, not from an
+un-checked-in manual scan.
 
 With the fix, `two_room_reroute.rs`'s 1,000-agent test now also asserts that
 zero agents end the run permanently `unrouted` — the direct regression guard

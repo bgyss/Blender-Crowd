@@ -31,11 +31,11 @@ pub fn two_room(agents: u32, seed: u64) -> SceneDef {
     const TILE_SIZE: f32 = 0.5;
     // A doorway 1.6 m wide, tiled at 0.5 m and inflated by the scene's 0.3 m
     // agent radius, crosses the divider through more than one adjacent tile
-    // row — so it has more than one portal. This radius must be wide enough
-    // to capture every portal spanning one doorway (half-width plus a tile
-    // of margin comfortably covers it) and narrow enough to stay clear of
-    // the other doorway's portals, 8 m away.
-    const DOOR_CAPTURE_RADIUS: f32 = DOOR_HALF_WIDTH + TILE_SIZE;
+    // row — so it has more than one portal. `portals_crossing` walks the
+    // connected run of crossing portals outward from each door's named
+    // point, so no capture radius is needed here: the walk stops on its own
+    // at the solid wall bounding each doorway, and never spills into the
+    // other doorway 8 m away.
     let bounds = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(40.0, 20.0));
     let divider_x = DIVIDER_X;
     let south_y = 6.0;
@@ -90,7 +90,6 @@ pub fn two_room(agents: u32, seed: u64) -> SceneDef {
                 (
                     SOUTH_DOOR.to_string(),
                     Vec2::new(divider_x, south_y),
-                    DOOR_CAPTURE_RADIUS,
                     // Both doorways sit in the vertical divider wall at
                     // x=DIVIDER_X, so only east-west portals (column-adjacent
                     // tiles) can cross them.
@@ -99,7 +98,6 @@ pub fn two_room(agents: u32, seed: u64) -> SceneDef {
                 (
                     NORTH_DOOR.to_string(),
                     Vec2::new(divider_x, north_y),
-                    DOOR_CAPTURE_RADIUS,
                     CrossingAxis::EastWest,
                 ),
             ],
@@ -160,12 +158,15 @@ mod tests {
 
     #[test]
     fn named_doors_resolve_to_exactly_the_portals_that_cross_the_divider() {
-        // Re-review finding: a proximity radius wide enough to span the
-        // 1.6 m doorway also reaches nearby in-room portals with no
-        // relationship to the doorway at all — 28 candidates within radius,
-        // of which only 2 actually cross the x=20 divider. The axis filter
-        // (CrossingAxis::EastWest) must cut that down to exactly the
-        // genuine crossings, not merely "more than one."
+        // `portals_crossing` walks the connected run of straddling portals
+        // outward from each door's named point rather than filtering a
+        // fixed-radius proximity set, so it cannot under- or over-capture:
+        // it always stops exactly at the solid wall bounding a doorway on
+        // each side. This test pins down the resulting exact set for this
+        // scene's geometry — not merely "at least one" or "more than the
+        // radius-based candidate count minus false positives," but the
+        // precise portal set, cross-checked here against a direct
+        // straddle/axis scan of every returned portal.
         //
         // Why exactly 2: DOOR_HALF_WIDTH is 0.8 and TILE_SIZE is 0.5, so the
         // doorway spans y in roughly [5.2, 6.8] (south) — 1.6 m — which
