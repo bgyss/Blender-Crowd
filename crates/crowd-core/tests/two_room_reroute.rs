@@ -106,14 +106,39 @@ fn closing_south_door_reroutes_agents_that_used_it_and_leaves_the_rest_alone() {
     // back through the doorway's other, still-open portal). An agent already
     // past the divider at invalidation time has nothing left to cross and is
     // exempt from this check.
+    //
+    // Closing a portal is a pathfinding-only edge removal — it does not
+    // erect a physical wall in the doorway gap, which stays geometrically
+    // open. An unrouted agent standing right at the threshold can still be
+    // pushed across by crowd pressure from agents behind it before its
+    // replan actually runs, ending up with a legitimate room-B-only route
+    // that crosses no door at all. So the exemption also applies to an
+    // agent that is on room B's side of the divider *by the time its new
+    // route was actually assigned*, not only one that was already there at
+    // the instant of invalidation.
     let mut crossed_north = 0;
+    let mut still_stranded_after_window = 0;
     for (slot, before) in route_before.iter().enumerate() {
         let was_invalidated = sim.world().route[slot] != *before;
         if !was_invalidated || !still_in_room_a[slot] {
             continue;
         }
         if sim.world().route[slot] == NO_ROUTE {
-            continue; // not yet replanned within the window; skip rather than fail.
+            // Not yet replanned within the window. With the axis-and-
+            // straddle-filtered capture fix, closing south_door should
+            // sever no route it doesn't legitimately own, so this should
+            // not happen — but if it ever does, the sealed-pocket
+            // regression check below (giving agents a further travel
+            // window) will catch it turning into permanent stranding
+            // rather than silently passing either way.
+            still_stranded_after_window += 1;
+            continue;
+        }
+        if sim.world().position(slot as u32).x >= DIVIDER_X {
+            // Physically drifted across the still-open gap while unrouted;
+            // its new route legitimately starts in room B and crosses no
+            // door. See the comment above.
+            continue;
         }
         assert!(
             sim.route_crosses_any(slot as u32, &north),
@@ -125,6 +150,11 @@ fn closing_south_door_reroutes_agents_that_used_it_and_leaves_the_rest_alone() {
     assert!(
         crossed_north > 0,
         "no invalidated room-A agent's new route was verified to cross north_door"
+    );
+    assert_eq!(
+        still_stranded_after_window, 0,
+        "{still_stranded_after_window} agent(s) still had NO_ROUTE after the replanning \
+         window instead of replanning through north_door"
     );
 
     // Every invalidated agent must recover a working route via the north
@@ -140,6 +170,25 @@ fn closing_south_door_reroutes_agents_that_used_it_and_leaves_the_rest_alone() {
     assert!(
         sim.metrics().arrived() > 0,
         "nobody made it to room B via the remaining door"
+    );
+
+    // Regression guard for the capture-mechanism bug: a proximity-only
+    // named-door capture closed 28 portals per door instead of the 2 that
+    // actually cross the divider, sealing off unrelated walkable tiles into
+    // isolated pockets and permanently stranding agents inside them (never
+    // requeued, never routed, forever). With the fix, no agent should be
+    // permanently unroutable — every agent must end the run either arrived
+    // or still holding a real route (not NO_ROUTE).
+    let permanently_unrouted: Vec<u32> = (0..sim.world().len() as u32)
+        .filter(|&slot| {
+            !sim.world().arrived[slot as usize] && sim.world().route[slot as usize] == NO_ROUTE
+        })
+        .collect();
+    assert!(
+        permanently_unrouted.is_empty(),
+        "{} agent(s) ended the run permanently unrouted (stranded in a sealed pocket): {:?}",
+        permanently_unrouted.len(),
+        permanently_unrouted
     );
 }
 
@@ -212,11 +261,26 @@ fn a_thousand_agent_reroute_does_not_corrupt_unrelated_corridors() {
         }
     }
     let mut crossed_north = 0;
+    let mut still_stranded_after_window = 0;
     for (slot, before) in route_before.iter().enumerate() {
-        if sim.world().route[slot] == *before || sim.world().route[slot] == NO_ROUTE {
+        if sim.world().route[slot] == *before {
             continue;
         }
         if !still_in_room_a[slot] {
+            continue;
+        }
+        if sim.world().route[slot] == NO_ROUTE {
+            // See the 60-agent test: with the capture fix this should not
+            // happen, but if it does the permanently-unrouted check below
+            // (after a further travel window) turns it into a hard failure
+            // instead of a silent skip.
+            still_stranded_after_window += 1;
+            continue;
+        }
+        if sim.world().position(slot as u32).x >= DIVIDER_X {
+            // Physically drifted across the still-open gap while unrouted
+            // (closing a portal removes it from pathfinding but does not
+            // erect a physical wall) — see the 60-agent test's comment.
             continue;
         }
         assert!(
@@ -230,6 +294,11 @@ fn a_thousand_agent_reroute_does_not_corrupt_unrelated_corridors() {
         crossed_north > 0,
         "no invalidated room-A agent's new route was verified to cross north_door"
     );
+    assert_eq!(
+        still_stranded_after_window, 0,
+        "{still_stranded_after_window} agent(s) still had NO_ROUTE after the replanning \
+         window instead of replanning through north_door"
+    );
 
     for _ in 0..1500 {
         sim.step();
@@ -241,4 +310,18 @@ fn a_thousand_agent_reroute_does_not_corrupt_unrelated_corridors() {
     for slot in 0..sim.world().len() {
         assert!(sim.world().position(slot as u32).is_finite());
     }
+
+    // Regression guard for the capture-mechanism bug: see the 60-agent
+    // test's comment. No agent should end the run permanently unrouted.
+    let permanently_unrouted: Vec<u32> = (0..sim.world().len() as u32)
+        .filter(|&slot| {
+            !sim.world().arrived[slot as usize] && sim.world().route[slot as usize] == NO_ROUTE
+        })
+        .collect();
+    assert!(
+        permanently_unrouted.is_empty(),
+        "{} agent(s) ended the run permanently unrouted (stranded in a sealed pocket): {:?}",
+        permanently_unrouted.len(),
+        permanently_unrouted
+    );
 }

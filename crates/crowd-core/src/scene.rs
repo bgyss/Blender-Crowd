@@ -257,7 +257,7 @@ impl SceneDef {
                 }
             }
             if let Some(nav_def) = &self.nav {
-                for (name, _, _) in &nav_def.named_portals {
+                for (name, _, _, _) in &nav_def.named_portals {
                     if graph.portals_named(name).is_empty() {
                         errors.push(SceneError::UnknownNamedPortal { name: name.clone() });
                     }
@@ -457,11 +457,18 @@ fn compute_scene_hash(scene: &SceneDef) -> u64 {
                 }
             }
             h = hash_combine(h, nav.named_portals.len() as u64);
-            for (name, point, radius) in &nav.named_portals {
+            for (name, point, radius, axis) in &nav.named_portals {
                 h = hash_combine(h, hash_str(name));
                 h = hash_combine(h, point.x.to_bits() as u64);
                 h = hash_combine(h, point.y.to_bits() as u64);
                 h = hash_combine(h, radius.to_bits() as u64);
+                h = hash_combine(
+                    h,
+                    match axis {
+                        crate::nav::CrossingAxis::EastWest => 0u64,
+                        crate::nav::CrossingAxis::NorthSouth => 1u64,
+                    },
+                );
             }
         }
         None => h = hash_combine(h, 0u64),
@@ -613,6 +620,7 @@ mod tests {
             // within any sane radius of it.
             Vec2::new(500.0, 500.0),
             0.5,
+            crate::nav::CrossingAxis::EastWest,
         )];
         let errors = scene.compile().unwrap_err();
         assert!(errors.contains(&SceneError::UnknownNamedPortal {

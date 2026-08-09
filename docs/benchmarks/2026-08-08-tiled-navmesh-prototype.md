@@ -27,15 +27,20 @@ contract's 1,000-agent scale.
 | Scene | `two_room`, 1,000 agents, seed 2026 |
 | Agents invalidated on closing the south door | 505 |
 | Agents untouched by closing the south door | 495 |
-| Of the invalidated agents, new route verified to cross `north_door` | 478 |
-| Agents arrived after the reroute | 15 |
-| Release-gated 1,000-agent reroute test | PASS, 26.45s (test wall time; 26.53s wall including a no-op release rebuild) |
+| Of the invalidated agents, new route verified to cross `north_door` | 482 |
+| Agents arrived after the reroute | 7 |
+| Release-gated 1,000-agent reroute test | PASS, 22.37s (test wall time), run twice with identical results |
 
 Command run: `cargo run --release -p crowd-bench -- nav-reroute --agents 1000
---svg`, printing `two_room: 505 invalidated / 495 untouched on close, 478 of
-the invalidated crossed north_door, 15 arrived after reroute ->
+--svg`, printing `two_room: 505 invalidated / 495 untouched on close, 482 of
+the invalidated crossed north_door, 7 arrived after reroute ->
 benchmarks/reports/two_room-reroute-1000.json` and writing that JSON report
 plus the accompanying SVG debug trace.
+
+These are fresh numbers from a re-run after the capture-mechanism fix below;
+they supersede every number previously reported in this file's "478/505" and
+"15 arrived" narrative, which was measured against the buggy 28-portal
+capture.
 
 ### The doorway now genuinely closes
 
@@ -49,18 +54,53 @@ doorway it was supposedly locked out of — it never actually reached
 `north_door`. No test asserted *which* door a rerouted agent's new corridor
 used, only that it had *some* route, so this passed unnoticed.
 
-That is now fixed. Named doors resolve to `Vec<PortalId>`
-(`TileGraph::portals_named`), `Simulation::set_portals_open` closes or opens
-a whole named door's portal set atomically, and `Simulation::route_crosses_any`
-lets a caller check whether an agent's *current* route's recorded portal
-sequence actually crosses a given portal set. `two_room_reroute.rs`'s
-1,000-agent test now asserts, for every agent invalidated by the south-door
-close that was still on room A's side of the divider at the moment of
-invalidation, that its new route is verified to cross `north_door` — not
-merely that it has *a* route. In this run, 478 of the 505 invalidated agents
-were verified to cross `north_door` this way (the released assertion, this
-one, in the test only counts the subset still in room A when invalidated —
-see below for why the remaining 27 are correctly excluded, not a shortfall).
+That was fixed by resolving named doors to `Vec<PortalId>`
+(`TileGraph::portals_named`), with `Simulation::set_portals_open` closing or
+opening a whole named door's portal set atomically, and
+`Simulation::route_crosses_any` letting a caller check whether an agent's
+*current* route's recorded portal sequence actually crosses a given portal
+set.
+
+### The proximity-radius capture itself was also wrong
+
+A second re-review, after the above fix landed, found the *capture
+mechanism* it introduced was itself broken: resolving a named door to "every
+portal whose midpoint lies within a radius of the doorway point" is not the
+same as "every portal that crosses the doorway." For `two_room`'s geometry,
+the capture radius (`DOOR_HALF_WIDTH + TILE_SIZE = 1.3`) needed to be wide
+enough to span the doorway's multiple tile rows, but that same radius also
+reached ordinary in-room portals nearby that never cross the dividing wall at
+all — both north-south portals fully on one side of the wall, and east-west
+portals entirely inside one room close to it. Measured directly: each
+doorway resolved to **28 candidate portals**, of which only **2** actually
+cross the `x = 20` divider. Closing `south_door` under that bug closed all
+28, sealing 12 unrelated walkable tiles into isolated pockets and
+permanently stranding agents that ended up inside them — never requeued,
+never routed, forever `unrouted`.
+
+The fix: `TileGraph::portal_axis` classifies each portal as `EastWest`
+(column-adjacent tiles, same row) or `NorthSouth` (row-adjacent tiles, same
+column) — matching exactly how `TileGraph::build` constructs them. A named
+door now also carries a `CrossingAxis`, and `TileGraph::portals_within_axis`
+filters the radius-based candidates down to only portals that (a) run along
+the given axis *and* (b) straddle the doorway point along that axis — i.e.
+the portal's two tile centers are genuinely on opposite sides of the wall,
+not merely nearby it. For `two_room`'s two doors this resolves to exactly 2
+portals each, verified against every divider-straddling portal in the whole
+graph (not just those within the radius), so no genuine crossing is missed
+either. `crates/crowd-core/src/nav_scenes.rs`'s
+`named_doors_resolve_to_exactly_the_portals_that_cross_the_divider` test
+pins this down permanently.
+
+With the fix, `two_room_reroute.rs`'s 1,000-agent test now also asserts that
+zero agents end the run permanently `unrouted` — the direct regression guard
+for the sealed-pocket bug — in addition to the pre-existing check that every
+agent invalidated by the south-door close, while still on room A's side of
+the divider at the moment of invalidation, gets a new route verified to
+cross `north_door`. In this run, 482 of the 505 invalidated agents were
+verified to cross `north_door` this way; see below for why the remaining 23
+are correctly excluded, not a shortfall, and confirmation that none of them
+are stranded.
 
 ### Why not all 505 invalidated agents show up as "crossed north_door"
 
@@ -73,32 +113,55 @@ Such an agent's *historical* corridor legitimately crossed a south portal
 (which is exactly why closing it invalidates that agent's stale route
 record), but once replanned from its *current*, already-past-the-divider
 position, the shortest path to the room-B destination correctly crosses no
-door at all — there is nothing left to cross. This was confirmed directly:
-instrumenting the previously-failing assertion showed the one violating case
-was an agent at `x≈37.97` (destination is `x=38`) and already `arrived`.
-`two_room_reroute.rs` now captures each agent's position at the moment of
-invalidation and scopes the "must cross north_door" assertion to agents still
-on room A's side of the divider then; agents already past it are correctly
-exempt, not silently passed. This is the reason the CLI's 478/505 figure is
-expected, not a defect — the remaining ~27 were already in or near room B.
+door at all — there is nothing left to cross.
 
-### On the "15 arrived" number
+This category is the *entire* explanation for the gap under the fixed
+capture mechanism. A direct breakdown at the CLI's own settle-tick window
+(matching `crowd-bench nav-reroute`'s 600-tick close and 600-tick
+post-close settle exactly) categorized every one of the 23 gap agents as
+already on room B's side of the divider at the moment of invalidation — zero
+were still in room A and stuck (`unrouted_at_measure = 0`), and zero drifted
+across the still-geometrically-open doorway gap while waiting to be replanned
+(`drifted_to_room_b_by_measure = 0`; closing a portal removes it from
+pathfinding but does not erect a physical wall in the gap, so a densely
+packed agent right at the threshold can in principle be pushed through by
+crowd pressure before its replan runs — `two_room_reroute.rs`'s assertions
+account for this possibility, it simply did not occur in this run's 23-agent
+gap). `two_room_reroute.rs` captures each agent's position at the moment of
+invalidation and scopes the "must cross north_door" assertion to agents
+still on room A's side of the divider then (also re-checking current
+position at assertion time, to correctly exempt an agent that drifted across
+during the replan-wait window rather than one that was invalidated while
+already past it); agents already past the divider are correctly exempt, not
+silently passed. This is the reason the CLI's 482/505 figure is expected,
+not a defect — the remaining 23 were already in or near room B, a smaller
+gap than the pre-fix report's 27 because the corrected capture invalidates
+fewer routes overall (2 genuine south-door crossings instead of 28
+proximity-based false positives, so fewer agents get needlessly caught up in
+the close in the first place).
 
-Fifteen arrivals out of 1,000 agents in the ticks this run allots is
-expected, not a bug or a deadlock. Most of the invalidated agents are now
-rerouted through a single ~1.6 m doorway (`north_door`) toward one
-destination point; funneling roughly half of 1,000 agents through one
-doorway is inherently throughput-limited by the doorway's width, not by the
-planner or the budgeting logic. This matches the project's existing
-documented behavior for single-chokepoint scenes: the `crossing`/`bottleneck`
-avoidance scenes quoted in `README.md` show a 24% completion rate in their
-own allotted ticks for the same reason, and it is treated there as expected
-congestion character rather than a defect. The acceptance criterion this
-report addresses is that the reroute does not corrupt unrelated corridors and
-genuinely uses the other door (see the 495 untouched agents, the 478
-verified `north_door` crossings, and the passing `two_room_reroute` test
-below), not a target arrival count or throughput figure — no throughput claim
-is made here.
+### On the "7 arrived" number
+
+Seven arrivals out of 1,000 agents in the ticks this run allots is expected,
+not a bug or a deadlock, and is not comparable to the previous report's "15"
+— that number was measured against the buggy 28-portal capture, which sealed
+12 unrelated tiles into isolated pockets and materially changed the crowd's
+flow dynamics (fewer usable tiles near the divider, different congestion
+patterns) relative to the corrected 2-portal capture measured here. Most of
+the invalidated agents are now rerouted through a single ~1.6 m doorway
+(`north_door`) toward one destination point; funneling roughly half of 1,000
+agents through one doorway is inherently throughput-limited by the doorway's
+width, not by the planner or the budgeting logic. This matches the project's
+existing documented behavior for single-chokepoint scenes: the
+`crossing`/`bottleneck` avoidance scenes quoted in `README.md` show a 24%
+completion rate in their own allotted ticks for the same reason, and it is
+treated there as expected congestion character rather than a defect. The
+acceptance criterion this report addresses is that the reroute does not
+corrupt unrelated corridors and genuinely uses the other door (see the 495
+untouched agents, the 482 verified `north_door` crossings, the zero
+permanently-stranded agents, and the passing `two_room_reroute` test below),
+not a target arrival count or throughput figure — no throughput claim is made
+here.
 
 ## Acceptance criteria addressed
 
@@ -119,11 +182,13 @@ is made here.
 
 This report does not claim anything about 10K/100K agent scale, GPU
 navigation, or funnel-smoothed corridor quality — none were measured. The
-"15 arrived" figure is not a throughput or performance benchmark; it is a
+"7 arrived" figure is not a throughput or performance benchmark; it is a
 single-run congestion observation under a fixed tick budget, explained above
-so it is not mistaken for one. Likewise the 478/505 "crossed north_door"
-figure is not a claim that 27 agents misrouted — it is explained above as the
-expected count of agents already past the divider when the door closed.
+so it is not mistaken for one, and it is not comparable across the capture
+fix (see above). Likewise the 482/505 "crossed north_door" figure is not a
+claim that 23 agents misrouted — it is explained above, and confirmed by a
+direct per-agent breakdown, as the expected count of agents already past the
+divider when the door closed, with zero of them permanently stranded.
 
 ## Next gate
 

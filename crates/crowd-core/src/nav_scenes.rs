@@ -9,7 +9,7 @@
 //! need a checked-in baseline it does not have.
 
 use crate::geometry::Segment;
-use crate::nav::NavMeshDef;
+use crate::nav::{CrossingAxis, NavMeshDef};
 use crate::scene::{Destination, PopulationParams, SceneDef, SpawnRegion};
 use crate::units::{Aabb, Vec2};
 
@@ -91,11 +91,16 @@ pub fn two_room(agents: u32, seed: u64) -> SceneDef {
                     SOUTH_DOOR.to_string(),
                     Vec2::new(divider_x, south_y),
                     DOOR_CAPTURE_RADIUS,
+                    // Both doorways sit in the vertical divider wall at
+                    // x=DIVIDER_X, so only east-west portals (column-adjacent
+                    // tiles) can cross them.
+                    CrossingAxis::EastWest,
                 ),
                 (
                     NORTH_DOOR.to_string(),
                     Vec2::new(divider_x, north_y),
                     DOOR_CAPTURE_RADIUS,
+                    CrossingAxis::EastWest,
                 ),
             ],
         }),
@@ -151,6 +156,52 @@ mod tests {
              doorway's other crossing point open: {south:?}",
             south.len()
         );
+    }
+
+    #[test]
+    fn named_doors_resolve_to_exactly_the_portals_that_cross_the_divider() {
+        // Re-review finding: a proximity radius wide enough to span the
+        // 1.6 m doorway also reaches nearby in-room portals with no
+        // relationship to the doorway at all — 28 candidates within radius,
+        // of which only 2 actually cross the x=20 divider. The axis filter
+        // (CrossingAxis::EastWest) must cut that down to exactly the
+        // genuine crossings, not merely "more than one."
+        //
+        // Why exactly 2: DOOR_HALF_WIDTH is 0.8 and TILE_SIZE is 0.5, so the
+        // doorway spans y in roughly [5.2, 6.8] (south) — 1.6 m — which
+        // after 0.3 m agent-radius inflation still clears at most two 0.5 m
+        // tile rows worth of walkable center points immediately adjacent to
+        // the divider on each side, giving exactly two east-west portal
+        // crossings per doorway.
+        let compiled = two_room(50, 42).compile().unwrap();
+        let nav = compiled.nav.as_ref().unwrap();
+        let grid = nav.grid();
+
+        for door in [SOUTH_DOOR, NORTH_DOOR] {
+            let ids = nav.portals_named(door);
+            assert_eq!(
+                ids.len(),
+                2,
+                "{door} resolved to {} portal(s), expected exactly 2: {ids:?}",
+                ids.len()
+            );
+            for &id in ids {
+                let portal = nav.portal(id);
+                let (col_a, _row_a) = grid.col_row(portal.tile_a);
+                let (col_b, _row_b) = grid.col_row(portal.tile_b);
+                let a_center = grid.tile_center(portal.tile_a);
+                let b_center = grid.tile_center(portal.tile_b);
+                assert_ne!(
+                    col_a, col_b,
+                    "{door} portal {id:?} is not east-west: {portal:?}"
+                );
+                assert!(
+                    (a_center.x < DIVIDER_X) != (b_center.x < DIVIDER_X),
+                    "{door} portal {id:?} does not straddle the divider at x={DIVIDER_X}: \
+                     tile_a center={a_center:?}, tile_b center={b_center:?}"
+                );
+            }
+        }
     }
 
     #[test]

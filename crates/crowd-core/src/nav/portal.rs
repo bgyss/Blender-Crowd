@@ -9,6 +9,24 @@ use crate::units::Vec2;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PortalId(pub u32);
 
+/// Which pair of tile neighbors a portal connects, matching the two cases
+/// `TileGraph::build` constructs: an east-west portal joins column-adjacent
+/// tiles in the same row (`tile_b == tile_a + 1`), a north-south portal joins
+/// row-adjacent tiles in the same column (`tile_b == tile_a + cols`). A
+/// doorway in a wall running along one axis is only ever crossed by portals
+/// of the *other* axis — proximity in 2D space alone cannot distinguish "this
+/// portal actually crosses the doorway" from "this portal happens to sit
+/// near the doorway point but lies entirely on one side of the wall."
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrossingAxis {
+    /// Connects column-adjacent tiles in the same row — crosses a wall that
+    /// runs north-south (vertical), such as a divider at a fixed x.
+    EastWest,
+    /// Connects row-adjacent tiles in the same column — crosses a wall that
+    /// runs east-west (horizontal), such as a divider at a fixed y.
+    NorthSouth,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Portal {
     pub id: PortalId,
@@ -140,6 +158,15 @@ impl TileGraph {
     /// Every portal (open or closed) whose midpoint lies within `radius` of
     /// `point`, ascending by `PortalId` — a fixed, deterministic order
     /// regardless of portal creation order or hash-map iteration.
+    ///
+    /// A proximity radius alone cannot tell a portal that actually crosses a
+    /// doorway from an ordinary in-room portal that merely happens to sit
+    /// near the doorway point: for a doorway in a vertical wall, both the
+    /// genuine crossing portals *and* nearby north-south portals fully on
+    /// one side of the wall can have midpoints within any radius wide enough
+    /// to span a multi-tile-row doorway. Prefer `portals_within_axis` for
+    /// named-door resolution; this method is kept for callers (and the tests
+    /// below) that want raw proximity without axis filtering.
     pub fn portals_within(&self, point: Vec2, radius: f32) -> Vec<PortalId> {
         let radius_sq = radius * radius;
         let mut ids: Vec<PortalId> = self
@@ -150,6 +177,60 @@ impl TileGraph {
             .collect();
         ids.sort();
         ids
+    }
+
+    /// A portal's crossing axis, derived from whether its two tiles differ
+    /// in column (same row: east-west) or row (same column: north-south).
+    pub fn portal_axis(&self, id: PortalId) -> CrossingAxis {
+        let p = self.portal(id);
+        let (col_a, row_a) = self.grid.col_row(p.tile_a);
+        let (col_b, row_b) = self.grid.col_row(p.tile_b);
+        if row_a == row_b {
+            debug_assert_ne!(col_a, col_b, "portal connects a tile to itself");
+            CrossingAxis::EastWest
+        } else {
+            debug_assert_eq!(col_a, col_b, "portal is neither east-west nor north-south");
+            CrossingAxis::NorthSouth
+        }
+    }
+
+    /// Every portal within `radius` of `point` (as `portals_within`) that
+    /// both (a) runs along `axis` and (b) actually straddles `point`'s
+    /// coordinate along that axis — the two tile centers lie on opposite
+    /// sides of `point.x` (`EastWest`) or `point.y` (`NorthSouth`). Ascending
+    /// by `PortalId`.
+    ///
+    /// This is the correct primitive for resolving a named doorway. Axis
+    /// alone is not enough: an east-west portal entirely inside one room,
+    /// near the wall but not crossing it, still passes an axis-only filter
+    /// if its midpoint happens to fall within the radius. Requiring the
+    /// doorway point to sit *between* the portal's two tile centers is what
+    /// actually distinguishes "this portal crosses the doorway" from "this
+    /// portal is merely nearby" — it works because a named door's point is
+    /// authored on the wall's centerline (e.g. `(divider_x, door_y)` for a
+    /// doorway in a vertical wall at `x = divider_x`), so only a portal
+    /// whose two tiles are on opposite sides of that line can straddle it.
+    pub fn portals_within_axis(
+        &self,
+        point: Vec2,
+        radius: f32,
+        axis: CrossingAxis,
+    ) -> Vec<PortalId> {
+        self.portals_within(point, radius)
+            .into_iter()
+            .filter(|&id| {
+                if self.portal_axis(id) != axis {
+                    return false;
+                }
+                let p = self.portal(id);
+                let a = self.grid.tile_center(p.tile_a);
+                let b = self.grid.tile_center(p.tile_b);
+                match axis {
+                    CrossingAxis::EastWest => (a.x - point.x) * (b.x - point.x) <= 0.0,
+                    CrossingAxis::NorthSouth => (a.y - point.y) * (b.y - point.y) <= 0.0,
+                }
+            })
+            .collect()
     }
 
     /// Name a set of portals as one door. Deduplicates and sorts so repeated
