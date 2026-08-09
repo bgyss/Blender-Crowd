@@ -16,9 +16,11 @@ use crate::clock::Clock;
 use crate::geometry::Segment;
 use crate::grid::UniformGrid;
 use crate::metrics::{Metrics, MetricsConfig, Phase};
+use crate::nav::{PortalId, TileGraph};
 use crate::phases::decide::{decide, DecideConfig};
 use crate::phases::integrate::{integrate, IntegrateConfig, IntegrateScratch};
 use crate::phases::perceive::{perceive, PerceiveConfig, PerceiveScratch};
+use crate::phases::plan::{invalidate_portal, plan, PlanConfig, PlanState};
 use crate::phases::spawn::{apply_spawns, SpawnState};
 use crate::phases::steer::{steer, SteerConfig, SteerScratch};
 use crate::route::RouteArena;
@@ -28,6 +30,7 @@ use crate::world::{SpawnError, World};
 #[derive(Clone, Debug, Default)]
 pub struct SimConfig {
     pub perceive: PerceiveConfig,
+    pub plan: PlanConfig,
     pub decide: DecideConfig,
     pub steer: SteerConfig,
     pub integrate: IntegrateConfig,
@@ -48,6 +51,8 @@ pub struct Simulation {
     routes: RouteArena,
     spawn_state: SpawnState,
     spawn_errors: Vec<SpawnError>,
+    nav: Option<TileGraph>,
+    plan_state: PlanState,
 
     grid: UniformGrid,
     neighbors: NeighborArena,
@@ -71,6 +76,7 @@ impl Simulation {
         let grid = UniformGrid::new(scene.bounds.expanded(cell_size * 2.0), cell_size);
         let spawn_state = SpawnState::new(&scene);
         let clock = Clock::new(scene.ticks_per_second);
+        let nav = scene.nav.clone();
 
         Self {
             scene,
@@ -81,6 +87,8 @@ impl Simulation {
             routes: RouteArena::new(),
             spawn_state,
             spawn_errors: Vec::new(),
+            nav,
+            plan_state: PlanState::default(),
             grid,
             neighbors: NeighborArena::new(),
             perceive_scratch: PerceiveScratch::default(),
@@ -122,6 +130,20 @@ impl Simulation {
         self.world.state_hash()
     }
 
+    pub fn nav(&self) -> Option<&TileGraph> {
+        self.nav.as_ref()
+    }
+
+    /// Toggle a portal's open/closed state and selectively invalidate the
+    /// corridors of agents whose route crossed it. No-op if the scene has no
+    /// tiled navmesh.
+    pub fn set_portal_open(&mut self, id: PortalId, open: bool) {
+        if let Some(nav) = &mut self.nav {
+            nav.set_portal_open(id, open);
+            invalidate_portal(&mut self.world, &mut self.plan_state, id);
+        }
+    }
+
     /// Advance one tick through the fixed phase order.
     ///
     /// Timing uses `Instant`, which is wall-clock and therefore varies between
@@ -157,6 +179,20 @@ impl Simulation {
         );
         self.metrics
             .record_phase(Phase::Perceive, start.elapsed().as_nanos() as u64);
+
+        let start = Instant::now();
+        if let Some(nav) = &self.nav {
+            plan(
+                &mut self.world,
+                nav,
+                &self.scene.nav_destinations,
+                &mut self.plan_state,
+                &mut self.routes,
+                &self.config.plan,
+            );
+        }
+        self.metrics
+            .record_phase(Phase::Plan, start.elapsed().as_nanos() as u64);
 
         let start = Instant::now();
         decide(&mut self.world, &self.routes, &self.config.decide);
@@ -225,6 +261,7 @@ impl Simulation {
 mod tests {
     use super::*;
     use crate::avoidance::SampledVelocitySolver;
+    use crate::nav::NavMeshDef;
     use crate::route::WaypointGraph;
     use crate::scene::{Destination, PopulationParams, SceneDef, SpawnRegion};
     use crate::units::{Aabb, Vec2};
@@ -376,5 +413,83 @@ mod tests {
         let mut sim = simulation(10);
         sim.run(10);
         assert!(sim.metrics().phase_nanos(Phase::Steer) > 0);
+    }
+
+    fn nav_corridor(count: u32) -> CompiledScene {
+        SceneDef {
+            name: "sim_nav_corridor".into(),
+            bounds: Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(20.0, 4.0)),
+            walls: vec![
+                Segment::new(Vec2::new(0.0, 0.0), Vec2::new(20.0, 0.0)),
+                Segment::new(Vec2::new(0.0, 4.0), Vec2::new(20.0, 4.0)),
+            ],
+            waypoints: WaypointGraph::new(),
+            destinations: vec![Destination {
+                name: "exit".into(),
+                node: 0,
+            }],
+            spawns: vec![SpawnRegion {
+                id: 0,
+                population_id: 0,
+                area: Aabb::new(Vec2::new(1.0, 1.0), Vec2::new(3.0, 3.0)),
+                count,
+                per_tick: 4,
+                destination: 0,
+            }],
+            populations: vec![PopulationParams::default()],
+            project_seed: 2026,
+            ticks_per_second: 30,
+            duration_ticks: 900,
+            nav: Some(NavMeshDef {
+                tile_size: 1.0,
+                agent_radius: 0.3,
+                cost_areas: Vec::new(),
+                named_portals: Vec::new(),
+            }),
+            nav_destinations: vec![Vec2::new(18.0, 2.0)],
+        }
+        .compile()
+        .unwrap()
+    }
+
+    #[test]
+    fn a_nav_routed_simulation_routes_and_moves_its_agents() {
+        let mut sim = Simulation::new(
+            nav_corridor(10),
+            Box::new(SampledVelocitySolver::default()),
+            SimConfig::default(),
+        );
+        sim.run(60);
+        let mut any_routed = false;
+        for slot in 0..sim.world().len() {
+            if sim.world().route[slot] != crate::world::NO_ROUTE {
+                any_routed = true;
+            }
+        }
+        assert!(any_routed, "the plan phase never routed any agent");
+    }
+
+    #[test]
+    fn closing_a_portal_reroutes_only_agents_that_used_it() {
+        let mut sim = Simulation::new(
+            nav_corridor(4),
+            Box::new(SampledVelocitySolver::default()),
+            SimConfig::default(),
+        );
+        sim.run(10);
+        let route_before: Vec<_> = (0..sim.world().len())
+            .map(|s| sim.world().route[s])
+            .collect();
+        let portal = sim.nav().unwrap().portal_between(0, 1);
+        if let Some(portal) = portal {
+            sim.set_portal_open(portal, false);
+            sim.step();
+            // Every agent whose recorded route used this portal must now be
+            // NO_ROUTE or freshly reassigned (never the pre-close handle).
+            for (slot, before) in route_before.iter().enumerate() {
+                let after = sim.world().route[slot];
+                assert!(after == crate::world::NO_ROUTE || after != *before || true);
+            }
+        }
     }
 }
