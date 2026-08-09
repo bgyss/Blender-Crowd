@@ -183,6 +183,62 @@ fn changing_the_seed_changes_the_outcome() {
 }
 
 #[test]
+fn two_room_identical_runs_produce_identical_state_hashes() {
+    use crowd_core::nav_scenes::two_room;
+
+    let build = || {
+        Simulation::new(
+            two_room(60, 2026).compile().unwrap(),
+            boxed_solver("sampled_velocity"),
+            SimConfig::default(),
+        )
+    };
+    let mut a = build();
+    let mut b = build();
+    for tick in 0..300 {
+        a.step();
+        b.step();
+        assert_eq!(a.state_hash(), b.state_hash(), "diverged at tick {tick}");
+    }
+}
+
+#[test]
+fn two_room_portal_close_stays_deterministic() {
+    use crowd_core::nav_scenes::{two_room, SOUTH_DOOR};
+
+    let build = || {
+        Simulation::new(
+            two_room(60, 2026).compile().unwrap(),
+            boxed_solver("sampled_velocity"),
+            SimConfig::default(),
+        )
+    };
+    let mut a = build();
+    let mut b = build();
+    for _ in 0..100 {
+        a.step();
+        b.step();
+    }
+    let south_a = a.nav().unwrap().portal_named(SOUTH_DOOR).unwrap();
+    let south_b = b.nav().unwrap().portal_named(SOUTH_DOOR).unwrap();
+    assert_eq!(
+        south_a, south_b,
+        "named-portal resolution itself must be deterministic"
+    );
+    a.set_portal_open(south_a, false);
+    b.set_portal_open(south_b, false);
+    for tick in 0..300 {
+        a.step();
+        b.step();
+        assert_eq!(
+            a.state_hash(),
+            b.state_hash(),
+            "diverged at tick {tick} after portal close"
+        );
+    }
+}
+
+#[test]
 fn no_spawn_errors_occur_in_any_scene() {
     for name in scenes::SCENE_NAMES {
         let sim = simulate("sampled_velocity", name, 500, 3, 100);
