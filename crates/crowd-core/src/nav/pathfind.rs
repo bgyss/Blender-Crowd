@@ -51,14 +51,18 @@ impl PartialOrd for HeapEntry {
 
 /// A* over the tile graph. Edge cost is the destination tile's cost
 /// multiplier times center-to-center distance; the heuristic is Euclidean
-/// distance to the goal, admissible because every cost multiplier is >= 1.0
-/// (enforced at scene-compile time, mirroring `MIN_PREFERRED_SPEED`).
+/// distance to the goal, admissible because every cost multiplier is >= 1.0,
+/// validated at scene-compile time (`SceneError::InvalidCostArea`), mirroring
+/// `MIN_PREFERRED_SPEED`.
 ///
-/// Returns the tile path (inclusive of `from_tile` and `to_tile`) and the
-/// number of node expansions performed, for budget accounting.
-pub fn find_path(graph: &TileGraph, from_tile: u32, to_tile: u32) -> Option<(Vec<u32>, u32)> {
+/// Returns the tile path (inclusive of `from_tile` and `to_tile`, `None` if
+/// unreachable) and the number of node expansions performed. The expansion
+/// count is meaningful even on failure: an unreachable goal is the most
+/// expensive kind of search, since it exhausts the whole reachable component
+/// before giving up, so a caller doing budget accounting must charge it too.
+pub fn find_path(graph: &TileGraph, from_tile: u32, to_tile: u32) -> (Option<Vec<u32>>, u32) {
     if from_tile == to_tile {
-        return Some((vec![from_tile], 0));
+        return (Some(vec![from_tile]), 0);
     }
 
     let tile_count = graph.grid().tile_count();
@@ -82,7 +86,10 @@ pub fn find_path(graph: &TileGraph, from_tile: u32, to_tile: u32) -> Option<(Vec
         expansions += 1;
 
         if tile == to_tile {
-            return Some((reconstruct(&came_from, from_tile, to_tile), expansions));
+            return (
+                Some(reconstruct(&came_from, from_tile, to_tile)),
+                expansions,
+            );
         }
 
         for portal in graph.open_portals_of(tile) {
@@ -112,7 +119,7 @@ pub fn find_path(graph: &TileGraph, from_tile: u32, to_tile: u32) -> Option<(Vec
         }
     }
 
-    None
+    (None, expansions)
 }
 
 fn heuristic(graph: &TileGraph, tile: u32, goal: u32) -> f32 {
@@ -168,7 +175,8 @@ mod tests {
     #[test]
     fn finds_a_path_across_an_open_grid() {
         let graph = open_graph(5.0, 5.0);
-        let (path, _) = find_path(&graph, 0, 24).unwrap();
+        let (path, _) = find_path(&graph, 0, 24);
+        let path = path.unwrap();
         assert_eq!(*path.first().unwrap(), 0);
         assert_eq!(*path.last().unwrap(), 24);
     }
@@ -176,8 +184,8 @@ mod tests {
     #[test]
     fn path_to_self_is_a_single_tile() {
         let graph = open_graph(3.0, 3.0);
-        let (path, expansions) = find_path(&graph, 4, 4).unwrap();
-        assert_eq!(path, vec![4]);
+        let (path, expansions) = find_path(&graph, 4, 4);
+        assert_eq!(path, Some(vec![4]));
         assert_eq!(expansions, 0);
     }
 
@@ -193,14 +201,34 @@ mod tests {
             0.6,
             &[],
         ));
-        assert_eq!(find_path(&graph, 0, 24), None);
+        assert_eq!(find_path(&graph, 0, 24).0, None);
+    }
+
+    #[test]
+    fn a_failed_search_still_reports_a_nonzero_expansion_count() {
+        // The whole point of finding 2's fix: an exhausted, unreachable
+        // search is the most expensive kind, and budget accounting must be
+        // able to charge for it rather than see 0.
+        let wall: Vec<Segment> = (0..5)
+            .map(|c| Segment::new(Vec2::new(c as f32, 2.5), Vec2::new(c as f32 + 1.0, 2.5)))
+            .collect();
+        let graph = TileGraph::build(TileGrid::build(
+            Aabb::new(Vec2::ZERO, Vec2::new(5.0, 5.0)),
+            1.0,
+            &wall,
+            0.6,
+            &[],
+        ));
+        let (path, expansions) = find_path(&graph, 0, 24);
+        assert_eq!(path, None);
+        assert!(expansions > 0, "a failed search reported 0 expansions");
     }
 
     #[test]
     fn identical_inputs_produce_identical_paths() {
         let graph = open_graph(6.0, 6.0);
-        let (a, _) = find_path(&graph, 0, 35).unwrap();
-        let (b, _) = find_path(&graph, 0, 35).unwrap();
+        let (a, _) = find_path(&graph, 0, 35);
+        let (b, _) = find_path(&graph, 0, 35);
         assert_eq!(a, b);
     }
 
@@ -224,7 +252,8 @@ mod tests {
             .grid()
             .nearest_walkable_tile(Vec2::new(5.5, 1.5))
             .unwrap();
-        let (path, _) = find_path(&graph, from, to).unwrap();
+        let (path, _) = find_path(&graph, from, to);
+        let path = path.unwrap();
         let crossed_expensive_row = path.iter().any(|&t| {
             let c = graph.grid().tile_center(t);
             (2.0..3.0).contains(&c.x) && (0.0..3.0).contains(&c.y)
@@ -238,7 +267,8 @@ mod tests {
     #[test]
     fn corridor_points_starts_and_ends_at_the_exact_requested_points() {
         let graph = open_graph(4.0, 1.0);
-        let (path, _) = find_path(&graph, 0, 3).unwrap();
+        let (path, _) = find_path(&graph, 0, 3);
+        let path = path.unwrap();
         let start = Vec2::new(0.2, 0.5);
         let goal = Vec2::new(3.8, 0.5);
         let corridor = corridor_points(&graph, &path, start, goal);

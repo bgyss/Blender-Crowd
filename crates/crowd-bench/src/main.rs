@@ -347,9 +347,11 @@ fn command_nav_reroute(args: &Args) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     println!(
-        "two_room: {} invalidated / {} untouched on close, {} arrived after reroute -> {}",
+        "two_room: {} invalidated / {} untouched on close, {} of the invalidated crossed \
+         north_door, {} arrived after reroute -> {}",
         report.invalidated_on_close,
         report.untouched_on_close,
+        report.crossed_north_door,
         report.arrived_after_reroute,
         path.display()
     );

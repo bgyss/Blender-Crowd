@@ -43,8 +43,8 @@ impl NavDebugSnapshot {
             }
         }
         Self {
-            tile_size: grid_tile_size(grid),
-            origin: grid_origin(grid),
+            tile_size: grid.tile_size(),
+            origin: grid.origin(),
             cols: grid.cols(),
             rows: grid.rows(),
             walkable,
@@ -53,29 +53,13 @@ impl NavDebugSnapshot {
             corridors,
         }
     }
-}
 
-// `TileGrid` intentionally keeps `origin`/`tile_size` private (Task 1) since
-// nothing outside rasterization needed them until now. Small accessors added
-// here rather than widening `TileGrid`'s public surface for a debug-only
-// consumer:
-fn grid_tile_size(grid: &super::TileGrid) -> f32 {
-    tile_size_via_two_tiles(grid)
-}
-
-fn tile_size_via_two_tiles(grid: &super::TileGrid) -> f32 {
-    if grid.cols() > 1 {
-        (grid.tile_center(1).x - grid.tile_center(0).x).abs()
-    } else if grid.rows() > 1 {
-        (grid.tile_center(grid.cols()).y - grid.tile_center(0).y).abs()
-    } else {
-        1.0
+    /// A tile index's (col, row) within this snapshot's row-major layout.
+    /// Mirrors `TileGrid::col_row` for consumers (the SVG renderer) that only
+    /// have the snapshot's copied dimensions, not the `TileGrid` itself.
+    pub fn col_row(&self, tile: u32) -> (u32, u32) {
+        (tile % self.cols, tile / self.cols)
     }
-}
-
-fn grid_origin(grid: &super::TileGrid) -> Vec2 {
-    let half = tile_size_via_two_tiles(grid) * 0.5;
-    Vec2::new(grid.tile_center(0).x - half, grid.tile_center(0).y - half)
 }
 
 #[cfg(test)]

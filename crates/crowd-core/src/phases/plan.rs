@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use crate::nav::{corridor_points, find_path, PortalId, TileGraph};
 use crate::route::RouteArena;
 use crate::units::Vec2;
-use crate::world::{World, NO_ROUTE};
+use crate::world::{RouteHandle, World, NO_ROUTE};
 
 #[derive(Clone, Copy, Debug)]
 pub struct PlanConfig {
@@ -42,6 +42,17 @@ pub struct PlanState {
     /// selective: an agent is only invalidated if the closed portal's ID is
     /// in *its own* recorded sequence, not because of scene-geometry luck.
     portals_of_route: HashMap<u32, Vec<PortalId>>,
+}
+
+impl PlanState {
+    /// The portal sequence recorded for a still-live route handle, if any.
+    /// Exposed (narrowly, not a general route-inspection API) so callers such
+    /// as `Simulation::route_crosses_any` can verify which door an agent's
+    /// current corridor actually crosses, rather than only that it has *a*
+    /// route.
+    pub fn portals_for(&self, handle: RouteHandle) -> Option<&[PortalId]> {
+        self.portals_of_route.get(&handle.0).map(Vec::as_slice)
+    }
 }
 
 fn needs_route(world: &World, slot: u32) -> bool {
@@ -74,8 +85,14 @@ pub fn plan(
                 let from = nav.grid().nearest_walkable_tile(world.position(slot));
                 let to = nav.grid().nearest_walkable_tile(*dest_point);
                 if let (Some(from), Some(to)) = (from, to) {
-                    if let Some((tile_path, expansions)) = find_path(nav, from, to) {
-                        budget = budget.saturating_sub(expansions.max(1));
+                    let (tile_path, expansions) = find_path(nav, from, to);
+                    // Charged unconditionally: a failed search is the most
+                    // expensive kind (it exhausts the whole reachable
+                    // component before giving up), so charging it only on
+                    // success let an unroutable agent's search escape the
+                    // budget entirely and re-run at full cost every tick.
+                    budget = budget.saturating_sub(expansions.max(1));
+                    if let Some(tile_path) = tile_path {
                         let points =
                             corridor_points(nav, &tile_path, world.position(slot), *dest_point);
                         let portal_sequence: Vec<PortalId> = tile_path
@@ -107,6 +124,13 @@ pub fn plan(
 pub fn invalidate_portal(world: &mut World, state: &mut PlanState, portal: PortalId) -> usize {
     let mut count = 0;
     for slot in 0..world.len() {
+        if world.arrived[slot] {
+            // An arrived agent's old corridor is irrelevant now: it is done
+            // routing, and clearing its route would only inflate the
+            // invalidated/untouched counts with an agent nobody needs to
+            // replan.
+            continue;
+        }
         let handle = world.route[slot];
         if handle == NO_ROUTE {
             continue;

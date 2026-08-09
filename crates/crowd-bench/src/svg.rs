@@ -73,63 +73,11 @@ impl TrajectoryRecorder {
     }
 
     pub fn write_svg(&self, scene_name: &str, bounds: Aabb, walls: &[Segment]) -> String {
-        let size = bounds.size();
-        let width = size.x * SCALE + MARGIN * 2.0;
-        let height = size.y * SCALE + MARGIN * 2.0;
-
-        // SVG's Y axis points down; the simulation's points up. Flipping here
-        // keeps the rendered image matching the scene as authored.
-        let project = |p: Vec2| -> (f32, f32) {
-            (
-                (p.x - bounds.min.x) * SCALE + MARGIN,
-                height - ((p.y - bounds.min.y) * SCALE + MARGIN),
-            )
-        };
-
-        let mut out = String::new();
-        let _ = write!(
-            out,
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0}" height="{height:.0}" viewBox="0 0 {width:.0} {height:.0}">"#
-        );
-        let _ = write!(out, r##"<rect width="100%" height="100%" fill="#111"/>"##);
-        let _ = write!(
-            out,
-            r##"<text x="{MARGIN:.0}" y="{:.0}" fill="#eee" font-family="monospace" font-size="14">{scene_name}</text>"##,
-            MARGIN - 4.0
-        );
-
-        for wall in walls {
-            let (x1, y1) = project(wall.a);
-            let (x2, y2) = project(wall.b);
-            if [x1, y1, x2, y2].iter().all(|v| v.is_finite()) {
-                let _ = write!(
-                    out,
-                    r##"<line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}" stroke="#888" stroke-width="2"/>"##
-                );
-            }
-        }
-
-        for (index, track) in self.tracks.iter().enumerate() {
-            if track.len() < 2 {
-                continue;
-            }
-            // A fixed hue rotation keeps neighboring agents distinguishable
-            // without needing a palette dependency.
-            let hue = (index * 47) % 360;
-            let mut points = String::new();
-            for p in track {
-                let (x, y) = project(*p);
-                if x.is_finite() && y.is_finite() {
-                    let _ = write!(points, "{x:.1},{y:.1} ");
-                }
-            }
-            let _ = write!(
-                out,
-                r#"<polyline points="{}" fill="none" stroke="hsl({hue},70%,60%)" stroke-width="1.2" opacity="0.75"/>"#,
-                points.trim_end()
-            );
-        }
-
+        let (width, height, project) = projector(bounds);
+        let mut out = svg_header(width, height);
+        draw_title(&mut out, scene_name);
+        draw_walls(&mut out, walls, &project);
+        draw_trajectories(&mut out, &self.tracks, &project);
         out.push_str("</svg>\n");
         out
     }
@@ -141,30 +89,15 @@ impl TrajectoryRecorder {
         walls: &[Segment],
         nav: Option<&NavDebugSnapshot>,
     ) -> String {
-        let size = bounds.size();
-        let width = size.x * SCALE + MARGIN * 2.0;
-        let height = size.y * SCALE + MARGIN * 2.0;
-        let project = |p: Vec2| -> (f32, f32) {
-            (
-                (p.x - bounds.min.x) * SCALE + MARGIN,
-                height - ((p.y - bounds.min.y) * SCALE + MARGIN),
-            )
-        };
-
-        let mut out = String::new();
-        let _ = write!(
-            out,
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0}" height="{height:.0}" viewBox="0 0 {width:.0} {height:.0}">"#
-        );
-        let _ = write!(out, r##"<rect width="100%" height="100%" fill="#111"/>"##);
+        let (width, height, project) = projector(bounds);
+        let mut out = svg_header(width, height);
 
         if let Some(nav) = nav {
             for tile in 0..(nav.cols * nav.rows) {
                 if !nav.walkable[tile as usize] {
                     continue;
                 }
-                let col = tile % nav.cols;
-                let row = tile / nav.cols;
+                let (col, row) = nav.col_row(tile);
                 let center = Vec2::new(
                     nav.origin.x + (col as f32 + 0.5) * nav.tile_size,
                     nav.origin.y + (row as f32 + 0.5) * nav.tile_size,
@@ -204,25 +137,92 @@ impl TrajectoryRecorder {
             }
         }
 
-        for wall in walls {
-            let (x1, y1) = project(wall.a);
-            let (x2, y2) = project(wall.b);
-            if [x1, y1, x2, y2].iter().all(|v| v.is_finite()) {
-                let _ = write!(
-                    out,
-                    r##"<line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}" stroke="#888" stroke-width="2"/>"##
-                );
-            }
-        }
-
-        let _ = write!(
-            out,
-            r##"<text x="{MARGIN:.0}" y="{:.0}" fill="#eee" font-family="monospace" font-size="14">{scene_name}</text>"##,
-            MARGIN - 4.0
-        );
+        draw_walls(&mut out, walls, &project);
+        // Previously omitted despite `nav_bench.rs` recording every tick into
+        // `self.tracks` — the recording was pure wasted work since nothing
+        // rendered it. Drawn in the same style as `write_svg`.
+        draw_trajectories(&mut out, &self.tracks, &project);
+        draw_title(&mut out, scene_name);
 
         out.push_str("</svg>\n");
         out
+    }
+}
+
+/// SVG document open tag plus the background rect, shared by every renderer
+/// in this module.
+fn svg_header(width: f32, height: f32) -> String {
+    let mut out = String::new();
+    let _ = write!(
+        out,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0}" height="{height:.0}" viewBox="0 0 {width:.0} {height:.0}">"#
+    );
+    let _ = write!(out, r##"<rect width="100%" height="100%" fill="#111"/>"##);
+    out
+}
+
+/// The scene's pixel dimensions and its world-to-SVG projection. SVG's Y axis
+/// points down; the simulation's points up, so the closure flips it to keep
+/// the rendered image matching the scene as authored.
+fn projector(bounds: Aabb) -> (f32, f32, impl Fn(Vec2) -> (f32, f32)) {
+    let size = bounds.size();
+    let width = size.x * SCALE + MARGIN * 2.0;
+    let height = size.y * SCALE + MARGIN * 2.0;
+    let min = bounds.min;
+    let project = move |p: Vec2| -> (f32, f32) {
+        (
+            (p.x - min.x) * SCALE + MARGIN,
+            height - ((p.y - min.y) * SCALE + MARGIN),
+        )
+    };
+    (width, height, project)
+}
+
+fn draw_title(out: &mut String, scene_name: &str) {
+    let _ = write!(
+        out,
+        r##"<text x="{MARGIN:.0}" y="{:.0}" fill="#eee" font-family="monospace" font-size="14">{scene_name}</text>"##,
+        MARGIN - 4.0
+    );
+}
+
+fn draw_walls(out: &mut String, walls: &[Segment], project: &impl Fn(Vec2) -> (f32, f32)) {
+    for wall in walls {
+        let (x1, y1) = project(wall.a);
+        let (x2, y2) = project(wall.b);
+        if [x1, y1, x2, y2].iter().all(|v| v.is_finite()) {
+            let _ = write!(
+                out,
+                r##"<line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}" stroke="#888" stroke-width="2"/>"##
+            );
+        }
+    }
+}
+
+fn draw_trajectories(
+    out: &mut String,
+    tracks: &[Vec<Vec2>],
+    project: &impl Fn(Vec2) -> (f32, f32),
+) {
+    for (index, track) in tracks.iter().enumerate() {
+        if track.len() < 2 {
+            continue;
+        }
+        // A fixed hue rotation keeps neighboring agents distinguishable
+        // without needing a palette dependency.
+        let hue = (index * 47) % 360;
+        let mut points = String::new();
+        for p in track {
+            let (x, y) = project(*p);
+            if x.is_finite() && y.is_finite() {
+                let _ = write!(points, "{x:.1},{y:.1} ");
+            }
+        }
+        let _ = write!(
+            out,
+            r#"<polyline points="{}" fill="none" stroke="hsl({hue},70%,60%)" stroke-width="1.2" opacity="0.75"/>"#,
+            points.trim_end()
+        );
     }
 }
 
@@ -255,6 +255,31 @@ mod nav_svg_tests {
         );
         assert!(svg.contains("<rect"));
         assert!(svg.contains("<circle"));
+    }
+
+    #[test]
+    fn nav_debug_svg_also_draws_recorded_trajectories() {
+        // Regression for finding 5: `nav_bench.rs` records every tick into
+        // `TrajectoryRecorder`, and that must not be wasted work.
+        let scene = crowd_core::scenes::build("bidirectional_corridor", 20, 1)
+            .unwrap()
+            .compile()
+            .unwrap();
+        let mut sim = crowd_core::sim::Simulation::new(
+            scene,
+            Box::new(crowd_core::avoidance::SampledVelocitySolver::default()),
+            crowd_core::sim::SimConfig::default(),
+        );
+        let mut recorder = TrajectoryRecorder::new(1, 100);
+        for _ in 0..10 {
+            sim.step();
+            recorder.record(&sim);
+        }
+        let svg = recorder.write_svg_with_nav("corridor", sim.scene().bounds, sim.walls(), None);
+        assert!(
+            svg.contains("<polyline"),
+            "write_svg_with_nav did not draw any recorded trajectory"
+        );
     }
 
     #[test]

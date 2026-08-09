@@ -223,14 +223,14 @@ fn two_room_portal_close_stays_deterministic() {
             a.step();
             b.step();
         }
-        let south_a = a.nav().unwrap().portal_named(SOUTH_DOOR).unwrap();
-        let south_b = b.nav().unwrap().portal_named(SOUTH_DOOR).unwrap();
+        let south_a = a.nav().unwrap().portals_named(SOUTH_DOOR).to_vec();
+        let south_b = b.nav().unwrap().portals_named(SOUTH_DOOR).to_vec();
         assert_eq!(
             south_a, south_b,
             "{solver_name}: named-portal resolution itself must be deterministic"
         );
-        a.set_portal_open(south_a, false);
-        b.set_portal_open(south_b, false);
+        a.set_portals_open(&south_a, false);
+        b.set_portals_open(&south_b, false);
         for tick in 0..300 {
             a.step();
             b.step();

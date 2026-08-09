@@ -24,9 +24,17 @@ pub struct NavMeshDef {
     pub tile_size: f32,
     pub agent_radius: f32,
     pub cost_areas: Vec<(Aabb, f32)>,
-    /// Author-friendly portal lookup points, resolved to `PortalId`s once the
-    /// graph is built. E.g. `("north_door", Vec2::new(20.0, 20.0))`.
-    pub named_portals: Vec<(String, Vec2)>,
+    /// Author-friendly portal lookup points, resolved to every `PortalId`
+    /// within the given capture radius once the graph is built. E.g.
+    /// `("north_door", Vec2::new(20.0, 20.0), 1.0)`.
+    ///
+    /// A doorway wider than one tile (after agent-radius inflation) crosses
+    /// the dividing wall through more than one adjacent tile row, so it has
+    /// more than one portal. The radius must be wide enough to capture every
+    /// portal that actually spans the doorway (a good default is the
+    /// doorway's half-width plus one tile size of margin) and narrow enough
+    /// to stay clear of any other named door's portals.
+    pub named_portals: Vec<(String, Vec2, f32)>,
 }
 
 impl NavMeshDef {
@@ -39,10 +47,9 @@ impl NavMeshDef {
             &self.cost_areas,
         );
         let mut graph = TileGraph::build(grid);
-        for (name, point) in &self.named_portals {
-            if let Some(id) = graph.nearest_portal(*point) {
-                graph.name_portal(name.clone(), id);
-            }
+        for (name, point, radius) in &self.named_portals {
+            let ids = graph.portals_within(*point, *radius);
+            graph.name_portals(name.clone(), ids);
         }
         graph
     }

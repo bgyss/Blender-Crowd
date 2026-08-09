@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crowd_core::avoidance::SampledVelocitySolver;
 use crowd_core::nav::NavDebugSnapshot;
-use crowd_core::nav_scenes::{two_room, SOUTH_DOOR};
+use crowd_core::nav_scenes::{two_room, NORTH_DOOR, SOUTH_DOOR};
 use crowd_core::sim::{SimConfig, Simulation};
 use crowd_core::world::NO_ROUTE;
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,11 @@ pub struct NavRerouteReport {
     pub seed: u64,
     pub invalidated_on_close: u32,
     pub untouched_on_close: u32,
+    /// Of the agents invalidated by the close, how many had a live route by
+    /// the time arrivals were measured whose recorded portal sequence
+    /// actually crosses a north_door portal — direct evidence the doorway
+    /// was genuinely closed, not just that *some* route was assigned.
+    pub crossed_north_door: u32,
     pub arrived_after_reroute: u64,
 }
 
@@ -48,14 +53,17 @@ pub fn run_nav_reroute(options: &NavRerouteOptions) -> Result<NavRerouteReport, 
         recorder.record(&sim);
     }
 
-    let south = sim
+    let south: Vec<_> = sim
         .nav()
-        .and_then(|nav| nav.portal_named(SOUTH_DOOR))
-        .ok_or("south_door portal did not resolve")?;
+        .map(|nav| nav.portals_named(SOUTH_DOOR).to_vec())
+        .unwrap_or_default();
+    if south.is_empty() {
+        return Err("south_door named no portals".to_string());
+    }
     let route_before: Vec<_> = (0..sim.world().len())
         .map(|s| sim.world().route[s])
         .collect();
-    sim.set_portal_open(south, false);
+    sim.set_portals_open(&south, false);
 
     let mut invalidated_on_close = 0u32;
     let mut untouched_on_close = 0u32;
@@ -71,6 +79,18 @@ pub fn run_nav_reroute(options: &NavRerouteOptions) -> Result<NavRerouteReport, 
     for _ in 0..options.settle_ticks {
         sim.step();
         recorder.record(&sim);
+    }
+
+    let north: Vec<_> = sim
+        .nav()
+        .map(|nav| nav.portals_named(NORTH_DOOR).to_vec())
+        .unwrap_or_default();
+    let mut crossed_north_door = 0u32;
+    for (slot, before) in route_before.iter().enumerate() {
+        let was_invalidated = sim.world().route[slot] != *before;
+        if was_invalidated && sim.route_crosses_any(slot as u32, &north) {
+            crossed_north_door += 1;
+        }
     }
 
     if options.svg {
@@ -96,6 +116,7 @@ pub fn run_nav_reroute(options: &NavRerouteOptions) -> Result<NavRerouteReport, 
         seed: options.seed,
         invalidated_on_close,
         untouched_on_close,
+        crossed_north_door,
         arrived_after_reroute: sim.metrics().arrived(),
     })
 }

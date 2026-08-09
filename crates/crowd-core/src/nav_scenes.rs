@@ -16,14 +16,28 @@ use crate::units::{Aabb, Vec2};
 pub const NORTH_DOOR: &str = "north_door";
 pub const SOUTH_DOOR: &str = "south_door";
 
+/// The x coordinate of the wall separating room A (x < DIVIDER_X) from room B
+/// (x > DIVIDER_X). Exposed so callers such as tests can tell, from an
+/// agent's position alone, whether it still needs to cross a doorway to reach
+/// room B or has already crossed the divider before a door closed.
+pub const DIVIDER_X: f32 = 20.0;
+
 /// Room A: x in [0, 20]. Room B: x in [20, 40]. Both rooms span y in [0, 20].
 /// Two doorways in the dividing wall at x=20: one centered at y=6 (south),
 /// one at y=14 (north), each 1.6 m wide — wide enough to stay walkable after
 /// the default 0.3 m agent-radius inflation this scene uses.
 pub fn two_room(agents: u32, seed: u64) -> SceneDef {
     const DOOR_HALF_WIDTH: f32 = 0.8;
+    const TILE_SIZE: f32 = 0.5;
+    // A doorway 1.6 m wide, tiled at 0.5 m and inflated by the scene's 0.3 m
+    // agent radius, crosses the divider through more than one adjacent tile
+    // row — so it has more than one portal. This radius must be wide enough
+    // to capture every portal spanning one doorway (half-width plus a tile
+    // of margin comfortably covers it) and narrow enough to stay clear of
+    // the other doorway's portals, 8 m away.
+    const DOOR_CAPTURE_RADIUS: f32 = DOOR_HALF_WIDTH + TILE_SIZE;
     let bounds = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(40.0, 20.0));
-    let divider_x = 20.0;
+    let divider_x = DIVIDER_X;
     let south_y = 6.0;
     let north_y = 14.0;
 
@@ -69,12 +83,20 @@ pub fn two_room(agents: u32, seed: u64) -> SceneDef {
         ticks_per_second: 30,
         duration_ticks: 3600,
         nav: Some(NavMeshDef {
-            tile_size: 0.5,
+            tile_size: TILE_SIZE,
             agent_radius: 0.3,
             cost_areas: Vec::new(),
             named_portals: vec![
-                (SOUTH_DOOR.to_string(), Vec2::new(divider_x, south_y)),
-                (NORTH_DOOR.to_string(), Vec2::new(divider_x, north_y)),
+                (
+                    SOUTH_DOOR.to_string(),
+                    Vec2::new(divider_x, south_y),
+                    DOOR_CAPTURE_RADIUS,
+                ),
+                (
+                    NORTH_DOOR.to_string(),
+                    Vec2::new(divider_x, north_y),
+                    DOOR_CAPTURE_RADIUS,
+                ),
             ],
         }),
         nav_destinations: vec![Vec2::new(38.0, 10.0)],
@@ -99,14 +121,36 @@ mod tests {
     }
 
     #[test]
-    fn both_named_doors_resolve_to_distinct_portals() {
+    fn both_named_doors_resolve_to_distinct_portal_sets() {
         let compiled = two_room(50, 42).compile().unwrap();
         let nav = compiled.nav.as_ref().unwrap();
-        let south = nav.portal_named(SOUTH_DOOR);
-        let north = nav.portal_named(NORTH_DOOR);
-        assert!(south.is_some());
-        assert!(north.is_some());
-        assert_ne!(south, north);
+        let south = nav.portals_named(SOUTH_DOOR);
+        let north = nav.portals_named(NORTH_DOOR);
+        assert!(!south.is_empty());
+        assert!(!north.is_empty());
+        assert!(
+            south.iter().all(|s| !north.contains(s)),
+            "south and north doors must not share a portal: south={south:?} north={north:?}"
+        );
+    }
+
+    #[test]
+    fn south_door_names_every_portal_that_crosses_its_doorway() {
+        // The load-bearing regression for the whole-branch review's critical
+        // finding: a 1.6 m doorway tiled at 0.5 m, inflated by the 0.3 m
+        // agent radius, spans more than one tile row and therefore more than
+        // one crossing portal. Naming only one of them left the doorway only
+        // half-closed. This scene's south doorway must resolve to at least
+        // two portals.
+        let compiled = two_room(50, 42).compile().unwrap();
+        let nav = compiled.nav.as_ref().unwrap();
+        let south = nav.portals_named(SOUTH_DOOR);
+        assert!(
+            south.len() >= 2,
+            "south doorway resolved to only {} portal(s); closing it would leave the \
+             doorway's other crossing point open: {south:?}",
+            south.len()
+        );
     }
 
     #[test]

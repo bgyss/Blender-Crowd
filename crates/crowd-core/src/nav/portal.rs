@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::nav::grid::TileGrid;
 use crate::units::Vec2;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PortalId(pub u32);
 
 #[derive(Clone, Copy, Debug)]
@@ -24,7 +24,13 @@ pub struct TileGraph {
     /// Adjacency list: tile -> indices into `portals`, in the order portals
     /// were created (ascending `PortalId`) — a fixed, deterministic order.
     adjacency: Vec<Vec<u32>>,
-    named: HashMap<String, PortalId>,
+    /// A door name can span more than one portal: a doorway wider than one
+    /// tile after agent-radius inflation crosses the room divider through
+    /// several adjacent tile rows, each with its own portal. Every portal
+    /// resolved for a name is kept, ascending by `PortalId`, so closing a
+    /// door by name closes the whole doorway rather than one crossing point
+    /// of it.
+    named: HashMap<String, Vec<PortalId>>,
 }
 
 impl TileGraph {
@@ -55,8 +61,7 @@ impl TileGraph {
             if !grid.is_walkable(tile) {
                 continue;
             }
-            let col = tile % cols;
-            let _row = tile / cols;
+            let (col, _row) = grid.col_row(tile);
             // East neighbor.
             if col + 1 < cols {
                 let east = tile + 1;
@@ -132,12 +137,34 @@ impl TileGraph {
         best.map(|(_, id)| id)
     }
 
-    pub fn name_portal(&mut self, name: String, id: PortalId) {
-        self.named.insert(name, id);
+    /// Every portal (open or closed) whose midpoint lies within `radius` of
+    /// `point`, ascending by `PortalId` — a fixed, deterministic order
+    /// regardless of portal creation order or hash-map iteration.
+    pub fn portals_within(&self, point: Vec2, radius: f32) -> Vec<PortalId> {
+        let radius_sq = radius * radius;
+        let mut ids: Vec<PortalId> = self
+            .portals
+            .iter()
+            .filter(|p| self.portal_midpoint(p.id).distance_squared(point) <= radius_sq)
+            .map(|p| p.id)
+            .collect();
+        ids.sort();
+        ids
     }
 
-    pub fn portal_named(&self, name: &str) -> Option<PortalId> {
-        self.named.get(name).copied()
+    /// Name a set of portals as one door. Deduplicates and sorts so repeated
+    /// or out-of-order input still yields a stable, comparable set.
+    pub fn name_portals(&mut self, name: String, mut ids: Vec<PortalId>) {
+        ids.sort();
+        ids.dedup();
+        self.named.insert(name, ids);
+    }
+
+    /// Every portal resolved for `name`, ascending by `PortalId`. Empty (not
+    /// panicking) for an unknown name, matching `open_portals_of`'s style for
+    /// an empty result.
+    pub fn portals_named(&self, name: &str) -> &[PortalId] {
+        self.named.get(name).map_or(&[], |ids| ids.as_slice())
     }
 }
 
@@ -195,8 +222,43 @@ mod tests {
         let mut graph = TileGraph::build(open_grid());
         let id = graph.portal_between(1, 2).unwrap();
         let midpoint = graph.portal_midpoint(id);
-        graph.name_portal("east_door".into(), graph.nearest_portal(midpoint).unwrap());
-        assert_eq!(graph.portal_named("east_door"), Some(id));
-        assert_eq!(graph.portal_named("no_such_door"), None);
+        graph.name_portals("east_door".into(), graph.portals_within(midpoint, 0.01));
+        assert_eq!(graph.portals_named("east_door"), &[id]);
+        assert_eq!(graph.portals_named("no_such_door"), &[] as &[PortalId]);
+    }
+
+    #[test]
+    fn portals_within_captures_every_portal_in_radius_deterministically() {
+        // A 5x1 open strip has portals between every adjacent pair. A radius
+        // wide enough to span two adjacent portal midpoints must return both,
+        // sorted ascending by PortalId regardless of which one is nearer.
+        let graph = TileGraph::build(TileGrid::build(
+            Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(5.0, 1.0)),
+            1.0,
+            &[],
+            0.3,
+            &[],
+        ));
+        let a = graph.portal_between(1, 2).unwrap();
+        let b = graph.portal_between(2, 3).unwrap();
+        let center = graph.portal_midpoint(a);
+        let wide = graph.portals_within(center, 1.5);
+        assert!(wide.contains(&a));
+        assert!(wide.contains(&b));
+        let mut sorted = wide.clone();
+        sorted.sort();
+        assert_eq!(
+            wide, sorted,
+            "portals_within must return ascending PortalId order"
+        );
+    }
+
+    #[test]
+    fn name_portals_deduplicates_and_sorts() {
+        let mut graph = TileGraph::build(open_grid());
+        let a = graph.portal_between(0, 1).unwrap();
+        let b = graph.portal_between(1, 2).unwrap();
+        graph.name_portals("both".into(), vec![b, a, a]);
+        assert_eq!(graph.portals_named("both"), &[a, b]);
     }
 }

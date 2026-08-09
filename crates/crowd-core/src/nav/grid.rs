@@ -84,7 +84,23 @@ impl TileGrid {
     }
 
     pub fn tile_center(&self, tile: u32) -> Vec2 {
-        self.tile_center_at(tile % self.cols, tile / self.cols)
+        let (col, row) = self.col_row(tile);
+        self.tile_center_at(col, row)
+    }
+
+    /// A tile index's (col, row) in this grid's row-major layout. Centralizes
+    /// the `% cols` / `/ cols` split so it is written once, not re-derived at
+    /// each open-coded call site.
+    pub fn col_row(&self, tile: u32) -> (u32, u32) {
+        (tile % self.cols, tile / self.cols)
+    }
+
+    pub fn origin(&self) -> Vec2 {
+        self.origin
+    }
+
+    pub fn tile_size(&self) -> f32 {
+        self.tile_size
     }
 
     pub fn is_walkable(&self, tile: u32) -> bool {
@@ -117,7 +133,7 @@ impl TileGrid {
         if self.is_walkable(start) {
             return Some(start);
         }
-        let (start_col, start_row) = (start % self.cols, start / self.cols);
+        let (start_col, start_row) = self.col_row(start);
         let max_ring = self.cols.max(self.rows);
         for ring in 1..=max_ring {
             let mut best: Option<(f32, u32)> = None;

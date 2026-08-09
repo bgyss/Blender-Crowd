@@ -25,7 +25,7 @@ use crate::phases::spawn::{apply_spawns, SpawnState};
 use crate::phases::steer::{steer, SteerConfig, SteerScratch};
 use crate::route::RouteArena;
 use crate::scene::CompiledScene;
-use crate::world::{SpawnError, World};
+use crate::world::{SpawnError, World, NO_ROUTE};
 
 #[derive(Clone, Debug, Default)]
 pub struct SimConfig {
@@ -135,13 +135,47 @@ impl Simulation {
     }
 
     /// Toggle a portal's open/closed state and selectively invalidate the
-    /// corridors of agents whose route crossed it. No-op if the scene has no
-    /// tiled navmesh.
-    pub fn set_portal_open(&mut self, id: PortalId, open: bool) {
-        if let Some(nav) = &mut self.nav {
+    /// corridors of agents whose route crossed it. Returns how many agents
+    /// were invalidated (0 if the scene has no tiled navmesh).
+    pub fn set_portal_open(&mut self, id: PortalId, open: bool) -> usize {
+        self.set_portals_open(std::slice::from_ref(&id), open)
+    }
+
+    /// Toggle every portal in `ids` to the same open/closed state — the form
+    /// a named door (which can span more than one portal; see
+    /// `TileGraph::portals_named`) needs to close or reopen atomically.
+    /// Returns the total number of agents invalidated across all of them.
+    ///
+    /// An agent invalidated by one portal in the set has its route cleared to
+    /// `NO_ROUTE` before the next portal in the set is processed, so it is
+    /// never double-counted even if its old corridor happened to cross more
+    /// than one portal in `ids`.
+    pub fn set_portals_open(&mut self, ids: &[PortalId], open: bool) -> usize {
+        let Some(nav) = &mut self.nav else {
+            return 0;
+        };
+        for &id in ids {
             nav.set_portal_open(id, open);
-            invalidate_portal(&mut self.world, &mut self.plan_state, id);
         }
+        let mut invalidated = 0;
+        for &id in ids {
+            invalidated += invalidate_portal(&mut self.world, &mut self.plan_state, id);
+        }
+        invalidated
+    }
+
+    /// True when agent `slot` has a live route whose recorded portal sequence
+    /// crosses at least one portal in `portals`. False for an unrouted or
+    /// arrived agent. Lets a test or caller verify *which* doorway an agent's
+    /// current corridor actually uses, not merely that it has some route.
+    pub fn route_crosses_any(&self, slot: u32, portals: &[PortalId]) -> bool {
+        let handle = self.world.route[slot as usize];
+        if handle == NO_ROUTE {
+            return false;
+        }
+        self.plan_state
+            .portals_for(handle)
+            .is_some_and(|seq| seq.iter().any(|p| portals.contains(p)))
     }
 
     /// Advance one tick through the fixed phase order.
