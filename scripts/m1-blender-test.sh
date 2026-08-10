@@ -23,10 +23,26 @@ case "$ONLY" in
     project)
         TEST_PATH="tests/blender/test_m1_project.py"
         ;;
+    cache-playback)
+        TEST_PATH="tests/blender/test_m1_cache_playback.py"
+        ;;
     *)
         echo "unknown M1 Blender test: $ONLY" >&2
         exit 2
         ;;
 esac
 
-"$REPO_ROOT/scripts/blender-install-test.sh" --python "$TEST_PATH"
+if [ "$ONLY" = "cache-playback" ]; then
+    if [ -n "${CROWD_M1_CACHE_PATH:-}" ]; then
+        CACHE_PATH="$CROWD_M1_CACHE_PATH"
+    else
+        TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/blender-crowd-m1-playback.XXXXXX")"
+        trap 'rm -rf "$TEMP_ROOT"' EXIT
+        CACHE_PATH="$TEMP_ROOT/cache"
+        cargo run --release -p crowd-bench -- m1 bake --cache "$CACHE_PATH"
+    fi
+    CROWD_M1_CACHE_PATH="$CACHE_PATH" \
+        "$REPO_ROOT/scripts/blender-install-test.sh" --python "$TEST_PATH"
+else
+    "$REPO_ROOT/scripts/blender-install-test.sh" --python "$TEST_PATH"
+fi

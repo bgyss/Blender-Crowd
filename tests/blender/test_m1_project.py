@@ -167,4 +167,9 @@ def main():
     print("PASS: self-contained M1 project workflow")
 
 
-main()
+try:
+    main()
+except SystemExit:
+    raise
+except Exception as error:
+    fail("unexpected {}: {}".format(type(error).__name__, error))

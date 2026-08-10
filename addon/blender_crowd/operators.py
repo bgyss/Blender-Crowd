@@ -12,7 +12,7 @@ import blender_crowd_native
 # Relative import: extensions are imported as `bl_ext.user_default.blender_crowd`,
 # so an absolute `from blender_crowd.x import y` fails with "package not found".
 from .trace_playback import TracePlayback
-from . import geometry_nodes, project, reference_assets
+from . import cache_playback, geometry_nodes, project, reference_assets
 
 _ACTIVE = {}
 _BAKE_LOCK = threading.Lock()
@@ -47,6 +47,39 @@ class CROWD_OT_load_trace(Operator):
 def active_playback():
     """Return the loaded playback, or None."""
     return _ACTIVE.get("playback")
+
+
+def active_cache_playback():
+    return _ACTIVE.get("cache_playback")
+
+
+class CROWD_OT_attach_cache(Operator):
+    bl_idname = "crowd.attach_cache"
+    bl_label = "Attach Crowd Cache"
+    bl_description = "Attach a complete Cache v1 without creating a simulation session"
+
+    filepath: StringProperty(subtype="FILE_PATH")
+
+    def execute(self, context):
+        path = self.filepath or context.scene.crowd_project.cache_path
+        path = bpy.path.abspath(path)
+        try:
+            assets = reference_assets.ensure_reference_assets(context.scene)
+            playback = cache_playback.CachePlayback(path)
+            geometry_nodes.attach_cache(playback.object, assets["prototypes"])
+            cache_playback.set_active(playback)
+            _ACTIVE["cache_playback"] = playback
+            playback.sync_to_frame(context.scene, context.scene.frame_current)
+        except (OSError, RuntimeError, ValueError) as error:
+            context.scene.crowd_project.status = "Attach failed: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        context.scene.crowd_project.cache_path = path
+        context.scene.crowd_project.status = "Cache attached: {} agents".format(
+            playback.agent_count
+        )
+        self.report({"INFO"}, context.scene.crowd_project.status)
+        return {"FINISHED"}
 
 
 class CROWD_OT_create_reference_project(Operator):
@@ -238,6 +271,7 @@ class CROWD_OT_cancel_bake(Operator):
 
 _CLASSES = (
     CROWD_OT_load_trace,
+    CROWD_OT_attach_cache,
     CROWD_OT_create_reference_project,
     CROWD_OT_validate_project,
     CROWD_OT_bake_cache,

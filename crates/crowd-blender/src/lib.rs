@@ -363,6 +363,10 @@ impl PyCache {
         let reader = self.complete()?;
         packed_cache_dict(py, &pack_cache(&frame.records, reader.agents()))
     }
+
+    fn read_agents<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        packed_agent_static_dict(py, &pack_agent_static(self.complete()?.agents()))
+    }
 }
 
 impl PyCache {
@@ -528,6 +532,40 @@ struct PackedCacheChannels {
     render_tier: Vec<u8>,
 }
 
+#[derive(Default, PartialEq, Debug)]
+struct PackedAgentStaticChannels {
+    agent_id_lo: Vec<u8>,
+    agent_id_hi: Vec<u8>,
+    population_id: Vec<u8>,
+    archetype_id: Vec<u8>,
+    variant_id: Vec<u8>,
+    base_scale: Vec<u8>,
+    spawn_ordinal: Vec<u8>,
+}
+
+fn pack_agent_static(agents: &[AgentStatic]) -> PackedAgentStaticChannels {
+    let n = agents.len();
+    let mut out = PackedAgentStaticChannels {
+        agent_id_lo: Vec::with_capacity(n * 4),
+        agent_id_hi: Vec::with_capacity(n * 4),
+        population_id: Vec::with_capacity(n * 4),
+        archetype_id: Vec::with_capacity(n * 4),
+        variant_id: Vec::with_capacity(n * 4),
+        base_scale: Vec::with_capacity(n * 4),
+        spawn_ordinal: Vec::with_capacity(n * 4),
+    };
+    for agent in agents {
+        push_u32(&mut out.agent_id_lo, agent.agent_id as u32);
+        push_u32(&mut out.agent_id_hi, (agent.agent_id >> 32) as u32);
+        push_u32(&mut out.population_id, agent.population_id);
+        push_u32(&mut out.archetype_id, agent.archetype_id);
+        push_u32(&mut out.variant_id, agent.variant_id);
+        push_f32(&mut out.base_scale, agent.base_scale);
+        push_u32(&mut out.spawn_ordinal, agent.spawn_ordinal);
+    }
+    out
+}
+
 fn pack_cache(records: &[FrameRecord], agents: &[AgentStatic]) -> PackedCacheChannels {
     debug_assert_eq!(records.len(), agents.len());
     let n = records.len();
@@ -608,6 +646,25 @@ fn packed_cache_dict<'py>(
         ("velocity", &packed.velocity),
         ("visible", &packed.visible),
         ("render_tier", &packed.render_tier),
+    ] {
+        out.set_item(name, PyBytes::new(py, bytes))?;
+    }
+    Ok(out)
+}
+
+fn packed_agent_static_dict<'py>(
+    py: Python<'py>,
+    packed: &PackedAgentStaticChannels,
+) -> PyResult<Bound<'py, PyDict>> {
+    let out = PyDict::new(py);
+    for (name, bytes) in [
+        ("agent_id_lo", &packed.agent_id_lo),
+        ("agent_id_hi", &packed.agent_id_hi),
+        ("population_id", &packed.population_id),
+        ("archetype_id", &packed.archetype_id),
+        ("variant_id", &packed.variant_id),
+        ("base_scale", &packed.base_scale),
+        ("spawn_ordinal", &packed.spawn_ordinal),
     ] {
         out.set_item(name, PyBytes::new(py, bytes))?;
     }
@@ -1007,6 +1064,52 @@ mod tests {
             assert_eq!(
                 u32::from_le_bytes(packed.visible[index * 4..index * 4 + 4].try_into().unwrap()),
                 u32::from(record.visible)
+            );
+        }
+    }
+
+    #[test]
+    fn static_agent_table_packs_ids_and_authored_choices_once() {
+        let agents = vec![
+            AgentStatic {
+                agent_id: 0x8000_0001_0000_0002,
+                population_id: 11,
+                archetype_id: 12,
+                variant_id: 13,
+                base_scale: 0.95,
+                spawn_ordinal: 14,
+            },
+            AgentStatic {
+                agent_id: u64::MAX,
+                population_id: 21,
+                archetype_id: 22,
+                variant_id: 23,
+                base_scale: 1.05,
+                spawn_ordinal: 24,
+            },
+        ];
+        let packed = pack_agent_static(&agents);
+
+        for (index, agent) in agents.iter().enumerate() {
+            assert_eq!(
+                reassemble(&packed.agent_id_lo, &packed.agent_id_hi, index),
+                agent.agent_id
+            );
+            assert_eq!(
+                u32::from_le_bytes(
+                    packed.population_id[index * 4..index * 4 + 4]
+                        .try_into()
+                        .unwrap()
+                ),
+                agent.population_id
+            );
+            assert_eq!(
+                f32::from_le_bytes(
+                    packed.base_scale[index * 4..index * 4 + 4]
+                        .try_into()
+                        .unwrap()
+                ),
+                agent.base_scale
             );
         }
     }

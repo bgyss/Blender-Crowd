@@ -25,6 +25,7 @@ class CROWD_PT_project(Panel):
         row = layout.row(align=True)
         row.operator("crowd.bake_cache")
         row.operator("crowd.cancel_bake")
+        layout.operator("crowd.attach_cache")
 
 
 _CLASSES = (CROWD_PT_project,)
