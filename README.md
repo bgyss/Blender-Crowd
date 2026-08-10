@@ -97,6 +97,8 @@ cargo run --release -p crowd-bench -- compare --out benchmarks/reports  # three-
 
 cargo run --release -p crowd-bench -- nav-reroute --agents 1000 --svg  # tiled-navmesh portal reroute (M0 item 4)
 cargo test --release -p crowd-core --test two_room_reroute -- --ignored  # 1,000-agent reroute acceptance test
+scripts/cache-experiment.sh                               # measured 1,000-agent cache matrix
+scripts/m0-acceptance.sh                                  # complete ordered M0 gate + JSON evidence
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 600 --frames
 scripts/make-gif.sh crossing 600                          # frames -> docs/media/crossing-600.gif
@@ -127,7 +129,9 @@ includes that per-tick disk I/O plus the invoking process's own overhead
 not the simulator alone. Quote timings only from unrecorded runs.
 
 `cargo test --workspace` runs the density fuzz in debug, which is slow; use the
-release invocation above when iterating.
+release invocation above when iterating. The M0 acceptance runner executes the
+rest of the workspace in debug and the density cases once in release so the
+complete gate does not duplicate the same long stress tests in two profiles.
 
 Baselines in `benchmarks/baselines/` record measured output, not targets. Per
 the contract, quality thresholds are set only after a baseline is reviewed.

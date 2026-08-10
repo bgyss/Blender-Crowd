@@ -51,13 +51,16 @@ production evaluation. M8 consumes stable outputs from M4 through M6.
 
 ## Current baseline
 
-As of 2026-08-08, M0 is in progress and not yet accepted. M1 is blocked.
+As of 2026-08-10, **M0 is accepted and M1 is unblocked**. The complete ordered
+runner and criterion-by-criterion result are in the
+[M0 consolidated acceptance report](../benchmarks/2026-08-10-m0-consolidated.md),
+with its [machine-readable summary](../benchmarks/2026-08-10-m0-acceptance.json).
 
-Implemented: a Rust workspace of four crates (`crowd-core` kernel,
-`crowd-trace` trace v0, `crowd-blender` PyO3 bridge, `crowd-bench` harness)
-and the `addon/blender_crowd` extension with a bundled `abi3` wheel. There is
-no `schemas/` or `assets/reference/` yet, because no implemented behavior owns
-one.
+Implemented: a Rust workspace of five crates (`crowd-core`, `crowd-cache`,
+`crowd-trace`, `crowd-blender`, and `crowd-bench`); versioned project/cache
+schemas; a deterministic checked reference project; the Blender extension;
+the selected tiled-navigation and sampled-velocity path; a recoverable cache;
+and the coarse abi3 Python facade.
 
 ### M0 in-scope items
 
@@ -67,22 +70,18 @@ one.
 | 2 | Avoidance scenes at 100/500/1,000/2,000 agents | Done — six scenes, exceeding the five required |
 | 3 | Three avoidance candidates behind one interface, compared | Done — `sampled_velocity` selected |
 | 4 | Tiled navmesh/corridor prototype, portal change, path budgeting | Done — `crowd_core::nav`, the `plan` phase, and the `two_room` scene |
-| 5 | Cache v0 experiments | **Open** — trace v0 is not the cache format |
+| 5 | Cache v0 experiments | Done — Cache v1 selected as affine-i16 / 120-tick chunks |
 | 6 | Extension skeleton, packaging spike, 1,000-point GN playback | Done |
-| 7 | Coarse Python/Rust facade and bundled-CPython ABI validation | **Partial** — ABI validated, facade not built |
+| 7 | Coarse Python/Rust facade and bundled-CPython ABI validation | Done |
 
 ### M0 acceptance criteria
 
-Met: 1 (comparable solver reports with documented tradeoffs), 2 (strict rerun,
-spawn-order permutation, and add-one-agent tests all pass), 3 (a 1,000-agent
-tiled-navigation case reroutes after a portal change without corrupting
-unrelated corridors), 5 (clean Blender install loads the native module), 6
-(1,000 cached point transforms with stable IDs, costs reported separately).
-
-Not met: 4, which cannot be attempted before item 5 exists.
-Criterion 7 is partial — the kernel slice report records the contract's
-real-time 1K budget as met with margin, but the consolidated dated M0 report
-that criterion asks for is not written.
+All seven criteria are met. The complete runner passed workspace and release
+stress tests, the 1,000-agent timed-portal reroute, all six selected-solver
+baselines, cache completion/cancellation/corruption recovery, the measured
+cache matrix, the abi3 coarse facade, a clean Blender install, and fresh-process
+1,000-point playback. The report preserves simulation/bake/playback distinctions
+and makes no 10K/100K claim.
 
 Evidence to date, each with its own environment and unsupported-claims section:
 
@@ -90,12 +89,19 @@ Evidence to date, each with its own environment and unsupported-claims section:
 - [Avoidance solver comparison](../benchmarks/2026-08-06-avoidance-solver-comparison.md)
 - [Blender bridge and native packaging](../benchmarks/2026-08-07-blender-bridge.md)
 - [Tiled navmesh/corridor prototype](../benchmarks/2026-08-08-tiled-navmesh-prototype.md)
+- [Cache format experiment](../benchmarks/2026-08-10-cache-v0-experiment.md)
+- [M0 consolidated acceptance](../benchmarks/2026-08-10-m0-consolidated.md)
 
 ### Checks
 
-`README.md` and `AGENTS.md` carry the copy-ready runners for the workspace
-tests, density stress, benchmark scenes, wheel build, and the two Blender
-runners. The documentation checks remain required alongside them:
+`README.md` and `CLAUDE.md` carry the component runners and the complete
+copy-ready acceptance command:
+
+```sh
+scripts/m0-acceptance.sh
+```
+
+The documentation checks remain required alongside it:
 
 ```sh
 git diff --check

@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "milestone": "M0",
+  "status": "passed",
+  "first_failure": null,
+  "started_at": "2026-08-10T18:02:50.044902+00:00",
+  "finished_at": "2026-08-10T18:27:31.140765+00:00",
+  "duration_seconds": 1481.008752,
+  "all_gates_executed": true,
+  "environment": {
+    "os": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpu": "Apple M1 Max",
+    "ram_bytes": "68719476736",
+    "python": "3.14.2",
+    "rustc": "rustc 1.94.1 (e408947bf 2026-03-25)",
+    "cargo": "cargo 1.94.1 (29ea6fb6a 2026-03-24)",
+    "git_head": "fb5ee70536eb6e90007a85d1de26a09dc3c2f60f",
+    "git_dirty": true,
+    "repository_hash_blake2b_256": "11582ea370d5177a71d5358af1758e5a8ca73460746d253bd4bfa094834abcf9",
+    "input_hashes_blake2b_256": {
+      "Cargo.lock": "581ad148a853e7b0524dd0e59393d1bf3569d15d2608706864d70aafd1ad36f6",
+      "schemas/cache-manifest-v1.schema.json": "102048bce6609b39a111668171ff2664b9b7845df2253b4791432e1cea47eff3",
+      "assets/reference/concourse-project-v1.json": "53234d8a2c5a203b16f723ac984f12d4395f394c46e452fcc5177688ae00321f",
+      "benchmarks/baselines/bidirectional_corridor.json": "a6a9f19f49f54ca410166154f69c05dd2ffce18282dcd6ee5e65e133ece85dbb",
+      "benchmarks/baselines/bottleneck.json": "956c40b8b97e3fbdc6ccad0b8ef42f3f613dc2e14787e1ea23c252997e33788b",
+      "benchmarks/baselines/circle.json": "9fb06bee8e4a0f2ece441dbb676da7de05fef4c42260779231086a06571bcb80",
+      "benchmarks/baselines/crossing.json": "6af525b37f4542d07fe571d312088f9e1b49eeade14a12abff72ee499a6fdfa3",
+      "benchmarks/baselines/dense_flow.json": "bbc3bdd6c9cc858a5e744d26aaf8c71001d5ab48eae252566be638b2b22608b1",
+      "benchmarks/baselines/l_corridor.json": "48b9863d1557ff4074ce96219940ba2537ce133905acb80e059f0c95615c1f5d"
+    },
+    "blender": "Blender 5.2.0 LTS"
+  },
+  "steps": [
+    {
+      "id": "workspace_tests",
+      "description": "Workspace tests, with the four density cases deferred to the release gate",
+      "command": "cargo test --workspace -- --skip no_agent_state_goes_non_finite_under_density --skip no_agent_escapes_far_beyond_the_scene_bounds --skip speeds_never_exceed_the_per_agent_maximum --skip the_crowd_does_not_deadlock_wholesale",
+      "status": "passed",
+      "exit_code": 0,
+      "started_at": "2026-08-10T18:02:50.947798+00:00",
+      "duration_seconds": 352.952987,
+      "log": "benchmarks/reports/m0-acceptance-logs/workspace_tests.log",
+      "evidence": [],
+      "missing_evidence": []
+    },
+    {
+      "id": "release_density",
+      "description": "Full release-mode density stress suite",
+      "command": "cargo test --release -p crowd-core --test fuzz_density",
+      "status": "passed",
+      "exit_code": 0,
+      "started_at": "2026-08-10T18:08:43.971638+00:00",
+      "duration_seconds": 547.264283,
+      "log": "benchmarks/reports/m0-acceptance-logs/release_density.log",
+      "evidence": [],
+      "missing_evidence": []
+    },
+    {
+      "id": "release_two_room",
+      "description": "1,000-agent timed-portal reroute acceptance",
+      "command": "cargo test --release -p crowd-core --test two_room_reroute -- --ignored --nocapture",
+      "status": "passed",
+      "exit_code": 0,
+      "started_at": "2026-08-10T18:17:51.244158+00:00",
+      "duration_seconds": 22.630642,
+      "log": "benchmarks/reports/m0-acceptance-logs/release_two_room.log",
+      "evidence": [],
+      "missing_evidence": []
+    },
+    {
+      "id": "solver_baselines",
+      "description": "All six selected-solver baseline regressions at their recorded scales",
+      "command": "cargo run --release -p crowd-bench -- check --agents 1000",
+      "status": "passed",
+      "exit_code": 0,
+      "started_at": "2026-08-10T18:18:13.875405+00:00",
+      "duration_seconds": 474.4599,
+      "log": "benchmarks/reports/m0-acceptance-logs/solver_baselines.log",
+      "evidence": [
+        "benchmarks/baselines/bidirectional_corridor.json",
+        "benchmarks/baselines/bottleneck.json",
+        "benchmarks/baselines/circle.json",
+        "benchmarks/baselines/crossing.json",
+        "benchmarks/baselines/dense_flow.json",
+        "benchmarks/baselines/l_corridor.json"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "cache_lifecycle",
+      "description": "Cache manifest, codec, cancellation, corruption, and sequential-read tests",
+      "command": "cargo test -p crowd-cache",
+      "status": "passed",
+      "exit_code": 0,
+      "started_at": "2026-08-10T18:26:08.342358+00:00",
+      "duration_seconds": 1.94589,
+      "log": "benchmarks/reports/m0-acceptance-logs/cache_lifecycle.log",
+      "evidence": [],
+      "missing_evidence": []
+    },
+    {
+      "id": "cache_experiment",
+      "description": "Measured 1,000-agent cache encoding/chunk matrix",
+      "command": "scripts/cache-experiment.sh",
+      "status": "passed",
+      "exit_code": 0,
+      "started_at": "2026-08-10T18:26:10.288556+00:00",
+      "duration_seconds": 4.29438,
+      "log": "benchmarks/reports/m0-acceptance-logs/cache_experiment.log",
+      "evidence": [
+        "docs/benchmarks/2026-08-10-cache-v0-experiment.json",
+        "docs/benchmarks/2026-08-10-cache-v0-experiment.md"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "wheel_facade",
+      "description": "abi3 wheel build plus bare-CPython coarse-facade verification",
+      "command": "scripts/build-wheel.sh && scripts/verify-wheel.sh",
+      "status": "passed",
+      "exit_code": 0,
+      "started_at": "2026-08-10T18:26:14.583147+00:00",
+      "duration_seconds": 9.772828,
+      "log": "benchmarks/reports/m0-acceptance-logs/wheel_facade.log",
+      "evidence": [
+        "addon/blender_crowd/wheels/blender_crowd_native-0.1.0-cp311-abi3-macosx_11_0_arm64.whl"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "blender_clean_install",
+      "description": "Clean Blender extension install and native-module load",
+      "command": "scripts/blender-install-test.sh",
+      "status": "passed",
+      "exit_code": 0,
+      "started_at": "2026-08-10T18:26:24.356251+00:00",
+      "duration_seconds": 6.097158,
+      "log": "benchmarks/reports/m0-acceptance-logs/blender_clean_install.log",
+      "evidence": [
+        "dist/blender_crowd-0.1.0.zip"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "blender_playback",
+      "description": "Fresh-process 1,000-point Geometry Nodes playback",
+      "command": "scripts/blender-playback-test.sh",
+      "status": "passed",
+      "exit_code": 0,
+      "started_at": "2026-08-10T18:26:30.453641+00:00",
+      "duration_seconds": 58.378718,
+      "log": "benchmarks/reports/m0-acceptance-logs/blender_playback.log",
+      "evidence": [
+        "benchmarks/reports/crossing-1000.crowdtrace"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "static_checks",
+      "description": "Formatting, lint, documentation structure, and runner contract checks",
+      "command": "cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && python3 tests/test_m0_acceptance_runner.py && git diff --check && rg '^## ' docs/blender-crowd-1.0.md && rg '^#' docs/milestones/*.md",
+      "status": "passed",
+      "exit_code": 0,
+      "started_at": "2026-08-10T18:27:28.833359+00:00",
+      "duration_seconds": 2.307124,
+      "log": "benchmarks/reports/m0-acceptance-logs/static_checks.log",
+      "evidence": [],
+      "missing_evidence": []
+    }
+  ]
+}

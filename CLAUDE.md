@@ -22,6 +22,8 @@ cargo run --release -p crowd-bench -- compare --out benchmarks/reports  # three-
 
 cargo run --release -p crowd-bench -- nav-reroute --agents 1000 --svg  # tiled-navmesh portal reroute (M0 item 4)
 cargo test --release -p crowd-core --test two_room_reroute -- --ignored  # 1,000-agent reroute acceptance test
+scripts/cache-experiment.sh              # measured 1,000-agent cache matrix
+scripts/m0-acceptance.sh                 # complete ordered M0 gate + JSON evidence
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 600 --frames
 scripts/make-gif.sh crossing 600           # frames -> docs/media/crossing-600.gif (needs ffmpeg)
