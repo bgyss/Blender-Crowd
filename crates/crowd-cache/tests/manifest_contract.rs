@@ -1,4 +1,4 @@
-use crowd_cache::{CacheManifestV1, CacheStatus, ChunkDef, ManifestError};
+use crowd_cache::{CacheManifestV1, CacheStatus, ChunkDef, FileDef, ManifestError};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -14,6 +14,12 @@ fn manifest(status: CacheStatus) -> CacheManifestV1 {
         ticks_per_second: 30,
         agent_count: 1_000,
         channels: Vec::new(),
+        agents: FileDef {
+            path: "agents.bin".to_owned(),
+            byte_len: 28_032,
+            checksum: 0x1234_5678,
+            complete: true,
+        },
         chunks: vec![ChunkDef {
             path: "frames/000000-000059.chunk".to_owned(),
             tick_start: 0,
@@ -23,6 +29,8 @@ fn manifest(status: CacheStatus) -> CacheManifestV1 {
             complete: true,
         }],
         status,
+        cancellation_reason: (status == CacheStatus::Canceled)
+            .then(|| "test cancellation".to_owned()),
         last_complete_tick: None,
     }
 }
@@ -35,6 +43,17 @@ fn complete_manifest_rejects_an_unfinished_declared_chunk() {
     assert_eq!(
         manifest.validate(),
         Err(ManifestError::IncompleteChunk { index: 0 })
+    );
+}
+
+#[test]
+fn complete_manifest_rejects_an_unfinished_agent_table() {
+    let mut manifest = manifest(CacheStatus::Complete);
+    manifest.agents.complete = false;
+
+    assert_eq!(
+        manifest.validate(),
+        Err(ManifestError::IncompleteAgentTable)
     );
 }
 
@@ -54,6 +73,18 @@ fn canceled_manifest_accepts_a_recovery_boundary() {
     manifest.last_complete_tick = Some(59);
 
     assert_eq!(manifest.validate(), Ok(()));
+}
+
+#[test]
+fn canceled_manifest_requires_a_reason() {
+    let mut manifest = manifest(CacheStatus::Canceled);
+    manifest.last_complete_tick = Some(59);
+    manifest.cancellation_reason = None;
+
+    assert_eq!(
+        manifest.validate(),
+        Err(ManifestError::MissingCancellationReason)
+    );
 }
 
 #[test]
@@ -90,8 +121,10 @@ fn emitted_manifest_validates_against_the_checked_schema() {
         keys,
         BTreeSet::from([
             "agent_count",
+            "agents",
             "channels",
             "chunks",
+            "cancellation_reason",
             "engine_version",
             "last_complete_tick",
             "project_id",

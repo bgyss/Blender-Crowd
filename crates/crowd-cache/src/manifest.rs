@@ -44,6 +44,14 @@ pub struct ChunkDef {
     pub complete: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileDef {
+    pub path: String,
+    pub byte_len: u64,
+    pub checksum: u32,
+    pub complete: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CacheManifestV1 {
     pub schema_version: u32,
@@ -55,8 +63,10 @@ pub struct CacheManifestV1 {
     pub ticks_per_second: u32,
     pub agent_count: u32,
     pub channels: Vec<ChannelDef>,
+    pub agents: FileDef,
     pub chunks: Vec<ChunkDef>,
     pub status: CacheStatus,
+    pub cancellation_reason: Option<String>,
     pub last_complete_tick: Option<u64>,
 }
 
@@ -67,6 +77,9 @@ impl CacheManifestV1 {
         }
 
         if self.status == CacheStatus::Complete {
+            if !self.agents.complete {
+                return Err(ManifestError::IncompleteAgentTable);
+            }
             if let Some((index, _)) = self
                 .chunks
                 .iter()
@@ -77,8 +90,19 @@ impl CacheManifestV1 {
             }
         }
 
-        if self.status == CacheStatus::Canceled && self.last_complete_tick.is_none() {
+        if self.status == CacheStatus::Canceled
+            && !self.chunks.is_empty()
+            && self.last_complete_tick.is_none()
+        {
             return Err(ManifestError::MissingLastCompleteTick);
+        }
+        if self.status == CacheStatus::Canceled
+            && self
+                .cancellation_reason
+                .as_deref()
+                .is_none_or(str::is_empty)
+        {
+            return Err(ManifestError::MissingCancellationReason);
         }
 
         Ok(())
@@ -88,8 +112,10 @@ impl CacheManifestV1 {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManifestError {
     UnsupportedVersion(u32),
+    IncompleteAgentTable,
     IncompleteChunk { index: usize },
     MissingLastCompleteTick,
+    MissingCancellationReason,
 }
 
 impl fmt::Display for ManifestError {
@@ -98,12 +124,14 @@ impl fmt::Display for ManifestError {
             Self::UnsupportedVersion(version) => {
                 write!(f, "unsupported cache manifest version {version}")
             }
+            Self::IncompleteAgentTable => write!(f, "complete cache has no complete agent table"),
             Self::IncompleteChunk { index } => {
                 write!(f, "complete cache contains incomplete chunk {index}")
             }
             Self::MissingLastCompleteTick => {
                 write!(f, "canceled cache has no last complete tick")
             }
+            Self::MissingCancellationReason => write!(f, "canceled cache has no reason"),
         }
     }
 }
