@@ -4,6 +4,7 @@ members = [
     "crates/crowd-bench",
     "crates/crowd-trace",
     "crates/crowd-blender",
+    "crates/crowd-cache",
 ]
 resolver = "2"
 

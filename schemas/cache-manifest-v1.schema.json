@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/cache-manifest-v1.schema.json",
+  "title": "Blender Crowd cache manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "engine_version",
+    "project_id",
+    "source_hash",
+    "tick_start",
+    "tick_end",
+    "ticks_per_second",
+    "agent_count",
+    "channels",
+    "chunks",
+    "status",
+    "last_complete_tick"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "engine_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "tick_start": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tick_end": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ticks_per_second": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "agent_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "channels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "scalar_type",
+          "arity",
+          "quantization_error"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scalar_type": {
+            "enum": ["f32", "i32", "u8", "u16", "u32", "u64"]
+          },
+          "arity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "quantization_error": {
+            "type": ["number", "null"],
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "chunks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "tick_start",
+          "tick_end",
+          "byte_len",
+          "checksum",
+          "complete"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tick_start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tick_end": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "byte_len": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "checksum": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "status": {
+      "enum": ["incomplete", "canceled", "complete"]
+    },
+    "last_complete_tick": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    }
+  }
+}
