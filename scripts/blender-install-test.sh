@@ -9,6 +9,21 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BLENDER="${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}"
 DIST_DIR="$REPO_ROOT/dist"
 PKG="user_default.blender_crowd"
+EXTRA_TEST=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --python)
+            [ "$#" -ge 2 ] || { echo "--python requires a path" >&2; exit 2; }
+            EXTRA_TEST="$2"
+            shift 2
+            ;;
+        *)
+            echo "unknown argument: $1" >&2
+            exit 2
+            ;;
+    esac
+done
 
 command -v "$BLENDER" >/dev/null 2>&1 || [ -x "$BLENDER" ] || {
     echo "Blender not found at $BLENDER (override with BLENDER=...)" >&2
@@ -51,5 +66,14 @@ ZIP="$(ls "$DIST_DIR"/blender_crowd-*.zip)"
 "$BLENDER" --command extension install-file --repo user_default --enable "$ZIP"
 
 CROWD_REPO_ROOT="$REPO_ROOT" "$BLENDER" -b --python "$REPO_ROOT/tests/blender/test_install.py"
+
+if [ -n "$EXTRA_TEST" ]; then
+    case "$EXTRA_TEST" in
+        /*) TEST_PATH="$EXTRA_TEST" ;;
+        *) TEST_PATH="$REPO_ROOT/$EXTRA_TEST" ;;
+    esac
+    [ -f "$TEST_PATH" ] || { echo "test script not found: $TEST_PATH" >&2; exit 2; }
+    CROWD_REPO_ROOT="$REPO_ROOT" "$BLENDER" -b --python "$TEST_PATH"
+fi
 
 echo "install test: PASS"

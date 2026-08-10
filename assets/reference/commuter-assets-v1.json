@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "fixture_version": "commuter-assets-v1",
+  "external_paths": [],
+  "materials": [
+    { "id": "commuter_blue", "base_color": [0.08, 0.28, 0.72, 1.0] },
+    { "id": "commuter_green", "base_color": [0.10, 0.56, 0.24, 1.0] },
+    { "id": "commuter_orange", "base_color": [0.92, 0.34, 0.06, 1.0] },
+    { "id": "commuter_red", "base_color": [0.72, 0.06, 0.08, 1.0] }
+  ],
+  "prototypes": [
+    {
+      "id": "procedural_commuter_a",
+      "material_id": "commuter_blue",
+      "height_m": 1.72,
+      "shoulder_width_m": 0.46,
+      "body_depth_m": 0.24,
+      "head_radius_m": 0.13
+    },
+    {
+      "id": "procedural_commuter_b",
+      "material_id": "commuter_green",
+      "height_m": 1.86,
+      "shoulder_width_m": 0.52,
+      "body_depth_m": 0.28,
+      "head_radius_m": 0.14
+    },
+    {
+      "id": "procedural_commuter_c",
+      "material_id": "commuter_orange",
+      "height_m": 1.58,
+      "shoulder_width_m": 0.42,
+      "body_depth_m": 0.22,
+      "head_radius_m": 0.12
+    }
+  ],
+  "rig": {
+    "id": "commuter_canonical_rig",
+    "bones": ["root", "spine", "head", "arm_l", "arm_r", "leg_l", "leg_r"]
+  },
+  "clips": [
+    { "id": "idle", "duration_frames": 30, "swing_radians": 0.0 },
+    { "id": "walk", "duration_frames": 30, "swing_radians": 0.55 },
+    { "id": "jog", "duration_frames": 20, "swing_radians": 0.9 }
+  ],
+  "normalized_phases": [0.0, 0.25, 0.5, 0.75, 1.0]
+}
