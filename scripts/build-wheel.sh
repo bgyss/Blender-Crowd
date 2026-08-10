@@ -10,17 +10,21 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$REPO_ROOT/addon/blender_crowd/wheels"
 
-command -v maturin >/dev/null || {
+if command -v maturin >/dev/null; then
+    MATURIN="$(command -v maturin)"
+elif command -v mise >/dev/null && MATURIN="$(mise which maturin 2>/dev/null)"; then
+    : # Use the repository-pinned mise install even when shims are not on PATH.
+else
     echo "maturin is required: mise install (or 'uv tool install maturin==1.9.6')" >&2
     exit 1
-}
+fi
 
 # Blender's `extension build` fails with a bare Errno 2 rather than creating
 # a missing output directory, so every directory is made explicitly.
 mkdir -p "$OUT_DIR"
 rm -f "$OUT_DIR"/*.whl
 
-maturin build \
+"$MATURIN" build \
     --release \
     --manifest-path "$REPO_ROOT/crates/crowd-blender/Cargo.toml" \
     --out "$OUT_DIR"

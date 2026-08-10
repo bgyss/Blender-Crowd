@@ -10,12 +10,674 @@
 //! end — so the addon has one exception type to catch rather than a bespoke
 //! hierarchy it would have to import before it could handle anything.
 
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use crowd_cache::{
+    AgentStatic, BakeSpec, CacheReader, CacheStatus, CacheWriter, ChannelDef, Frame as CacheFrame,
+    FrameRecord, RecoveryInspector, RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
+};
+use crowd_core::avoidance::SampledVelocitySolver;
+use crowd_core::ids::{hash_combine, hash_str};
+use crowd_core::nav_scenes;
+use crowd_core::project::{
+    compile_project as compile_core_project, CompiledAgentSpawn,
+    CompiledProject as CoreCompiledProject, Diagnostic,
+};
+use crowd_core::scene::{PopulationParams, SpawnRegion};
+use crowd_core::units::{Aabb, Vec2};
+use crowd_core::{SimConfig, Simulation};
 use crowd_trace::{AgentRecord, TraceReader};
-use pyo3::exceptions::PyOSError;
+use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
+
+#[pyclass(name = "CompiledProject", frozen)]
+struct PyCompiledProject {
+    inner: Arc<CoreCompiledProject>,
+}
+
+#[pymethods]
+impl PyCompiledProject {
+    #[getter]
+    fn agent_count(&self) -> usize {
+        self.inner.agent_spawns().len()
+    }
+
+    #[getter]
+    fn project_id(&self) -> &str {
+        &self.inner.ir().project_id
+    }
+
+    #[getter]
+    fn source_hash(&self) -> String {
+        self.inner.source_hash_hex()
+    }
+
+    fn agent_ids(&self) -> Vec<u64> {
+        self.inner
+            .agent_spawns()
+            .iter()
+            .map(|spawn| spawn.agent_id.0)
+            .collect()
+    }
+
+    #[pyo3(signature = (agent_count=None))]
+    fn create_session(&self, agent_count: Option<u32>) -> PyResult<Session> {
+        let requested = agent_count.unwrap_or(self.inner.agent_spawns().len() as u32);
+        if requested == 0 || requested as usize > self.inner.agent_spawns().len() {
+            return Err(PyValueError::new_err(format!(
+                "E_AGENT_COUNT: requested {requested}, project contains {}",
+                self.inner.agent_spawns().len()
+            )));
+        }
+        Session::create(Arc::clone(&self.inner), requested)
+    }
+}
+
+#[pyclass(name = "CancelToken", frozen)]
+struct PyCancelToken {
+    inner: crowd_cache::CancelToken,
+}
+
+#[pymethods]
+impl PyCancelToken {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: crowd_cache::CancelToken::new(),
+        }
+    }
+
+    fn cancel(&self) {
+        self.inner.cancel();
+    }
+
+    #[getter]
+    fn is_canceled(&self) -> bool {
+        self.inner.is_canceled()
+    }
+}
+
+#[pyclass]
+struct Session {
+    project: Arc<CoreCompiledProject>,
+    simulation: Simulation,
+    agent_count: u32,
+}
+
+#[derive(Clone, Debug)]
+struct BakeOutcome {
+    status: CacheStatus,
+    last_complete_tick: Option<u64>,
+}
+
+#[pymethods]
+impl Session {
+    #[getter]
+    fn agent_count(&self) -> u32 {
+        self.agent_count
+    }
+
+    #[getter]
+    fn tick(&self) -> u64 {
+        self.simulation.clock().tick()
+    }
+
+    #[getter]
+    fn state_hash(&self) -> u64 {
+        self.simulation.state_hash()
+    }
+
+    #[pyo3(signature = (ticks=1))]
+    fn step(&mut self, py: Python<'_>, ticks: u64) {
+        py.detach(|| self.simulation.run(ticks));
+    }
+
+    fn query_agent<'py>(&self, py: Python<'py>, agent_id: u64) -> PyResult<Bound<'py, PyDict>> {
+        let compiled = self
+            .selected_agents()
+            .iter()
+            .find(|spawn| spawn.agent_id.0 == agent_id)
+            .ok_or_else(|| PyValueError::new_err(format!("E_AGENT_NOT_FOUND: {agent_id}")))?;
+        let frame = self.frame_record(compiled);
+        let out = PyDict::new(py);
+        out.set_item("agent_id", frame.agent_id)?;
+        out.set_item("position", [frame.position[0], frame.position[1], 0.0])?;
+        out.set_item("velocity", [frame.velocity[0], frame.velocity[1], 0.0])?;
+        out.set_item("orientation", frame.orientation)?;
+        out.set_item("destination_id", frame.destination_id)?;
+        out.set_item("behavior_state", frame.behavior_state)?;
+        out.set_item("decision_reason", frame.decision_reason)?;
+        out.set_item("visible", frame.visible)?;
+        Ok(out)
+    }
+
+    #[pyo3(signature = (path, ticks, cancel_token))]
+    fn bake<'py>(
+        &mut self,
+        py: Python<'py>,
+        path: PathBuf,
+        ticks: u64,
+        cancel_token: PyRef<'py, PyCancelToken>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        if ticks == 0 {
+            return Err(PyValueError::new_err(
+                "E_BAKE_TICKS: ticks must be positive",
+            ));
+        }
+        let token = cancel_token.inner.clone();
+        drop(cancel_token);
+        let outcome = py
+            .detach(|| self.bake_native(&path, ticks, &token))
+            .map_err(|error| {
+                PyOSError::new_err(format!("E_CACHE_BAKE {}: {error}", path.display()))
+            })?;
+        bake_outcome_dict(py, &path, outcome)
+    }
+}
+
+impl Session {
+    fn create(project: Arc<CoreCompiledProject>, agent_count: u32) -> PyResult<Self> {
+        let scene = facade_scene(&project, agent_count)
+            .map_err(|error| PyValueError::new_err(format!("E_SESSION_COMPILE: {error}")))?;
+        Ok(Self {
+            project,
+            simulation: Simulation::new(
+                scene,
+                Box::new(SampledVelocitySolver::default()),
+                SimConfig::default(),
+            ),
+            agent_count,
+        })
+    }
+
+    fn selected_agents(&self) -> &[CompiledAgentSpawn] {
+        &self.project.agent_spawns()[..self.agent_count as usize]
+    }
+
+    fn frame_record(&self, compiled: &CompiledAgentSpawn) -> FrameRecord {
+        let world = self.simulation.world();
+        let Some(slot) = world.slot_of(compiled.agent_id) else {
+            return FrameRecord {
+                agent_id: compiled.agent_id.0,
+                scale: compiled.scale,
+                population_id: compiled.population_id,
+                variant_id: compiled.appearance_id,
+                destination_id: compiled.destination_id,
+                visible: false,
+                ..FrameRecord::default()
+            };
+        };
+        let index = slot as usize;
+        let velocity = world.velocity(slot);
+        let speed = velocity.length();
+        let clip_id = u16::from(speed > 0.05);
+        let behavior_state = if world.arrived[index] {
+            2
+        } else if world.unrouted[index] {
+            3
+        } else {
+            1
+        };
+        let decision_reason = match world.solver_status[index] {
+            crowd_core::world::SolverStatus::Free => 1,
+            crowd_core::world::SolverStatus::Avoiding => 2,
+            crowd_core::world::SolverStatus::Braking => 3,
+        };
+        FrameRecord {
+            agent_id: compiled.agent_id.0,
+            position: [world.pos_x[index], world.pos_y[index]],
+            orientation: world.yaw[index],
+            scale: compiled.scale,
+            population_id: compiled.population_id,
+            variant_id: compiled.appearance_id,
+            clip_id,
+            phase: (self.simulation.clock().tick() % 30) as f32 / 30.0,
+            playback_rate: if clip_id == 0 {
+                1.0
+            } else {
+                (speed / compiled.preferred_speed_mps).clamp(0.5, 2.0)
+            },
+            behavior_state,
+            decision_reason,
+            destination_id: compiled.destination_id,
+            velocity: [velocity.x, velocity.y],
+            visible: true,
+            render_tier: 0,
+        }
+    }
+
+    fn cache_frame(&self) -> CacheFrame {
+        CacheFrame {
+            records: self
+                .selected_agents()
+                .iter()
+                .map(|compiled| self.frame_record(compiled))
+                .collect(),
+        }
+    }
+
+    fn bake_native(
+        &mut self,
+        path: &Path,
+        ticks: u64,
+        cancel_token: &crowd_cache::CancelToken,
+    ) -> Result<BakeOutcome, crowd_cache::CacheError> {
+        let tick_start = self.simulation.clock().tick();
+        let tick_end =
+            tick_start
+                .checked_add(ticks - 1)
+                .ok_or(crowd_cache::CacheError::InvalidBakeSpec(
+                    "tick range overflow",
+                ))?;
+        let mut writer = CacheWriter::create(
+            path,
+            BakeSpec {
+                engine_version: env!("CARGO_PKG_VERSION").to_string(),
+                project_id: self.project.ir().project_id.clone(),
+                source_hash: self.project.source_hash_hex(),
+                tick_start,
+                tick_end,
+                ticks_per_second: self.simulation.clock().ticks_per_second(),
+                agent_count: self.agent_count,
+                channels: cache_channel_defs(),
+                chunk_ticks: CACHE_V1_DEFAULTS.chunk_ticks,
+                position_encoding: CACHE_V1_DEFAULTS.position_encoding,
+            },
+        )?;
+        let agents: Vec<AgentStatic> = self
+            .selected_agents()
+            .iter()
+            .map(|spawn| AgentStatic {
+                agent_id: spawn.agent_id.0,
+                population_id: spawn.population_id,
+                archetype_id: spawn.archetype_id,
+                variant_id: spawn.appearance_id,
+                base_scale: spawn.scale,
+                spawn_ordinal: spawn.spawn_ordinal,
+            })
+            .collect();
+        writer.write_agents(&agents)?;
+
+        for offset in 0..ticks {
+            if cancel_token.is_canceled() {
+                let manifest = writer.cancel("canceled by caller")?;
+                return Ok(BakeOutcome {
+                    status: manifest.status,
+                    last_complete_tick: manifest.last_complete_tick,
+                });
+            }
+            writer.push_tick(tick_start + offset, self.cache_frame())?;
+            self.simulation.step();
+        }
+        let manifest = writer.finish()?;
+        Ok(BakeOutcome {
+            status: manifest.status,
+            last_complete_tick: manifest.last_complete_tick,
+        })
+    }
+}
+
+enum CacheBacking {
+    Complete(CacheReader),
+    Inspection(RecoveryReport),
+}
+
+#[pyclass(name = "Cache")]
+struct PyCache {
+    path: PathBuf,
+    backing: CacheBacking,
+}
+
+#[pymethods]
+impl PyCache {
+    #[new]
+    #[pyo3(signature = (path, require_complete=true))]
+    fn new(path: PathBuf, require_complete: bool) -> PyResult<Self> {
+        let backing = if require_complete {
+            CacheBacking::Complete(CacheReader::open_complete(&path).map_err(|error| {
+                PyOSError::new_err(format!("E_CACHE_OPEN {}: {error}", path.display()))
+            })?)
+        } else {
+            match CacheReader::open_complete(&path) {
+                Ok(reader) => CacheBacking::Complete(reader),
+                Err(_) => {
+                    CacheBacking::Inspection(RecoveryInspector::open(&path).map_err(|error| {
+                        PyOSError::new_err(format!("E_CACHE_INSPECT {}: {error}", path.display()))
+                    })?)
+                }
+            }
+        };
+        Ok(Self { path, backing })
+    }
+
+    #[getter]
+    fn status(&self) -> &'static str {
+        match &self.backing {
+            CacheBacking::Complete(_) => "complete",
+            CacheBacking::Inspection(report) => cache_status_name(report.status),
+        }
+    }
+
+    #[getter]
+    fn agent_count(&self) -> PyResult<u32> {
+        Ok(self.complete()?.manifest().agent_count)
+    }
+
+    #[getter]
+    fn tick_start(&self) -> PyResult<u64> {
+        Ok(self.complete()?.manifest().tick_start)
+    }
+
+    #[getter]
+    fn tick_end(&self) -> PyResult<u64> {
+        Ok(self.complete()?.manifest().tick_end)
+    }
+
+    #[getter]
+    fn ticks_per_second(&self) -> PyResult<u32> {
+        Ok(self.complete()?.manifest().ticks_per_second)
+    }
+
+    fn read_tick<'py>(&self, py: Python<'py>, tick: u64) -> PyResult<Bound<'py, PyDict>> {
+        let frame = self.complete()?.read_tick(tick).map_err(|error| {
+            PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
+        })?;
+        let reader = self.complete()?;
+        packed_cache_dict(py, &pack_cache(&frame.records, reader.agents()))
+    }
+}
+
+impl PyCache {
+    fn complete(&self) -> PyResult<&CacheReader> {
+        match &self.backing {
+            CacheBacking::Complete(reader) => Ok(reader),
+            CacheBacking::Inspection(report) => Err(PyOSError::new_err(format!(
+                "E_CACHE_NOT_COMPLETE {}: {}",
+                self.path.display(),
+                cache_status_name(report.status)
+            ))),
+        }
+    }
+}
+
+#[pyfunction(name = "compile_project")]
+fn compile_project_py(project_json: &str) -> PyResult<PyCompiledProject> {
+    let ir = serde_json::from_str(project_json)
+        .map_err(|error| PyValueError::new_err(format!("E_PROJECT_JSON: {error}")))?;
+    let compiled = compile_core_project(&ir)
+        .map_err(|diagnostics| PyValueError::new_err(format_diagnostics(&diagnostics)))?;
+    Ok(PyCompiledProject {
+        inner: Arc::new(compiled),
+    })
+}
+
+#[pyfunction]
+fn inspect_cache<'py>(py: Python<'py>, path: PathBuf) -> PyResult<Bound<'py, PyDict>> {
+    let report = RecoveryInspector::open(&path).map_err(|error| {
+        PyOSError::new_err(format!("E_CACHE_INSPECT {}: {error}", path.display()))
+    })?;
+    let out = PyDict::new(py);
+    out.set_item("status", cache_status_name(report.status))?;
+    out.set_item("cancellation_reason", report.cancellation_reason)?;
+    out.set_item("last_complete_tick", report.last_complete_tick)?;
+    out.set_item("valid_chunk_count", report.valid_chunk_count)?;
+    let readable_start = report
+        .readable_tick_range
+        .as_ref()
+        .map(|range| *range.start());
+    let readable_end = report
+        .readable_tick_range
+        .as_ref()
+        .map(|range| *range.end());
+    out.set_item("readable_tick_start", readable_start)?;
+    out.set_item("readable_tick_end", readable_end)?;
+    Ok(out)
+}
+
+fn facade_scene(
+    project: &CoreCompiledProject,
+    agent_count: u32,
+) -> Result<crowd_core::CompiledScene, String> {
+    let stable_seed = hash_combine(project.ir().seed, hash_str(&project.ir().project_id));
+    let mut scene = nav_scenes::two_room(0, stable_seed);
+    scene.populations = project
+        .ir()
+        .populations
+        .iter()
+        .map(|population| PopulationParams {
+            radius_min: population.radius_m.min,
+            radius_max: population.radius_m.max,
+            speed_mean: population.preferred_speed_mps.mean,
+            speed_stddev: population.preferred_speed_mps.stddev,
+            max_speed_factor: 1.5,
+        })
+        .collect();
+
+    let mut counts: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+    for spawn in &project.agent_spawns()[..agent_count as usize] {
+        *counts
+            .entry((spawn.population_id, spawn.spawn_source_id))
+            .or_default() += 1;
+    }
+    let group_count = counts.len().max(1) as f32;
+    scene.spawns = counts
+        .into_iter()
+        .enumerate()
+        .map(|(index, ((population_id, spawn_source_id), count))| {
+            let band_min = 1.0 + 18.0 * index as f32 / group_count;
+            let band_max = 1.0 + 18.0 * (index + 1) as f32 / group_count;
+            Ok(SpawnRegion {
+                id: u16::try_from(spawn_source_id).map_err(|_| "spawn source index exceeds u16")?,
+                population_id: u16::try_from(population_id)
+                    .map_err(|_| "population index exceeds u16")?,
+                area: Aabb::new(
+                    Vec2::new(1.0, band_min + 0.05),
+                    Vec2::new(18.0, band_max - 0.05),
+                ),
+                count,
+                per_tick: count.max(1),
+                destination: 0,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let authored_duration =
+        u64::try_from(project.ir().clock.frame_end - project.ir().clock.frame_start)
+            .map_err(|_| "authored frame range is negative")?;
+    scene.duration_ticks = scene.duration_ticks.max(authored_duration);
+    scene.compile().map_err(|errors| format!("{errors:?}"))
+}
+
+fn cache_channel_defs() -> Vec<ChannelDef> {
+    vec![
+        channel("agent_id", ScalarType::U64, 1, None),
+        channel("position", ScalarType::F32, 2, Some(0.0)),
+        channel("orientation", ScalarType::F32, 1, None),
+        channel("scale", ScalarType::F32, 1, None),
+        channel("population_id", ScalarType::U32, 1, None),
+        channel("variant_id", ScalarType::U32, 1, None),
+        channel("clip_id", ScalarType::U16, 1, None),
+        channel("phase", ScalarType::F32, 1, None),
+        channel("playback_rate", ScalarType::F32, 1, None),
+        channel("behavior_state", ScalarType::U16, 1, None),
+        channel("decision_reason", ScalarType::U16, 1, None),
+        channel("destination_id", ScalarType::U32, 1, None),
+        channel("velocity", ScalarType::F32, 2, None),
+        channel("visible", ScalarType::U8, 1, None),
+        channel("render_tier", ScalarType::U8, 1, None),
+    ]
+}
+
+fn channel(
+    name: &str,
+    scalar_type: ScalarType,
+    arity: u8,
+    quantization_error: Option<f32>,
+) -> ChannelDef {
+    ChannelDef {
+        name: name.to_string(),
+        scalar_type,
+        arity,
+        quantization_error,
+    }
+}
+
+fn bake_outcome_dict<'py>(
+    py: Python<'py>,
+    path: &Path,
+    outcome: BakeOutcome,
+) -> PyResult<Bound<'py, PyDict>> {
+    let out = PyDict::new(py);
+    out.set_item("path", path.display().to_string())?;
+    out.set_item("status", cache_status_name(outcome.status))?;
+    out.set_item("last_complete_tick", outcome.last_complete_tick)?;
+    Ok(out)
+}
+
+fn cache_status_name(status: CacheStatus) -> &'static str {
+    match status {
+        CacheStatus::Incomplete => "incomplete",
+        CacheStatus::Canceled => "canceled",
+        CacheStatus::Complete => "complete",
+    }
+}
+
+fn format_diagnostics(diagnostics: &[Diagnostic]) -> String {
+    diagnostics
+        .iter()
+        .map(|diagnostic| {
+            format!(
+                "E_{:?} {}: {}",
+                diagnostic.code, diagnostic.entity_id, diagnostic.message
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[derive(Default, PartialEq, Debug)]
+struct PackedCacheChannels {
+    position: Vec<u8>,
+    orientation: Vec<u8>,
+    scale: Vec<u8>,
+    agent_id_lo: Vec<u8>,
+    agent_id_hi: Vec<u8>,
+    population_id: Vec<u8>,
+    archetype_id: Vec<u8>,
+    variant_id: Vec<u8>,
+    spawn_ordinal: Vec<u8>,
+    clip_id: Vec<u8>,
+    phase: Vec<u8>,
+    playback_rate: Vec<u8>,
+    behavior_state: Vec<u8>,
+    decision_reason: Vec<u8>,
+    destination_id: Vec<u8>,
+    velocity: Vec<u8>,
+    visible: Vec<u8>,
+    render_tier: Vec<u8>,
+}
+
+fn pack_cache(records: &[FrameRecord], agents: &[AgentStatic]) -> PackedCacheChannels {
+    debug_assert_eq!(records.len(), agents.len());
+    let n = records.len();
+    let mut out = PackedCacheChannels {
+        position: Vec::with_capacity(n * 12),
+        orientation: Vec::with_capacity(n * 4),
+        scale: Vec::with_capacity(n * 4),
+        agent_id_lo: Vec::with_capacity(n * 4),
+        agent_id_hi: Vec::with_capacity(n * 4),
+        population_id: Vec::with_capacity(n * 4),
+        archetype_id: Vec::with_capacity(n * 4),
+        variant_id: Vec::with_capacity(n * 4),
+        spawn_ordinal: Vec::with_capacity(n * 4),
+        clip_id: Vec::with_capacity(n * 4),
+        phase: Vec::with_capacity(n * 4),
+        playback_rate: Vec::with_capacity(n * 4),
+        behavior_state: Vec::with_capacity(n * 4),
+        decision_reason: Vec::with_capacity(n * 4),
+        destination_id: Vec::with_capacity(n * 4),
+        velocity: Vec::with_capacity(n * 12),
+        visible: Vec::with_capacity(n * 4),
+        render_tier: Vec::with_capacity(n * 4),
+    };
+    for (record, agent) in records.iter().zip(agents) {
+        push_f32x3(
+            &mut out.position,
+            record.position[0],
+            record.position[1],
+            0.0,
+        );
+        push_f32(&mut out.orientation, record.orientation);
+        push_f32(&mut out.scale, record.scale);
+        push_u32(&mut out.agent_id_lo, record.agent_id as u32);
+        push_u32(&mut out.agent_id_hi, (record.agent_id >> 32) as u32);
+        push_u32(&mut out.population_id, record.population_id);
+        push_u32(&mut out.archetype_id, agent.archetype_id);
+        push_u32(&mut out.variant_id, record.variant_id);
+        push_u32(&mut out.spawn_ordinal, agent.spawn_ordinal);
+        push_u32(&mut out.clip_id, u32::from(record.clip_id));
+        push_f32(&mut out.phase, record.phase);
+        push_f32(&mut out.playback_rate, record.playback_rate);
+        push_u32(&mut out.behavior_state, u32::from(record.behavior_state));
+        push_u32(&mut out.decision_reason, u32::from(record.decision_reason));
+        push_u32(&mut out.destination_id, record.destination_id);
+        push_f32x3(
+            &mut out.velocity,
+            record.velocity[0],
+            record.velocity[1],
+            0.0,
+        );
+        push_u32(&mut out.visible, u32::from(record.visible));
+        push_u32(&mut out.render_tier, u32::from(record.render_tier));
+    }
+    out
+}
+
+fn packed_cache_dict<'py>(
+    py: Python<'py>,
+    packed: &PackedCacheChannels,
+) -> PyResult<Bound<'py, PyDict>> {
+    let out = PyDict::new(py);
+    for (name, bytes) in [
+        ("position", &packed.position),
+        ("orientation", &packed.orientation),
+        ("scale", &packed.scale),
+        ("agent_id_lo", &packed.agent_id_lo),
+        ("agent_id_hi", &packed.agent_id_hi),
+        ("population_id", &packed.population_id),
+        ("archetype_id", &packed.archetype_id),
+        ("variant_id", &packed.variant_id),
+        ("spawn_ordinal", &packed.spawn_ordinal),
+        ("clip_id", &packed.clip_id),
+        ("phase", &packed.phase),
+        ("playback_rate", &packed.playback_rate),
+        ("behavior_state", &packed.behavior_state),
+        ("decision_reason", &packed.decision_reason),
+        ("destination_id", &packed.destination_id),
+        ("velocity", &packed.velocity),
+        ("visible", &packed.visible),
+        ("render_tier", &packed.render_tier),
+    ] {
+        out.set_item(name, PyBytes::new(py, bytes))?;
+    }
+    Ok(out)
+}
+
+fn push_u32(target: &mut Vec<u8>, value: u32) {
+    target.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_f32(target: &mut Vec<u8>, value: f32) {
+    target.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_f32x3(target: &mut Vec<u8>, x: f32, y: f32, z: f32) {
+    push_f32(target, x);
+    push_f32(target, y);
+    push_f32(target, z);
+}
 
 /// A read-only handle to a trace v0 file.
 #[pyclass]
@@ -313,11 +975,103 @@ mod tests {
         assert_eq!(packed.playback_rate.len(), n * 4);
         assert_eq!(packed.render_tier.len(), n * 4);
     }
+
+    #[test]
+    fn cache_channels_pack_three_agents_without_losing_values() {
+        let records: Vec<FrameRecord> = (0..3u32)
+            .map(|index| FrameRecord {
+                agent_id: 0x8000_0001_0000_0002 + u64::from(index),
+                position: [index as f32 + 1.25, index as f32 - 2.5],
+                orientation: index as f32 * 0.1,
+                scale: 0.9 + index as f32 * 0.05,
+                population_id: 10 + index,
+                variant_id: 20 + index,
+                clip_id: 30 + index as u16,
+                phase: 0.2 + index as f32 * 0.1,
+                playback_rate: 0.8 + index as f32 * 0.1,
+                behavior_state: 40 + index as u16,
+                decision_reason: 50 + index as u16,
+                destination_id: 60 + index,
+                velocity: [index as f32 + 0.5, index as f32 - 0.25],
+                visible: index != 1,
+                render_tier: index as u8,
+            })
+            .collect();
+        let agents: Vec<AgentStatic> = records
+            .iter()
+            .enumerate()
+            .map(|(index, record)| AgentStatic {
+                agent_id: record.agent_id,
+                population_id: record.population_id,
+                archetype_id: 70 + index as u32,
+                variant_id: record.variant_id,
+                base_scale: record.scale,
+                spawn_ordinal: 80 + index as u32,
+            })
+            .collect();
+        let packed = pack_cache(&records, &agents);
+        let n = records.len();
+
+        assert_eq!(packed.position.len(), n * 12);
+        assert_eq!(packed.velocity.len(), n * 12);
+        for bytes in [
+            &packed.orientation,
+            &packed.scale,
+            &packed.agent_id_lo,
+            &packed.agent_id_hi,
+            &packed.population_id,
+            &packed.archetype_id,
+            &packed.variant_id,
+            &packed.spawn_ordinal,
+            &packed.clip_id,
+            &packed.phase,
+            &packed.playback_rate,
+            &packed.behavior_state,
+            &packed.decision_reason,
+            &packed.destination_id,
+            &packed.visible,
+            &packed.render_tier,
+        ] {
+            assert_eq!(bytes.len(), n * 4);
+        }
+        for (index, record) in records.iter().enumerate() {
+            assert_eq!(
+                reassemble(&packed.agent_id_lo, &packed.agent_id_hi, index),
+                record.agent_id
+            );
+            assert_eq!(
+                f32::from_le_bytes(
+                    packed.position[index * 12..index * 12 + 4]
+                        .try_into()
+                        .unwrap()
+                ),
+                record.position[0]
+            );
+            assert_eq!(
+                u32::from_le_bytes(
+                    packed.archetype_id[index * 4..index * 4 + 4]
+                        .try_into()
+                        .unwrap()
+                ),
+                agents[index].archetype_id
+            );
+            assert_eq!(
+                u32::from_le_bytes(packed.visible[index * 4..index * 4 + 4].try_into().unwrap()),
+                u32::from(record.visible)
+            );
+        }
+    }
 }
 
 #[pymodule]
 fn blender_crowd_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<Trace>()?;
+    m.add_class::<PyCompiledProject>()?;
+    m.add_class::<Session>()?;
+    m.add_class::<PyCancelToken>()?;
+    m.add_class::<PyCache>()?;
+    m.add_function(wrap_pyfunction!(compile_project_py, m)?)?;
+    m.add_function(wrap_pyfunction!(inspect_cache, m)?)?;
     Ok(())
 }

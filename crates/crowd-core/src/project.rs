@@ -355,14 +355,15 @@ pub fn compile_project(project: &ProjectIrV1) -> Result<CompiledProject, Vec<Dia
     for population in &ir.populations {
         let population_index = population_indices[&population.id];
         for ordinal in 0..population.count {
-            let spawn_ref =
-                &population.spawn_source_ids[ordinal as usize % population.spawn_source_ids.len()];
+            let source_count = population.spawn_source_ids.len();
+            let spawn_ref = &population.spawn_source_ids[ordinal as usize % source_count];
             let spawn_index = spawn_indices[spawn_ref];
+            let spawn_ordinal = ordinal / source_count as u32;
             let agent_id = derive_agent_id(
                 stable_seed,
                 population_index as u16,
                 spawn_index as u16,
-                ordinal,
+                spawn_ordinal,
             );
             let destination = choose_weighted(
                 stable_seed,
@@ -390,7 +391,7 @@ pub fn compile_project(project: &ProjectIrV1) -> Result<CompiledProject, Vec<Dia
                 agent_id,
                 population_id: population_index,
                 spawn_source_id: spawn_index,
-                spawn_ordinal: ordinal,
+                spawn_ordinal,
                 destination_id: destination_indices[&destination.id],
                 archetype_id: archetype_indices[&archetype.id],
                 appearance_id: appearance_indices[&appearance.id],

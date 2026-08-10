@@ -158,9 +158,12 @@ dependencies = [
 name = "crowd-blender"
 version = "0.1.0"
 dependencies = [
+ "crowd-cache",
+ "crowd-core",
  "crowd-trace",
  "pyo3",
  "pyo3-build-config",
+ "serde_json",
 ]
 
 [[package]]

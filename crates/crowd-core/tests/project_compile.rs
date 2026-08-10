@@ -227,3 +227,17 @@ fn the_reference_population_has_unique_stable_ids_and_uses_all_variants() {
     assert_eq!(archetypes.len(), 3);
     assert_eq!(appearances.len(), 4);
 }
+
+#[test]
+fn spawn_ordinals_are_local_to_each_stable_spawn_source() {
+    let compiled = compile_project(&reference_project(6)).unwrap();
+    let ordinals: Vec<_> = compiled
+        .agent_spawns()
+        .iter()
+        .map(|spawn| (spawn.spawn_source_id, spawn.spawn_ordinal))
+        .collect();
+    assert_eq!(
+        ordinals,
+        vec![(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2)]
+    );
+}

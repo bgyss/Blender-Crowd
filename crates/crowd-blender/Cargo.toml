@@ -9,8 +9,11 @@ name = "blender_crowd_native"
 crate-type = ["cdylib"]
 
 [dependencies]
+crowd-cache = { path = "../crowd-cache" }
+crowd-core = { path = "../crowd-core" }
 crowd-trace = { path = "../crowd-trace" }
 pyo3 = { version = "0.29", features = ["abi3-py311", "extension-module"] }
+serde_json = { workspace = true }
 
 [build-dependencies]
 pyo3-build-config = "0.29"
