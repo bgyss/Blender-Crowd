@@ -12,7 +12,14 @@ import blender_crowd_native
 # Relative import: extensions are imported as `bl_ext.user_default.blender_crowd`,
 # so an absolute `from blender_crowd.x import y` fails with "package not found".
 from .trace_playback import TracePlayback
-from . import cache_playback, geometry_nodes, project, reference_assets
+from . import (
+    cache_playback,
+    debug_overlay,
+    geometry_nodes,
+    overrides,
+    project,
+    reference_assets,
+)
 
 _ACTIVE = {}
 _BAKE_LOCK = threading.Lock()
@@ -69,6 +76,8 @@ class CROWD_OT_attach_cache(Operator):
             geometry_nodes.attach_cache(playback.object, assets["prototypes"])
             cache_playback.set_active(playback)
             _ACTIVE["cache_playback"] = playback
+            context.scene.frame_start = playback.tick_start
+            context.scene.frame_end = playback.tick_end
             playback.sync_to_frame(context.scene, context.scene.frame_current)
         except (OSError, RuntimeError, ValueError) as error:
             context.scene.crowd_project.status = "Attach failed: {}".format(error)
@@ -77,6 +86,62 @@ class CROWD_OT_attach_cache(Operator):
         context.scene.crowd_project.cache_path = path
         context.scene.crowd_project.status = "Cache attached: {} agents".format(
             playback.agent_count
+        )
+        self.report({"INFO"}, context.scene.crowd_project.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_inspect_agent(Operator):
+    bl_idname = "crowd.inspect_agent"
+    bl_label = "Inspect Selected Agent"
+    bl_description = "Show cached navigation, velocity, state, and decision evidence"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        agent_id = overrides.selected_agent_id(context.scene.crowd_project)
+        try:
+            tick = playback.sync_to_frame(context.scene, context.scene.frame_current)
+            evidence = debug_overlay.inspect(playback, agent_id, tick)
+        except (OSError, RuntimeError, ValueError) as error:
+            context.scene.crowd_project.status = "Inspect failed: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        context.scene.crowd_project.status = "Agent {}: {} / {}".format(
+            agent_id,
+            evidence.get("commuter_state", evidence.get("behavior_state", "unknown")),
+            evidence.get("decision_reason", "unknown"),
+        )
+        self.report({"INFO"}, context.scene.crowd_project.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_pin_selected_agent(Operator):
+    bl_idname = "crowd.pin_selected_agent"
+    bl_label = "Add/Update Pinned Override"
+    bl_description = "Sample the active object's translation into a sparse override layer"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        authored_object = context.view_layer.objects.active
+        if authored_object is None or authored_object is playback.object:
+            self.report({"ERROR"}, "select an authored pin object")
+            return {"CANCELLED"}
+        try:
+            path, layer = overrides.write_pin_layer(
+                context.scene, authored_object, playback
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            context.scene.crowd_project.status = "Pin failed: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        context.scene.crowd_project.status = "Pinned agent {}: {}".format(
+            layer["target_agent_id"], path
         )
         self.report({"INFO"}, context.scene.crowd_project.status)
         return {"FINISHED"}
@@ -272,6 +337,8 @@ class CROWD_OT_cancel_bake(Operator):
 _CLASSES = (
     CROWD_OT_load_trace,
     CROWD_OT_attach_cache,
+    CROWD_OT_inspect_agent,
+    CROWD_OT_pin_selected_agent,
     CROWD_OT_create_reference_project,
     CROWD_OT_validate_project,
     CROWD_OT_bake_cache,

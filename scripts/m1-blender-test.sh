@@ -26,13 +26,16 @@ case "$ONLY" in
     cache-playback)
         TEST_PATH="tests/blender/test_m1_cache_playback.py"
         ;;
+    override)
+        TEST_PATH="tests/blender/test_m1_override.py"
+        ;;
     *)
         echo "unknown M1 Blender test: $ONLY" >&2
         exit 2
         ;;
 esac
 
-if [ "$ONLY" = "cache-playback" ]; then
+if [ "$ONLY" = "cache-playback" ] || [ "$ONLY" = "override" ]; then
     if [ -n "${CROWD_M1_CACHE_PATH:-}" ]; then
         CACHE_PATH="$CROWD_M1_CACHE_PATH"
     else

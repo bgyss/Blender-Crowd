@@ -1,5 +1,7 @@
 """Cache v1 playback into Blender point attributes without a live session."""
 
+import json
+
 import numpy as np
 
 import bpy
@@ -78,6 +80,7 @@ class CachePlayback:
         self._static_uploaded = False
         self._current_tick = None
         self._last_warning = ""
+        self._override_layers = []
         self._upload_static(self._cache.read_agents())
         self._static_uploaded = True
         self.sync_to_tick(self._cache.tick_start)
@@ -165,6 +168,23 @@ class CachePlayback:
             self._object["crowd_frame_warning"] = ""
         self.sync_to_tick(tick)
         return tick
+
+    def set_override_layers(self, layers):
+        self._override_layers = list(layers)
+        self._cache.set_override_layers(
+            json.dumps(self._override_layers, sort_keys=True, separators=(",", ":"))
+        )
+        if self._current_tick is not None:
+            self.sync_to_tick(self._current_tick)
+
+    def clear_override_layers(self):
+        self._override_layers = []
+        self._cache.clear_override_layers()
+        if self._current_tick is not None:
+            self.sync_to_tick(self._current_tick)
+
+    def inspect_agent(self, agent_id, tick):
+        return dict(self._cache.inspect_agent(agent_id, tick))
 
 
 def set_active(playback):

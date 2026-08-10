@@ -26,6 +26,16 @@ class CROWD_PT_project(Panel):
         row.operator("crowd.bake_cache")
         row.operator("crowd.cancel_bake")
         layout.operator("crowd.attach_cache")
+        layout.separator()
+        row = layout.row(align=True)
+        row.prop(props, "selected_agent_id_lo")
+        row.prop(props, "selected_agent_id_hi")
+        row = layout.row(align=True)
+        row.prop(props, "override_tick_start")
+        row.prop(props, "override_tick_end")
+        layout.prop(props, "override_enabled")
+        layout.operator("crowd.inspect_agent")
+        layout.operator("crowd.pin_selected_agent")
 
 
 _CLASSES = (CROWD_PT_project,)

@@ -11,12 +11,14 @@
 //! hierarchy it would have to import before it could handle anything.
 
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crowd_cache::{
-    AgentStatic, BakeSpec, CacheReader, CacheStatus, CacheWriter, ChannelDef, Frame as CacheFrame,
-    FrameRecord, RecoveryInspector, RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
+    compose_frame, AgentStatic, BakeSpec, CacheReader, CacheStatus, CacheWriter, ChannelDef,
+    Frame as CacheFrame, FrameRecord, OverrideLayerV1, RecoveryInspector, RecoveryReport,
+    ScalarType, CACHE_V1_DEFAULTS,
 };
 use crowd_core::avoidance::SampledVelocitySolver;
 use crowd_core::project::{
@@ -304,6 +306,7 @@ enum CacheBacking {
 struct PyCache {
     path: PathBuf,
     backing: CacheBacking,
+    override_layers: Vec<OverrideLayerV1>,
 }
 
 #[pymethods]
@@ -325,7 +328,11 @@ impl PyCache {
                 }
             }
         };
-        Ok(Self { path, backing })
+        Ok(Self {
+            path,
+            backing,
+            override_layers: Vec::new(),
+        })
     }
 
     #[getter]
@@ -361,11 +368,91 @@ impl PyCache {
             PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
         })?;
         let reader = self.complete()?;
-        packed_cache_dict(py, &pack_cache(&frame.records, reader.agents()))
+        let mut packed = pack_cache(&frame.records, reader.agents());
+        if !self.override_layers.is_empty() {
+            let composed = compose_frame(&frame, tick, &self.override_layers)
+                .map_err(|error| PyValueError::new_err(format!("E_OVERRIDE: {error}")))?;
+            packed.position.clear();
+            for record in composed.records {
+                push_f32x3(
+                    &mut packed.position,
+                    record.position[0],
+                    record.position[1],
+                    record.position[2],
+                );
+            }
+        }
+        packed_cache_dict(py, &packed)
     }
 
     fn read_agents<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         packed_agent_static_dict(py, &pack_agent_static(self.complete()?.agents()))
+    }
+
+    fn set_override_layers(&mut self, layers_json: &str) -> PyResult<()> {
+        self.override_layers = serde_json::from_str(layers_json)
+            .map_err(|error| PyValueError::new_err(format!("E_OVERRIDE_JSON: {error}")))?;
+        Ok(())
+    }
+
+    fn clear_override_layers(&mut self) {
+        self.override_layers.clear();
+    }
+
+    fn inspect_agent<'py>(
+        &self,
+        py: Python<'py>,
+        agent_id: u64,
+        tick: u64,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let frame = self.complete()?.read_tick(tick).map_err(|error| {
+            PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
+        })?;
+        let record = frame
+            .records
+            .iter()
+            .find(|record| record.agent_id == agent_id)
+            .ok_or_else(|| {
+                PyValueError::new_err(format!("E_AGENT_NOT_FOUND: {agent_id} at tick {tick}"))
+            })?;
+        let composed = compose_frame(&frame, tick, &self.override_layers)
+            .map_err(|error| PyValueError::new_err(format!("E_OVERRIDE: {error}")))?;
+        let position = composed
+            .records
+            .iter()
+            .find(|candidate| candidate.agent_id == agent_id)
+            .expect("composition preserves base agent IDs")
+            .position;
+        let out = PyDict::new(py);
+        out.set_item("agent_id", agent_id)?;
+        out.set_item("tick", tick)?;
+        out.set_item("position", position)?;
+        out.set_item(
+            "solved_velocity",
+            [record.velocity[0], record.velocity[1], 0.0],
+        )?;
+        out.set_item("destination_id", record.destination_id)?;
+        out.set_item("behavior_state", record.behavior_state)?;
+        out.set_item("decision_reason", record.decision_reason)?;
+        out.set_item("clip_id", record.clip_id)?;
+        out.set_item("clip_phase", record.phase)?;
+        out.set_item("playback_rate", record.playback_rate)?;
+        out.set_item("visible", record.visible)?;
+
+        let evidence_path = self.path.join("debug/selected-agent.json");
+        let decision_trace_json = fs::read_to_string(&evidence_path).ok().filter(|text| {
+            serde_json::from_str::<serde_json::Value>(text)
+                .ok()
+                .and_then(|value| {
+                    Some((
+                        value.get("agent_id")?.as_u64()?,
+                        value.get("tick")?.as_u64()?,
+                    ))
+                })
+                == Some((agent_id, tick))
+        });
+        out.set_item("decision_trace_json", decision_trace_json)?;
+        Ok(out)
     }
 }
 
