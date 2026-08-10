@@ -2,9 +2,9 @@
 
 ## Project Structure & Module Organization
 
-This repository currently contains the project contract rather than an implementation. Start with `README.md`, then treat `docs/blender-crowd-1.0.md` as the canonical product and engineering specification. Keep additional design decisions in `docs/` and link durable, project-wide guidance from the README.
+This repository contains the accepted M0 proving grounds and M1 1,000-agent vertical slice. Start with `README.md`, then treat `docs/blender-crowd-1.0.md` as the canonical product and engineering specification. Keep additional design decisions in `docs/` and link durable, project-wide guidance from the README.
 
-The planned implementation layout is documented in section 14 of the contract: Blender Python belongs in `addon/`, Rust crates in `crates/`, versioned formats in `schemas/`, cross-layer tests in `tests/`, and redistributable fixtures in `assets/reference/`. Do not create all planned packages preemptively; add a module when an implemented feature or ownership boundary requires it.
+The implementation layout is documented in section 14 of the contract: Blender Python belongs in `addon/`, Rust crates in `crates/`, versioned formats in `schemas/`, cross-layer tests in `tests/`, and redistributable fixtures in `assets/reference/`. Do not create all planned packages preemptively; add a module when an implemented feature or ownership boundary requires it.
 
 ## Build, Test, and Development Commands
 
@@ -24,6 +24,10 @@ cargo run --release -p crowd-bench -- nav-reroute --agents 1000 --svg  # tiled-n
 cargo test --release -p crowd-core --test two_room_reroute -- --ignored  # 1,000-agent reroute acceptance test
 scripts/cache-experiment.sh              # measured 1,000-agent cache matrix
 scripts/m0-acceptance.sh                 # complete ordered M0 gate + JSON evidence
+cargo test --release -p crowd-core --test m1_strict -- --ignored --nocapture
+scripts/m1-bake-test.sh                  # two strict bakes + cancel/recovery proof
+scripts/m1-blender-test.sh               # clean project/cache/override/render suite
+scripts/m1-render-test.sh --out /tmp/blender-crowd-m1-render
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 600 --frames
 scripts/make-gif.sh crossing 600           # frames -> docs/media/crossing-600.gif (needs ffmpeg)
@@ -71,9 +75,9 @@ rg '^## ' docs/blender-crowd-1.0.md    # review the contract outline
 git status --short                     # confirm the intended change set
 ```
 
-Blender and Python tooling do not exist yet; document exact, copy-ready
-commands here and in `README.md` when they arrive. Never claim a test passed if
-its runner is not checked into the repository.
+Blender and Python tooling is implemented. Keep exact, copy-ready commands here
+and in `README.md` as runners change. Never claim a test passed if its runner is
+not checked into the repository.
 
 ## Coding Style & Naming Conventions
 

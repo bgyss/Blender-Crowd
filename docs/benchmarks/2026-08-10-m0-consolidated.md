@@ -16,8 +16,9 @@ scripts/m0-acceptance.sh
 
 It ran every gate in order, stopped on failure, and atomically retained each
 command, exit code, duration, environment, log path, and evidence path in the
-linked JSON. The accepted run started at `2026-08-10T18:02:50Z`, finished at
-`2026-08-10T18:27:31Z`, and passed all ten runner steps in 1,481.009 seconds.
+linked JSON. The final post-M1 regression run started at
+`2026-08-10T20:30:38Z`, finished at `2026-08-10T20:55:26Z`, and passed all ten
+runner steps in 1,488.151 seconds.
 
 ## Environment and input identity
 
@@ -29,10 +30,10 @@ linked JSON. The accepted run started at `2026-08-10T18:02:50Z`, finished at
 | Python used by runner | 3.14.2 |
 | Rust | rustc 1.94.1 (`e408947bf`, 2026-03-25) |
 | Cargo | 1.94.1 (`29ea6fb6a`, 2026-03-24) |
-| Git HEAD before the Task 7 changes | `fb5ee70536eb6e90007a85d1de26a09dc3c2f60f` |
-| Source-tree BLAKE2b-256 | `11582ea370d5177a71d5358af1758e5a8ca73460746d253bd4bfa094834abcf9` |
-| Reference project BLAKE2b-256 | `53234d8a2c5a203b16f723ac984f12d4395f394c46e452fcc5177688ae00321f` |
-| Cargo.lock BLAKE2b-256 | `581ad148a853e7b0524dd0e59393d1bf3569d15d2608706864d70aafd1ad36f6` |
+| Git HEAD before the final evidence changes | `ae7a568e7709cb3661a1e1863a3e9414460877cd` |
+| Source-tree BLAKE2b-256 | `76d5417953a20d53e512b706bf71eeee4b2f276ce602e9f9b6624bebc6a22ed0` |
+| Reference project BLAKE2b-256 | `49db0edd8898b6826130b6d91e7c04504c1323290ab805694f850673d5994780` |
+| Cargo.lock BLAKE2b-256 | `120b5237a7f98504b09b249ddefb484e3ff5345d80f40559aa7e9085be7e47bb` |
 
 The accepted tree was intentionally dirty because the acceptance runner, its
 tests, refreshed baselines, and this evidence set were the Task 7 work being
@@ -48,19 +49,19 @@ does not omit them from acceptance.
 
 | Step | Exact command | Result | Duration |
 |---|---|---:|---:|
-| Workspace tests | `cargo test --workspace -- --skip no_agent_state_goes_non_finite_under_density --skip no_agent_escapes_far_beyond_the_scene_bounds --skip speeds_never_exceed_the_per_agent_maximum --skip the_crowd_does_not_deadlock_wholesale` | PASS | 352.953 s |
-| Release density | `cargo test --release -p crowd-core --test fuzz_density` | PASS, 4/4 | 547.264 s |
-| Release reroute | `cargo test --release -p crowd-core --test two_room_reroute -- --ignored --nocapture` | PASS | 22.631 s |
-| Six baselines | `cargo run --release -p crowd-bench -- check --agents 1000` | PASS, 6/6 | 474.460 s |
-| Cache lifecycle | `cargo test -p crowd-cache` | PASS, 28 tests | 1.946 s |
-| Cache matrix | `scripts/cache-experiment.sh` | PASS, 9 candidates | 4.294 s |
-| Wheel/facade | `scripts/build-wheel.sh && scripts/verify-wheel.sh` | PASS | 9.773 s |
-| Clean Blender install | `scripts/blender-install-test.sh` | PASS | 6.097 s |
-| Blender playback | `scripts/blender-playback-test.sh` | PASS | 58.379 s |
-| Static checks | `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && python3 tests/test_m0_acceptance_runner.py && git diff --check && rg '^## ' docs/blender-crowd-1.0.md && rg '^#' docs/milestones/*.md` | PASS | 2.307 s |
+| Workspace tests | `cargo test --workspace -- --skip no_agent_state_goes_non_finite_under_density --skip no_agent_escapes_far_beyond_the_scene_bounds --skip speeds_never_exceed_the_per_agent_maximum --skip the_crowd_does_not_deadlock_wholesale` | PASS | 360.583 s |
+| Release density | `cargo test --release -p crowd-core --test fuzz_density` | PASS, 4/4 | 555.077 s |
+| Release reroute | `cargo test --release -p crowd-core --test two_room_reroute -- --ignored --nocapture` | PASS | 23.029 s |
+| Six baselines | `cargo run --release -p crowd-bench -- check --agents 1000` | PASS, 6/6 | 467.146 s |
+| Cache lifecycle | `cargo test -p crowd-cache` | PASS, 32 tests | 2.927 s |
+| Cache matrix | `scripts/cache-experiment.sh` | PASS, 9 candidates | 5.809 s |
+| Wheel/facade | `scripts/build-wheel.sh && scripts/verify-wheel.sh` | PASS | 4.836 s |
+| Clean Blender install | `scripts/blender-install-test.sh` | PASS | 6.280 s |
+| Blender playback | `scripts/blender-playback-test.sh` | PASS | 57.628 s |
+| Static checks | `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && python3 tests/test_m0_acceptance_runner.py && git diff --check && rg '^## ' docs/blender-crowd-1.0.md && rg '^#' docs/milestones/*.md` | PASS | 3.591 s |
 
 Per-step console logs are under the ignored
-`benchmarks/reports/m0-acceptance-logs/` directory. Durable measured cache
+`benchmarks/reports/m0-final-logs/` directory. Durable measured cache
 results, schemas, baselines, and this report are checked in.
 
 ## Selected M0 path
@@ -78,8 +79,8 @@ results, schemas, baselines, and this report are checked in.
   checksummed atomic chunks, incomplete/canceled/complete manifests, and a
   recovery inspector. The measured default is affine-i16 position encoding in
   120-tick chunks. The selected candidate used 6,748,865 bytes for 1,000 agents
-  over 120 frames, observed 0.000240 m maximum position error, wrote at 1,861.6
-  frames/s, and read at 260.4 frames/s on this machine.
+  over 120 frames, observed 0.000240 m maximum position error, wrote at 935.6
+  frames/s, and read at 215.9 frames/s on the final loaded-system rerun.
 - **Bridge:** a CPython-abi3 PyO3 wheel exposing coarse compile, session, bake,
   cancel, cache, and query operations. Blender Python orchestrates these
   operations; Geometry Nodes presents bulk cached attributes and owns no
@@ -94,8 +95,8 @@ results, schemas, baselines, and this report are checked in.
 | 3 | The release-only 1,000-agent `two_room` test closes a timed multi-portal door, reroutes affected agents, and preserves 495 unrelated corridors; see [the navigation report](2026-08-08-tiled-navmesh-prototype.md). | PASS |
 | 4 | Cache tests cover complete nonsequential reads, corruption/missing files, cancellation before and after chunks, incomplete recovery, orphan temporary files, and stable slot IDs. The nine-candidate [cache experiment](2026-08-10-cache-v0-experiment.md) supplies the measured default. | PASS |
 | 5 | A fresh Blender 5.2 install builds the extension archive, removes any prior extension, installs/enables it, and loads the abi3 native module from Blender's extension-local site-packages path. | PASS |
-| 6 | A simulation process writes a 199,220,032-byte, 5,692-tick trace and exits. A fresh Blender process then presents exactly 1,000 points with stable IDs at 0.1601 seconds total / 0.0281 ms per tick. | PASS |
-| 7 | The isolated kernel reports 98–105 ticks/s at 1,000 agents against the 30 ticks/s real-time budget, a 3.3x margin. The accepted playback run keeps its 57.2558-second simulate-plus-serialize bake separate from Blender playback and makes no unmeasured scale extrapolation. | PASS |
+| 6 | A simulation process writes a 199,220,032-byte, 5,692-tick trace and exits. A fresh Blender process then presents exactly 1,000 points with stable IDs at 0.1716 seconds total / 0.0301 ms per tick. | PASS |
+| 7 | The isolated kernel reports 98–105 ticks/s at 1,000 agents against the 30 ticks/s real-time budget, a 3.3x margin. The accepted playback run keeps its 56.5173-second simulate-plus-serialize bake separate from Blender playback and makes no unmeasured scale extrapolation. | PASS |
 
 ## First failure and corrective evidence
 
@@ -118,9 +119,9 @@ The contract's real-time 1,000-agent proving budget is met by the isolated
 kernel measurement: 98–105 ticks/s versus 30 ticks/s required. This is not the
 same measurement as the accepted playback runner:
 
-- simulate plus serialize 5,692 ticks to a 199 MB trace: 57.2558 s;
-- load and seek the 1,000-point trace in Blender: 0.1601 s total;
-- Blender point playback: 0.0281 ms/tick.
+- simulate plus serialize 5,692 ticks to a 199 MB trace: 56.5173 s;
+- load and seek the 1,000-point trace in Blender: 0.1716 s total;
+- Blender point playback: 0.0301 ms/tick.
 
 The bake number includes cargo invocation and trace disk I/O. It is not an
 isolated simulation-throughput number, and none of these numbers includes
@@ -140,6 +141,12 @@ armature evaluation or renderer time.
 - No 10,000- or 100,000-agent behavior, memory, cache, playback, or render
   result is claimed. Those gates remain explicitly unmeasured.
 - No armature, Eevee, or Cycles performance result is claimed by M0.
+
+The post-M1 regression run raised only two recorded peak-allocation baselines:
+`bidirectional_corridor` from 354,078 to 418,139 bytes and `bottleneck` from
+419,368 to 483,363 bytes. The approximately 64 KiB increases are the new M1
+commuter/animation state columns. All zero-tolerance quality metrics and the
+other four scenes passed without baseline changes.
 
 ## M1 unblock decision
 

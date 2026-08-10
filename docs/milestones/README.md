@@ -51,10 +51,13 @@ production evaluation. M8 consumes stable outputs from M4 through M6.
 
 ## Current baseline
 
-As of 2026-08-10, **M0 is accepted and M1 is unblocked**. The complete ordered
-runner and criterion-by-criterion result are in the
+As of 2026-08-10, **M0 and M1 are accepted, and M2 is unblocked**. The complete
+M0 ordered runner and criterion-by-criterion result are in the
 [M0 consolidated acceptance report](../benchmarks/2026-08-10-m0-consolidated.md),
 with its [machine-readable summary](../benchmarks/2026-08-10-m0-acceptance.json).
+The strict rebake, cache-only Blender workflow, sparse override, and separated
+render evidence are in the
+[M1 vertical-slice acceptance report](../benchmarks/2026-08-10-m1-vertical-slice.md).
 
 Implemented: a Rust workspace of five crates (`crowd-core`, `crowd-cache`,
 `crowd-trace`, `crowd-blender`, and `crowd-bench`); versioned project/cache
@@ -91,14 +94,31 @@ Evidence to date, each with its own environment and unsupported-claims section:
 - [Tiled navmesh/corridor prototype](../benchmarks/2026-08-08-tiled-navmesh-prototype.md)
 - [Cache format experiment](../benchmarks/2026-08-10-cache-v0-experiment.md)
 - [M0 consolidated acceptance](../benchmarks/2026-08-10-m0-consolidated.md)
+- [M1 1,000-agent vertical slice](../benchmarks/2026-08-10-m1-vertical-slice.md)
+
+### M1 acceptance criteria
+
+All eight criteria are met. The checked project compiles exactly 1,000 unique
+stable IDs; two 10,000-tick strict bakes agree on exact static/discrete state
+and have 0.0 m observed position delta; 96% of agents arrive with zero static
+boundary escapes; the timed portal event isolates affected routes; canceled
+caches remain recoverable but incomplete; fresh Blender processes play and
+render the complete cache without a live session; the selected-agent overlay
+and one-agent reversible override pass; and every required cost is reported
+separately. The [clean-file walkthrough](../user/m1-reference-walkthrough.md)
+requires no code or JSON edits.
 
 ### Checks
 
 `README.md` and `CLAUDE.md` carry the component runners and the complete
-copy-ready acceptance command:
+copy-ready M0 and M1 acceptance commands:
 
 ```sh
 scripts/m0-acceptance.sh
+cargo test --release -p crowd-core --test m1_strict -- --ignored --nocapture
+scripts/m1-bake-test.sh
+scripts/m1-blender-test.sh
+scripts/m1-render-test.sh --out /tmp/blender-crowd-m1-render
 ```
 
 The documentation checks remain required alongside it:

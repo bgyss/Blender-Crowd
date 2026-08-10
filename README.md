@@ -33,14 +33,17 @@ integration proposal backed by production evidence.
 
 ## Status
 
-Phase 0 is implemented: a headless, deterministic Rust simulation kernel with
-structure-of-arrays agents, a fixed tick, spatial queries, three avoidance
-solvers, six benchmark scenes, and measured metrics reports. A reproducible
-72-report bake-off selected `sampled_velocity` as the production default.
+M0 and M1 are accepted, and M2 is unblocked. The implemented system includes a
+headless deterministic Rust kernel, selected navigation and avoidance, a
+recoverable versioned cache, an abi3 native facade, a clean-install Blender
+extension, and cache-only Geometry Nodes presentation.
 
-The Blender bridge slice has since landed: the kernel bakes a run to a trace
-file, and a Blender extension with a bundled native wheel reads that trace back
-and instances the agents through Geometry Nodes.
+The M1 reference concourse compiles exactly 1,000 stable agents, performs a
+strict 10,000-tick rebake, isolates a timed portal change, preserves all v1
+playback channels, supports a reversible one-agent pin, and renders from a
+completed cache after the simulation process is gone. See the
+[M1 acceptance evidence](docs/benchmarks/2026-08-10-m1-vertical-slice.md) and
+[clean-file walkthrough](docs/user/m1-reference-walkthrough.md).
 
 ![1,000 baked agents playing back in Blender through Geometry Nodes](docs/media/blender-playback-crossing-1000.gif)
 
@@ -99,6 +102,10 @@ cargo run --release -p crowd-bench -- nav-reroute --agents 1000 --svg  # tiled-n
 cargo test --release -p crowd-core --test two_room_reroute -- --ignored  # 1,000-agent reroute acceptance test
 scripts/cache-experiment.sh                               # measured 1,000-agent cache matrix
 scripts/m0-acceptance.sh                                  # complete ordered M0 gate + JSON evidence
+cargo test --release -p crowd-core --test m1_strict -- --ignored --nocapture
+scripts/m1-bake-test.sh                                   # two strict bakes + cancel/recovery proof
+scripts/m1-blender-test.sh                                # clean project/cache/override/render suite
+scripts/m1-render-test.sh --out /tmp/blender-crowd-m1-render  # detailed render metrics + PNGs
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 600 --frames
 scripts/make-gif.sh crossing 600                          # frames -> docs/media/crossing-600.gif
