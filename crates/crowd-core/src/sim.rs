@@ -13,10 +13,14 @@ use std::time::Instant;
 use crate::arena::NeighborArena;
 use crate::avoidance::AvoidanceSolver;
 use crate::clock::Clock;
+use crate::commuter::{
+    AgentSnapshot, ClipState, DecisionReason, FrameSnapshot, PortalControlError,
+};
 use crate::geometry::Segment;
 use crate::grid::UniformGrid;
 use crate::metrics::{Metrics, MetricsConfig, Phase};
 use crate::nav::{PortalId, TileGraph};
+use crate::phases::animate::{animate, AnimateConfig};
 use crate::phases::decide::{decide, DecideConfig};
 use crate::phases::integrate::{integrate, IntegrateConfig, IntegrateScratch};
 use crate::phases::perceive::{perceive, PerceiveConfig, PerceiveScratch};
@@ -53,6 +57,8 @@ pub struct Simulation {
     spawn_errors: Vec<SpawnError>,
     nav: Option<TileGraph>,
     plan_state: PlanState,
+    timed_input_cursor: usize,
+    animate_config: AnimateConfig,
 
     grid: UniformGrid,
     neighbors: NeighborArena,
@@ -76,7 +82,19 @@ impl Simulation {
         let grid = UniformGrid::new(scene.bounds.expanded(cell_size * 2.0), cell_size);
         let spawn_state = SpawnState::new(&scene);
         let clock = Clock::new(scene.ticks_per_second);
-        let nav = scene.nav.clone();
+        let mut nav = scene.nav.clone();
+        if let Some(graph) = &mut nav {
+            for name in &scene.initially_closed_portals {
+                let ids = graph.portals_named(name).to_vec();
+                for id in ids {
+                    graph.set_portal_open(id, false);
+                }
+            }
+        }
+        let animate_config = AnimateConfig {
+            jog_threshold_mps: scene.runtime_animation.jog_threshold_mps,
+            ..AnimateConfig::default()
+        };
 
         Self {
             scene,
@@ -89,6 +107,8 @@ impl Simulation {
             spawn_errors: Vec::new(),
             nav,
             plan_state: PlanState::default(),
+            timed_input_cursor: 0,
+            animate_config,
             grid,
             neighbors: NeighborArena::new(),
             perceive_scratch: PerceiveScratch::default(),
@@ -151,6 +171,13 @@ impl Simulation {
     /// never double-counted even if its old corridor happened to cross more
     /// than one portal in `ids`.
     pub fn set_portals_open(&mut self, ids: &[PortalId], open: bool) -> usize {
+        let affected_slots: Vec<usize> = if open {
+            Vec::new()
+        } else {
+            (0..self.world.len())
+                .filter(|slot| self.route_crosses_any(*slot as u32, ids))
+                .collect()
+        };
         let Some(nav) = &mut self.nav else {
             return 0;
         };
@@ -161,7 +188,111 @@ impl Simulation {
         for &id in ids {
             invalidated += invalidate_portal(&mut self.world, &mut self.plan_state, id);
         }
+        for slot in affected_slots {
+            self.world.decision_reason[slot] = DecisionReason::PortalClosedReplan;
+        }
         invalidated
+    }
+
+    pub fn set_named_portal_open(
+        &mut self,
+        name: &str,
+        open: bool,
+    ) -> Result<usize, PortalControlError> {
+        let ids = self
+            .nav
+            .as_ref()
+            .ok_or(PortalControlError::MissingNavigation)?
+            .portals_named(name)
+            .to_vec();
+        if ids.is_empty() {
+            return Err(PortalControlError::UnknownPortal(name.to_string()));
+        }
+        Ok(self.set_portals_open(&ids, open))
+    }
+
+    pub fn named_portal_is_open(&self, name: &str) -> Result<bool, PortalControlError> {
+        let nav = self
+            .nav
+            .as_ref()
+            .ok_or(PortalControlError::MissingNavigation)?;
+        let ids = nav.portals_named(name);
+        if ids.is_empty() {
+            return Err(PortalControlError::UnknownPortal(name.to_string()));
+        }
+        Ok(ids.iter().all(|id| nav.portal(*id).open))
+    }
+
+    pub fn agent_ids_not_using_portal(
+        &self,
+        name: &str,
+    ) -> Result<Vec<crate::ids::AgentId>, PortalControlError> {
+        let portals = self
+            .nav
+            .as_ref()
+            .ok_or(PortalControlError::MissingNavigation)?
+            .portals_named(name);
+        if portals.is_empty() {
+            return Err(PortalControlError::UnknownPortal(name.to_string()));
+        }
+        Ok((0..self.world.len())
+            .filter(|slot| !self.route_crosses_any(*slot as u32, portals))
+            .map(|slot| self.world.agent_id[slot])
+            .collect())
+    }
+
+    pub fn apply_timed_inputs(&mut self) -> Result<(), PortalControlError> {
+        let tick = self.clock.tick();
+        while let Some(event) = self.scene.timed_portal_events.get(self.timed_input_cursor) {
+            if event.tick > tick {
+                break;
+            }
+            let portal_id = event.portal_id.clone();
+            let open = event.open;
+            self.timed_input_cursor += 1;
+            self.set_named_portal_open(&portal_id, open)?;
+        }
+        Ok(())
+    }
+
+    pub fn frame_snapshot(&self) -> FrameSnapshot {
+        FrameSnapshot {
+            tick: self.clock.tick(),
+            agents: (0..self.world.len())
+                .map(|slot| self.snapshot_at(slot))
+                .collect(),
+        }
+    }
+
+    pub fn query_agent(&self, id: crate::ids::AgentId) -> Option<AgentSnapshot> {
+        self.world
+            .slot_of(id)
+            .map(|slot| self.snapshot_at(slot as usize))
+    }
+
+    fn snapshot_at(&self, slot: usize) -> AgentSnapshot {
+        AgentSnapshot {
+            agent_id: self.world.agent_id[slot],
+            population_id: u32::from(self.world.population_id[slot]),
+            archetype_id: self.world.archetype_id[slot],
+            variant_id: self.world.variant_id[slot],
+            spawn_ordinal: self.world.spawn_ordinal[slot],
+            position: self.world.position(slot as u32),
+            orientation: self.world.yaw[slot],
+            scale: self.world.scale[slot],
+            velocity: self.world.velocity(slot as u32),
+            desired_velocity: self.world.desired_velocity(slot as u32),
+            destination_id: u32::from(self.world.destination[slot]),
+            commuter_state: self.world.commuter_state[slot],
+            decision_reason: self.world.decision_reason[slot],
+            clip_state: ClipState {
+                clip_id: self.world.clip_id[slot],
+                phase: self.world.clip_phase[slot],
+                playback_rate: self.world.playback_rate[slot],
+            },
+            visible: self.world.visible[slot],
+            render_tier: self.world.render_tier[slot],
+        }
     }
 
     /// True when agent `slot` has a live route whose recorded portal sequence
@@ -185,6 +316,12 @@ impl Simulation {
     /// decision, so determinism is unaffected.
     pub fn step(&mut self) {
         self.metrics.begin_tick();
+
+        let start = Instant::now();
+        self.apply_timed_inputs()
+            .expect("compiled timed portal inputs remain valid");
+        self.metrics
+            .record_phase(Phase::Inputs, start.elapsed().as_nanos() as u64);
 
         let start = Instant::now();
         let errors = apply_spawns(
@@ -253,9 +390,14 @@ impl Simulation {
             self.clock.dt(),
             &mut self.integrate_scratch,
         );
-        self.world.commit();
         self.metrics
             .record_phase(Phase::Integrate, start.elapsed().as_nanos() as u64);
+
+        let start = Instant::now();
+        animate(&mut self.world, &self.animate_config);
+        self.world.commit();
+        self.metrics
+            .record_phase(Phase::Animate, start.elapsed().as_nanos() as u64);
 
         let start = Instant::now();
         self.metrics.record_steer(&steer_report);

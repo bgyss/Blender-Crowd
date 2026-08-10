@@ -18,6 +18,7 @@ use crate::world::{SolverStatus, World};
 /// Which pipeline phase a timing sample belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
+    Inputs,
     Spawn,
     Index,
     Perceive,
@@ -25,11 +26,13 @@ pub enum Phase {
     Decide,
     Steer,
     Integrate,
+    Animate,
     Metrics,
 }
 
 impl Phase {
-    pub const ALL: [Phase; 8] = [
+    pub const ALL: [Phase; 10] = [
+        Phase::Inputs,
         Phase::Spawn,
         Phase::Index,
         Phase::Perceive,
@@ -37,24 +40,28 @@ impl Phase {
         Phase::Decide,
         Phase::Steer,
         Phase::Integrate,
+        Phase::Animate,
         Phase::Metrics,
     ];
 
     const fn index(self) -> usize {
         match self {
-            Phase::Spawn => 0,
-            Phase::Index => 1,
-            Phase::Perceive => 2,
-            Phase::Plan => 3,
-            Phase::Decide => 4,
-            Phase::Steer => 5,
-            Phase::Integrate => 6,
-            Phase::Metrics => 7,
+            Phase::Inputs => 0,
+            Phase::Spawn => 1,
+            Phase::Index => 2,
+            Phase::Perceive => 3,
+            Phase::Plan => 4,
+            Phase::Decide => 5,
+            Phase::Steer => 6,
+            Phase::Integrate => 7,
+            Phase::Animate => 8,
+            Phase::Metrics => 9,
         }
     }
 
     pub const fn name(self) -> &'static str {
         match self {
+            Phase::Inputs => "inputs",
             Phase::Spawn => "spawn",
             Phase::Index => "index",
             Phase::Perceive => "perceive",
@@ -62,6 +69,7 @@ impl Phase {
             Phase::Decide => "decide",
             Phase::Steer => "steer",
             Phase::Integrate => "integrate",
+            Phase::Animate => "animate",
             Phase::Metrics => "metrics",
         }
     }
@@ -125,7 +133,7 @@ pub struct Metrics {
     ever_stalled: Vec<bool>,
     previous_gate_side: Vec<i8>,
 
-    phase_nanos: [u64; 8],
+    phase_nanos: [u64; 10],
 }
 
 impl Metrics {

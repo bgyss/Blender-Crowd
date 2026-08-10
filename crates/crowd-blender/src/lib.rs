@@ -10,7 +10,7 @@
 //! end — so the addon has one exception type to catch rather than a bespoke
 //! hierarchy it would have to import before it could handle anything.
 
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,15 +19,11 @@ use crowd_cache::{
     FrameRecord, RecoveryInspector, RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
 };
 use crowd_core::avoidance::SampledVelocitySolver;
-use crowd_core::ids::{hash_combine, hash_str};
-use crowd_core::nav_scenes;
 use crowd_core::project::{
     compile_project as compile_core_project, CompiledAgentSpawn,
     CompiledProject as CoreCompiledProject, Diagnostic,
 };
-use crowd_core::scene::{PopulationParams, SpawnRegion};
-use crowd_core::units::{Aabb, Vec2};
-use crowd_core::{SimConfig, Simulation};
+use crowd_core::{compile_concourse, SimConfig, Simulation};
 use crowd_trace::{AgentRecord, TraceReader};
 use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
@@ -198,8 +194,7 @@ impl Session {
     }
 
     fn frame_record(&self, compiled: &CompiledAgentSpawn) -> FrameRecord {
-        let world = self.simulation.world();
-        let Some(slot) = world.slot_of(compiled.agent_id) else {
+        let Some(snapshot) = self.simulation.query_agent(compiled.agent_id) else {
             return FrameRecord {
                 agent_id: compiled.agent_id.0,
                 scale: compiled.scale,
@@ -210,42 +205,22 @@ impl Session {
                 ..FrameRecord::default()
             };
         };
-        let index = slot as usize;
-        let velocity = world.velocity(slot);
-        let speed = velocity.length();
-        let clip_id = u16::from(speed > 0.05);
-        let behavior_state = if world.arrived[index] {
-            2
-        } else if world.unrouted[index] {
-            3
-        } else {
-            1
-        };
-        let decision_reason = match world.solver_status[index] {
-            crowd_core::world::SolverStatus::Free => 1,
-            crowd_core::world::SolverStatus::Avoiding => 2,
-            crowd_core::world::SolverStatus::Braking => 3,
-        };
         FrameRecord {
             agent_id: compiled.agent_id.0,
-            position: [world.pos_x[index], world.pos_y[index]],
-            orientation: world.yaw[index],
-            scale: compiled.scale,
-            population_id: compiled.population_id,
-            variant_id: compiled.appearance_id,
-            clip_id,
-            phase: (self.simulation.clock().tick() % 30) as f32 / 30.0,
-            playback_rate: if clip_id == 0 {
-                1.0
-            } else {
-                (speed / compiled.preferred_speed_mps).clamp(0.5, 2.0)
-            },
-            behavior_state,
-            decision_reason,
-            destination_id: compiled.destination_id,
-            velocity: [velocity.x, velocity.y],
-            visible: true,
-            render_tier: 0,
+            position: [snapshot.position.x, snapshot.position.y],
+            orientation: snapshot.orientation,
+            scale: snapshot.scale,
+            population_id: snapshot.population_id,
+            variant_id: snapshot.variant_id,
+            clip_id: snapshot.clip_state.clip_id,
+            phase: snapshot.clip_state.phase,
+            playback_rate: snapshot.clip_state.playback_rate,
+            behavior_state: snapshot.commuter_state as u16,
+            decision_reason: snapshot.decision_reason as u16,
+            destination_id: snapshot.destination_id,
+            velocity: [snapshot.velocity.x, snapshot.velocity.y],
+            visible: snapshot.visible,
+            render_tier: snapshot.render_tier,
         }
     }
 
@@ -441,53 +416,27 @@ fn facade_scene(
     project: &CoreCompiledProject,
     agent_count: u32,
 ) -> Result<crowd_core::CompiledScene, String> {
-    let stable_seed = hash_combine(project.ir().seed, hash_str(&project.ir().project_id));
-    let mut scene = nav_scenes::two_room(0, stable_seed);
-    scene.populations = project
-        .ir()
-        .populations
-        .iter()
-        .map(|population| PopulationParams {
-            radius_min: population.radius_m.min,
-            radius_max: population.radius_m.max,
-            speed_mean: population.preferred_speed_mps.mean,
-            speed_stddev: population.preferred_speed_mps.stddev,
-            max_speed_factor: 1.5,
-        })
-        .collect();
-
-    let mut counts: BTreeMap<(u32, u32), u32> = BTreeMap::new();
-    for spawn in &project.agent_spawns()[..agent_count as usize] {
-        *counts
-            .entry((spawn.population_id, spawn.spawn_source_id))
-            .or_default() += 1;
-    }
-    let group_count = counts.len().max(1) as f32;
-    scene.spawns = counts
-        .into_iter()
-        .enumerate()
-        .map(|(index, ((population_id, spawn_source_id), count))| {
-            let band_min = 1.0 + 18.0 * index as f32 / group_count;
-            let band_max = 1.0 + 18.0 * (index + 1) as f32 / group_count;
-            Ok(SpawnRegion {
-                id: u16::try_from(spawn_source_id).map_err(|_| "spawn source index exceeds u16")?,
-                population_id: u16::try_from(population_id)
-                    .map_err(|_| "population index exceeds u16")?,
-                area: Aabb::new(
-                    Vec2::new(1.0, band_min + 0.05),
-                    Vec2::new(18.0, band_max - 0.05),
-                ),
-                count,
-                per_tick: count.max(1),
-                destination: 0,
+    let mut scene = compile_concourse(project).map_err(|diagnostics| {
+        diagnostics
+            .iter()
+            .map(|diagnostic| {
+                format!(
+                    "E_{:?} {}: {}",
+                    diagnostic.code, diagnostic.entity_id, diagnostic.message
+                )
             })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let authored_duration =
-        u64::try_from(project.ir().clock.frame_end - project.ir().clock.frame_start)
-            .map_err(|_| "authored frame range is negative")?;
-    scene.duration_ticks = scene.duration_ticks.max(authored_duration);
-    scene.compile().map_err(|errors| format!("{errors:?}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
+    let selected: BTreeSet<_> = project.agent_spawns()[..agent_count as usize]
+        .iter()
+        .map(|spawn| spawn.agent_id)
+        .collect();
+    for (spawn, specs) in scene.spawns.iter_mut().zip(&mut scene.agent_specs_by_spawn) {
+        specs.retain(|spec| selected.contains(&spec.agent_id));
+        spawn.count = specs.len() as u32;
+    }
+    Ok(scene)
 }
 
 fn cache_channel_defs() -> Vec<ChannelDef> {

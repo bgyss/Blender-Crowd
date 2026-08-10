@@ -5,6 +5,7 @@
 //! reported in one pass, so a user is not forced to fix problems one at a
 //! time.
 
+use crate::commuter::{RuntimeAgentSpec, RuntimeAnimationSettings, TimedPortalInput};
 use crate::geometry::Segment;
 use crate::grid::SegmentIndex;
 use crate::ids::{hash_combine, hash_str, mix64};
@@ -152,6 +153,10 @@ pub struct CompiledScene {
     pub duration_ticks: u64,
     pub nav: Option<TileGraph>,
     pub nav_destinations: Vec<Vec2>,
+    pub agent_specs_by_spawn: Vec<Vec<RuntimeAgentSpec>>,
+    pub timed_portal_events: Vec<TimedPortalInput>,
+    pub initially_closed_portals: Vec<String>,
+    pub runtime_animation: RuntimeAnimationSettings,
     scene_hash: u64,
 }
 
@@ -363,6 +368,10 @@ impl SceneDef {
             duration_ticks: self.duration_ticks,
             nav: nav_graph,
             nav_destinations: self.nav_destinations,
+            agent_specs_by_spawn: Vec::new(),
+            timed_portal_events: Vec::new(),
+            initially_closed_portals: Vec::new(),
+            runtime_animation: RuntimeAnimationSettings::default(),
             scene_hash,
         })
     }
@@ -481,6 +490,26 @@ fn compute_scene_hash(scene: &SceneDef) -> u64 {
 }
 
 impl CompiledScene {
+    pub(crate) fn attach_project_runtime(
+        &mut self,
+        source_hash: [u8; 32],
+        agent_specs_by_spawn: Vec<Vec<RuntimeAgentSpec>>,
+        timed_portal_events: Vec<TimedPortalInput>,
+        initially_closed_portals: Vec<String>,
+        runtime_animation: RuntimeAnimationSettings,
+    ) {
+        for chunk in source_hash.chunks_exact(8) {
+            self.scene_hash = hash_combine(
+                self.scene_hash,
+                u64::from_le_bytes(chunk.try_into().expect("eight-byte source hash chunk")),
+            );
+        }
+        self.agent_specs_by_spawn = agent_specs_by_spawn;
+        self.timed_portal_events = timed_portal_events;
+        self.initially_closed_portals = initially_closed_portals;
+        self.runtime_animation = runtime_animation;
+    }
+
     pub fn scene_hash(&self) -> u64 {
         self.scene_hash
     }
@@ -495,6 +524,9 @@ impl CompiledScene {
     /// caller iterating the wrong bound would otherwise panic mid-bake — and
     /// the error model says diagnose, never crash.
     pub fn destination_position(&self, destination: u16) -> Option<Vec2> {
+        if self.nav.is_some() {
+            return self.nav_destinations.get(destination as usize).copied();
+        }
         self.destinations
             .get(destination as usize)
             .map(|d| self.waypoints.position(d.node))

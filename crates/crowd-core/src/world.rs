@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::commuter::{CommuterState, DecisionReason};
 use crate::ids::{hash_combine, AgentId};
 use crate::units::Vec2;
 
@@ -61,6 +62,10 @@ pub struct World {
     pub agent_id: Vec<AgentId>,
     pub population_id: Vec<u16>,
     pub spawn_tick: Vec<u64>,
+    pub archetype_id: Vec<u32>,
+    pub variant_id: Vec<u32>,
+    pub spawn_ordinal: Vec<u32>,
+    pub scale: Vec<f32>,
 
     // Kinematic.
     pub pos_x: Vec<f32>,
@@ -84,6 +89,15 @@ pub struct World {
     /// navigation failure. Sharing a flag would let routing failures be
     /// counted as destination completions in the headline metric.
     pub unrouted: Vec<bool>,
+
+    // Authoritative commuter and animation state.
+    pub commuter_state: Vec<CommuterState>,
+    pub decision_reason: Vec<DecisionReason>,
+    pub clip_id: Vec<u16>,
+    pub clip_phase: Vec<f32>,
+    pub playback_rate: Vec<f32>,
+    pub visible: Vec<bool>,
+    pub render_tier: Vec<u8>,
 
     // Staging. Written by steer, consumed by integrate.
     pub des_vel_x: Vec<f32>,
@@ -139,6 +153,10 @@ impl World {
         self.agent_id.push(spawn.agent_id);
         self.population_id.push(spawn.population_id);
         self.spawn_tick.push(tick);
+        self.archetype_id.push(0);
+        self.variant_id.push(0);
+        self.spawn_ordinal.push(0);
+        self.scale.push(1.0);
 
         self.pos_x.push(spawn.position.x);
         self.pos_y.push(spawn.position.y);
@@ -154,6 +172,14 @@ impl World {
         self.destination.push(spawn.destination);
         self.arrived.push(false);
         self.unrouted.push(false);
+        self.commuter_state.push(CommuterState::Travel);
+        self.decision_reason
+            .push(DecisionReason::InitialDestination);
+        self.clip_id.push(0);
+        self.clip_phase.push(0.0);
+        self.playback_rate.push(1.0);
+        self.visible.push(true);
+        self.render_tier.push(0);
 
         self.des_vel_x.push(0.0);
         self.des_vel_y.push(0.0);
@@ -199,11 +225,12 @@ impl World {
     ///
     /// # What is deliberately omitted, and why that is safe
     ///
-    /// `population_id`, `radius`, `max_speed`, `preferred_speed`,
-    /// `destination`, `spawn_tick`, `solver_status`, `stall_ticks` and
-    /// `unrouted` are excluded. Every one is either fixed at spawn or derived
-    /// from state already hashed, so including them would add nothing a
-    /// divergence could hide behind.
+    /// `radius`, `max_speed`, `preferred_speed`, `spawn_tick`,
+    /// `solver_status`, `stall_ticks` and `unrouted` are excluded. Every one
+    /// is either fixed at spawn or derived from state already hashed, so
+    /// including them would add nothing a divergence could hide behind.
+    /// Project-selected identity and presentation fields are included because
+    /// strict M1 rebakes must prove those choices remain bit-for-bit stable.
     ///
     /// `route` is **included**, unlike the fields above: the tiled-navmesh
     /// plan phase can reassign it mid-run (a portal close invalidates and
@@ -232,6 +259,19 @@ impl World {
             h = hash_combine(h, self.route[slot].0 as u64);
             h = hash_combine(h, self.route_index[slot] as u64);
             h = hash_combine(h, self.arrived[slot] as u64);
+            h = hash_combine(h, self.population_id[slot] as u64);
+            h = hash_combine(h, self.archetype_id[slot] as u64);
+            h = hash_combine(h, self.variant_id[slot] as u64);
+            h = hash_combine(h, self.spawn_ordinal[slot] as u64);
+            h = hash_combine(h, canonical_bits(self.scale[slot]));
+            h = hash_combine(h, self.destination[slot] as u64);
+            h = hash_combine(h, self.commuter_state[slot] as u64);
+            h = hash_combine(h, self.decision_reason[slot] as u64);
+            h = hash_combine(h, self.clip_id[slot] as u64);
+            h = hash_combine(h, canonical_bits(self.clip_phase[slot]));
+            h = hash_combine(h, canonical_bits(self.playback_rate[slot]));
+            h = hash_combine(h, self.visible[slot] as u64);
+            h = hash_combine(h, self.render_tier[slot] as u64);
         }
         h
     }
@@ -322,6 +362,17 @@ mod tests {
         assert_eq!(world.solver_status.len(), n);
         assert_eq!(world.stall_ticks.len(), n);
         assert_eq!(world.route_index.len(), n);
+        assert_eq!(world.archetype_id.len(), n);
+        assert_eq!(world.variant_id.len(), n);
+        assert_eq!(world.spawn_ordinal.len(), n);
+        assert_eq!(world.scale.len(), n);
+        assert_eq!(world.commuter_state.len(), n);
+        assert_eq!(world.decision_reason.len(), n);
+        assert_eq!(world.clip_id.len(), n);
+        assert_eq!(world.clip_phase.len(), n);
+        assert_eq!(world.playback_rate.len(), n);
+        assert_eq!(world.visible.len(), n);
+        assert_eq!(world.render_tier.len(), n);
     }
 
     #[test]

@@ -231,6 +231,7 @@ pub enum DiagnosticCode {
     ContradictoryPortalEvent,
     UnsupportedProgram,
     UnsupportedSetting,
+    SceneCompile,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -242,7 +243,7 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    fn error(
+    pub(crate) fn error(
         code: DiagnosticCode,
         entity_id: impl Into<String>,
         message: impl Into<String>,

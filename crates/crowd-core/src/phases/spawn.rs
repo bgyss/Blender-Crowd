@@ -104,17 +104,28 @@ pub fn apply_spawns(
 
         for offset in 0..this_tick {
             let ordinal = already + offset;
-            let agent_id =
-                derive_agent_id(scene.project_seed, region.population_id, region.id, ordinal);
+            let runtime_spec = scene
+                .agent_specs_by_spawn
+                .get(spawn_index)
+                .and_then(|specs| specs.get(ordinal as usize));
+            let agent_id = runtime_spec.map_or_else(
+                || derive_agent_id(scene.project_seed, region.population_id, region.id, ordinal),
+                |spec| spec.agent_id,
+            );
 
-            let params = &scene.populations[region.population_id as usize];
+            let population_id =
+                runtime_spec.map_or(region.population_id, |spec| spec.population_id as u16);
+            let params = &scene.populations[population_id as usize];
 
-            let mut radius_rng =
-                StableRng::for_agent(scene.project_seed, agent_id, Purpose::Radius);
-            let radius = radius_rng.range_f32(params.radius_min, params.radius_max);
+            let radius = runtime_spec.map_or_else(
+                || {
+                    let mut radius_rng =
+                        StableRng::for_agent(scene.project_seed, agent_id, Purpose::Radius);
+                    radius_rng.range_f32(params.radius_min, params.radius_max)
+                },
+                |spec| spec.radius_m,
+            );
 
-            let mut speed_rng =
-                StableRng::for_agent(scene.project_seed, agent_id, Purpose::PreferredSpeed);
             // Clamp keeps a rare tail sample from producing a zero or negative
             // preferred speed, which would make an agent permanently stalled.
             //
@@ -123,9 +134,16 @@ pub fn apply_spawns(
             // ceiling is always at least twice the floor. That check is what
             // makes this `clamp` safe — `f32::clamp` panics on inverted
             // bounds, in release as well as debug.
-            let preferred_speed = speed_rng
-                .normal_f32(params.speed_mean, params.speed_stddev)
-                .clamp(MIN_PREFERRED_SPEED, params.speed_mean * 2.0);
+            let preferred_speed = runtime_spec.map_or_else(
+                || {
+                    let mut speed_rng =
+                        StableRng::for_agent(scene.project_seed, agent_id, Purpose::PreferredSpeed);
+                    speed_rng
+                        .normal_f32(params.speed_mean, params.speed_stddev)
+                        .clamp(MIN_PREFERRED_SPEED, params.speed_mean * 2.0)
+                },
+                |spec| spec.preferred_speed_mps,
+            );
 
             let mut position_rng =
                 StableRng::for_agent(scene.project_seed, agent_id, Purpose::SpawnPosition);
@@ -137,10 +155,12 @@ pub fn apply_spawns(
                 SPAWN_CLEARANCE,
             );
 
+            let destination =
+                runtime_spec.map_or(region.destination, |spec| spec.destination_id as u16);
             let (route, heading) = if let Some(dest_point) = scene
                 .nav
                 .as_ref()
-                .and(scene.nav_destinations.get(region.destination as usize))
+                .and(scene.nav_destinations.get(destination as usize))
             {
                 // A nav-routed scene assigns no route at spawn time: the new
                 // `plan` phase (Task 6) budgets pathfinding across ticks. The
@@ -148,7 +168,7 @@ pub fn apply_spawns(
                 // tick or a later one.
                 (NO_ROUTE, (*dest_point - position).normalize_or_zero())
             } else {
-                let destination_node = scene.destinations[region.destination as usize].node;
+                let destination_node = scene.destinations[destination as usize].node;
                 let route = match scene.waypoints.nearest_node(position) {
                     Some(from) => match scene.waypoints.shortest_path(from, destination_node) {
                         Some(path) => {
@@ -171,18 +191,27 @@ pub fn apply_spawns(
 
             let spawn = AgentSpawn {
                 agent_id,
-                population_id: region.population_id,
+                population_id,
                 position,
                 yaw: heading.to_yaw(),
                 radius,
                 max_speed: preferred_speed * params.max_speed_factor,
                 preferred_speed,
                 route,
-                destination: region.destination,
+                destination,
             };
 
-            if let Err(error) = world.spawn(spawn, tick) {
-                errors.push(error);
+            match world.spawn(spawn, tick) {
+                Ok(slot) => {
+                    if let Some(spec) = runtime_spec {
+                        let slot = slot as usize;
+                        world.archetype_id[slot] = spec.archetype_id;
+                        world.variant_id[slot] = spec.variant_id;
+                        world.spawn_ordinal[slot] = spec.spawn_ordinal;
+                        world.scale[slot] = spec.scale;
+                    }
+                }
+                Err(error) => errors.push(error),
             }
         }
 
