@@ -36,6 +36,7 @@ class CROWD_PT_project(Panel):
         layout.prop(props, "override_enabled")
         layout.operator("crowd.inspect_agent")
         layout.operator("crowd.pin_selected_agent")
+        layout.operator("crowd.render_reference_frame")
 
 
 _CLASSES = (CROWD_PT_project,)

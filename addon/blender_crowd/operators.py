@@ -19,6 +19,7 @@ from . import (
     overrides,
     project,
     reference_assets,
+    render_workflow,
 )
 
 _ACTIVE = {}
@@ -79,7 +80,7 @@ class CROWD_OT_attach_cache(Operator):
             context.scene.frame_start = playback.tick_start
             context.scene.frame_end = playback.tick_end
             playback.sync_to_frame(context.scene, context.scene.frame_current)
-        except (OSError, RuntimeError, ValueError) as error:
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
             context.scene.crowd_project.status = "Attach failed: {}".format(error)
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
@@ -105,7 +106,7 @@ class CROWD_OT_inspect_agent(Operator):
         try:
             tick = playback.sync_to_frame(context.scene, context.scene.frame_current)
             evidence = debug_overlay.inspect(playback, agent_id, tick)
-        except (OSError, RuntimeError, ValueError) as error:
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
             context.scene.crowd_project.status = "Inspect failed: {}".format(error)
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
@@ -142,6 +143,37 @@ class CROWD_OT_pin_selected_agent(Operator):
             return {"CANCELLED"}
         context.scene.crowd_project.status = "Pinned agent {}: {}".format(
             layer["target_agent_id"], path
+        )
+        self.report({"INFO"}, context.scene.crowd_project.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_render_reference_frame(Operator):
+    bl_idname = "crowd.render_reference_frame"
+    bl_label = "Render Reference Frame"
+    bl_description = "Render the attached cache with Eevee Next and Cycles CPU"
+
+    output_dir: StringProperty(subtype="DIR_PATH")
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        output_dir = bpy.path.abspath(self.output_dir or "//m1-render")
+        try:
+            metrics = render_workflow.render_reference(
+                context.scene, playback, output_dir
+            )
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            context.scene.crowd_project.status = "Render failed: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        context.scene.crowd_project.status = (
+            "Rendered: Eevee {:.2f}s, Cycles {:.2f}s".format(
+                metrics["renders"]["eevee"]["seconds"],
+                metrics["renders"]["cycles"]["seconds"],
+            )
         )
         self.report({"INFO"}, context.scene.crowd_project.status)
         return {"FINISHED"}
@@ -339,6 +371,7 @@ _CLASSES = (
     CROWD_OT_attach_cache,
     CROWD_OT_inspect_agent,
     CROWD_OT_pin_selected_agent,
+    CROWD_OT_render_reference_frame,
     CROWD_OT_create_reference_project,
     CROWD_OT_validate_project,
     CROWD_OT_bake_cache,
