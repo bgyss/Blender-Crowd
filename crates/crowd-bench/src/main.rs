@@ -15,6 +15,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crowd_bench::cache_bench::{run_experiment, write_report, ExperimentOptions};
+use crowd_bench::m1_bench::{
+    bake_reference_strict, cancel_reference_bake, compare_cache_paths, probe_reference_completion,
+    read_selected_trace, validate_reference, StrictBakeOptions,
+};
 use crowd_core::scenes;
 
 use crate::report::{run_scene, RunOptions};
@@ -36,6 +40,12 @@ fn usage() -> &'static str {
   crowd-bench compare [--scene NAME] [--out DIR]
   crowd-bench nav-reroute [--agents N] [--seed N] [--out DIR] [--svg]
   crowd-bench cache-experiment [--agents N] [--seed N] [--out DIR]
+  crowd-bench m1 validate [--out FILE]
+  crowd-bench m1 bake --cache DIR [--out FILE]
+  crowd-bench m1 compare --first DIR --second DIR [--out FILE]
+  crowd-bench m1 cancel --cache DIR [--after-ticks N] [--out FILE]
+  crowd-bench m1 probe --ticks N [--agents N] [--out FILE]
+  crowd-bench m1 inspect-agent --cache DIR [--agent-id N] [--tick N] [--out FILE]
 
 Omitting --scene runs every scene."
 }
@@ -378,12 +388,113 @@ fn command_cache_experiment(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
+fn command_m1(raw: &[String]) -> Result<(), String> {
+    let (subcommand, arguments) = raw
+        .split_first()
+        .ok_or_else(|| "m1 needs validate, bake, compare, cancel, or inspect-agent".to_string())?;
+    let value = match subcommand.as_str() {
+        "validate" => serde_json::to_value(validate_reference()?).map_err(|e| e.to_string())?,
+        "bake" => {
+            let cache = required_path(arguments, "--cache")?;
+            serde_json::to_value(bake_reference_strict(&StrictBakeOptions::reference(cache))?)
+                .map_err(|e| e.to_string())?
+        }
+        "compare" => {
+            let first = required_path(arguments, "--first")?;
+            let second = required_path(arguments, "--second")?;
+            serde_json::to_value(compare_cache_paths(&first, &second)?)
+                .map_err(|e| e.to_string())?
+        }
+        "cancel" => {
+            let cache = required_path(arguments, "--cache")?;
+            let after_ticks =
+                optional_value(arguments, "--after-ticks").map_or(Ok(137u64), |value| {
+                    value
+                        .parse()
+                        .map_err(|_| "--after-ticks must be a number".to_string())
+                })?;
+            serde_json::to_value(cancel_reference_bake(&cache, after_ticks)?)
+                .map_err(|e| e.to_string())?
+        }
+        "probe" => {
+            let ticks: u64 = optional_value(arguments, "--ticks")
+                .ok_or_else(|| "--ticks needs a number".to_string())?
+                .parse()
+                .map_err(|_| "--ticks must be a number".to_string())?;
+            let agents = optional_value(arguments, "--agents").map_or(Ok(1_000u32), |value| {
+                value
+                    .parse()
+                    .map_err(|_| "--agents must be a number".to_string())
+            })?;
+            serde_json::to_value(probe_reference_completion(ticks, agents)?)
+                .map_err(|e| e.to_string())?
+        }
+        "inspect-agent" => {
+            let cache = required_path(arguments, "--cache")?;
+            let trace = read_selected_trace(&cache)?;
+            if let Some(value) = optional_value(arguments, "--agent-id") {
+                let expected: u64 = value
+                    .parse()
+                    .map_err(|_| "--agent-id must be a number".to_string())?;
+                if trace.agent_id != expected {
+                    return Err(format!(
+                        "selected evidence is for agent {}, not requested agent {expected}",
+                        trace.agent_id
+                    ));
+                }
+            }
+            if let Some(value) = optional_value(arguments, "--tick") {
+                let expected: u64 = value
+                    .parse()
+                    .map_err(|_| "--tick must be a number".to_string())?;
+                if trace.tick != expected {
+                    return Err(format!(
+                        "selected evidence is for tick {}, not requested tick {expected}",
+                        trace.tick
+                    ));
+                }
+            }
+            serde_json::to_value(trace).map_err(|e| e.to_string())?
+        }
+        other => return Err(format!("unknown m1 command: {other}")),
+    };
+    let json = serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?;
+    if let Some(path) = optional_value(arguments, "--out") {
+        std::fs::write(path, format!("{json}\n")).map_err(|error| error.to_string())?;
+    }
+    println!("{json}");
+    Ok(())
+}
+
+fn optional_value<'a>(raw: &'a [String], name: &str) -> Option<&'a str> {
+    raw.iter()
+        .position(|argument| argument == name)
+        .and_then(|index| raw.get(index + 1))
+        .map(String::as_str)
+}
+
+fn required_path(raw: &[String], name: &str) -> Result<PathBuf, String> {
+    optional_value(raw, name)
+        .map(PathBuf::from)
+        .ok_or_else(|| format!("{name} needs a path"))
+}
+
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let Some((command, rest)) = argv.split_first() else {
         eprintln!("{}", usage());
         return ExitCode::FAILURE;
     };
+
+    if command == "m1" {
+        return match command_m1(rest) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
 
     let args = match parse_args(rest) {
         Ok(args) => args,

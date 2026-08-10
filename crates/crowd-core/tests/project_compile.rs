@@ -129,7 +129,7 @@ fn reference_project_has_a_pinned_canonical_hash() {
     let hash = blake3::hash(canonical.as_bytes()).to_hex().to_string();
     assert_eq!(
         hash,
-        "0406ff9c52c5892e4d32676a99e979d83196d2b9378e2de80392895ac4636845"
+        "cfeb0ae7bb4ae1c651e7d3f6614453dad6d1d34b808ff42292cba3af5927fb74"
     );
     assert_eq!(compile_project(&project).unwrap().source_hash_hex(), hash);
 }

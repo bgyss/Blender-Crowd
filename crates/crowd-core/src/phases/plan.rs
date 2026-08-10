@@ -81,7 +81,16 @@ pub fn plan(
     while visited < n && budget > 0 {
         if needs_route(world, slot) {
             let dest_index = world.destination[slot as usize] as usize;
-            if let Some(dest_point) = nav_destinations.get(dest_index) {
+            let custom_destination = world.custom_destination[slot as usize].then(|| {
+                Vec2::new(
+                    world.destination_x[slot as usize],
+                    world.destination_y[slot as usize],
+                )
+            });
+            if let Some(dest_point) = custom_destination
+                .as_ref()
+                .or_else(|| nav_destinations.get(dest_index))
+            {
                 let from = nav.grid().nearest_walkable_tile(world.position(slot));
                 let to = nav.grid().nearest_walkable_tile(*dest_point);
                 if let (Some(from), Some(to)) = (from, to) {

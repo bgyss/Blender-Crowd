@@ -9,7 +9,7 @@
   "clock": {
     "ticks_per_second": 30,
     "frame_start": 0,
-    "frame_end": 1200,
+    "frame_end": 9999,
     "frames_per_second": 30
   },
   "mode": "strict",
@@ -41,6 +41,7 @@
     {
       "id": "commuters",
       "count": 1000,
+      "emission_interval_ticks": 5,
       "spawn_source_ids": ["east_platform", "west_platform"],
       "destinations": [
         { "id": "central_stop", "weight": 0.2 },
@@ -80,18 +81,35 @@
       {
         "id": "east_platform",
         "walkable_id": "east_hall",
+        "start_tick": 0,
         "bounds": { "min": [42.0, 2.0], "max": [58.0, 18.0] }
       },
       {
         "id": "west_platform",
         "walkable_id": "west_hall",
+        "start_tick": 4000,
         "bounds": { "min": [2.0, 2.0], "max": [18.0, 18.0] }
       }
     ],
     "destinations": [
-      { "id": "central_stop", "walkable_id": "central_concourse", "point": [35.0, 16.0] },
-      { "id": "east_exit", "walkable_id": "east_hall", "point": [58.0, 10.0] },
-      { "id": "west_exit", "walkable_id": "west_hall", "point": [2.0, 10.0] }
+      {
+        "id": "central_stop",
+        "walkable_id": "central_concourse",
+        "point": [35.0, 16.0],
+        "capacity_bounds": { "min": [20.5, 0.5], "max": [39.5, 7.5] }
+      },
+      {
+        "id": "east_exit",
+        "walkable_id": "east_hall",
+        "point": [58.0, 10.0],
+        "capacity_bounds": { "min": [40.5, 0.5], "max": [59.5, 19.5] }
+      },
+      {
+        "id": "west_exit",
+        "walkable_id": "west_hall",
+        "point": [2.0, 10.0],
+        "capacity_bounds": { "min": [0.5, 0.5], "max": [19.5, 19.5] }
+      }
     ],
     "portals": [
       {
@@ -99,7 +117,7 @@
         "from_walkable_id": "central_concourse",
         "to_walkable_id": "east_hall",
         "center": [40.0, 10.0],
-        "width_m": 3.0,
+        "width_m": 18.0,
         "axis": "east_west",
         "bidirectional": true,
         "initially_open": true
@@ -109,7 +127,7 @@
         "from_walkable_id": "west_hall",
         "to_walkable_id": "central_concourse",
         "center": [20.0, 10.0],
-        "width_m": 4.0,
+        "width_m": 18.0,
         "axis": "east_west",
         "bidirectional": true,
         "initially_open": true

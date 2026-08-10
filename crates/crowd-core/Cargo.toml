@@ -10,5 +10,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+crowd-cache = { path = "../crowd-cache" }
 jsonschema = { version = "0.33", default-features = false }
 proptest = { workspace = true }
+tempfile = "3.20"

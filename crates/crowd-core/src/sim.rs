@@ -5,8 +5,8 @@
 //! previous-tick snapshot, which is what makes results independent of the
 //! order agents are visited.
 //!
-//! `Animate` is omitted rather than stubbed: there is no clip data to select
-//! from in this slice.
+//! The M1 `Animate` phase consumes staged integrated motion and publishes only
+//! commuter/clip metadata; trajectory remains owned by integration.
 
 use std::time::Instant;
 
@@ -270,6 +270,45 @@ impl Simulation {
             .map(|slot| self.snapshot_at(slot as usize))
     }
 
+    /// Stable portal IDs in the agent's current corridor, for bounded debug
+    /// evidence. Unknown or unspawned IDs return `None`; an unrouted agent
+    /// returns an empty list.
+    pub fn route_portal_ids(&self, id: crate::ids::AgentId) -> Option<Vec<u32>> {
+        let slot = self.world.slot_of(id)? as usize;
+        let handle = self.world.route[slot];
+        Some(
+            self.plan_state
+                .portals_for(handle)
+                .unwrap_or_default()
+                .iter()
+                .map(|portal| portal.0)
+                .collect(),
+        )
+    }
+
+    /// Current corridor polyline for selected-agent inspection.
+    pub fn route_points_for_agent(
+        &self,
+        id: crate::ids::AgentId,
+    ) -> Option<Vec<crate::units::Vec2>> {
+        let slot = self.world.slot_of(id)? as usize;
+        Some(self.routes.points(self.world.route[slot]).to_vec())
+    }
+
+    /// Current look-ahead target without mutating the authoritative route
+    /// cursor.
+    pub fn next_route_target(&self, id: crate::ids::AgentId) -> Option<crate::units::Vec2> {
+        let slot = self.world.slot_of(id)? as usize;
+        let points = self.routes.points(self.world.route[slot]);
+        let mut index = self.world.route_index[slot];
+        crate::route::next_target(
+            points,
+            &mut index,
+            self.world.position(slot as u32),
+            self.config.decide.arrive_radius,
+        )
+    }
+
     fn snapshot_at(&self, slot: usize) -> AgentSnapshot {
         AgentSnapshot {
             agent_id: self.world.agent_id[slot],
@@ -283,6 +322,34 @@ impl Simulation {
             velocity: self.world.velocity(slot as u32),
             desired_velocity: self.world.desired_velocity(slot as u32),
             destination_id: u32::from(self.world.destination[slot]),
+            destination_point: if self.world.custom_destination[slot] {
+                crate::units::Vec2::new(
+                    self.world.destination_x[slot],
+                    self.world.destination_y[slot],
+                )
+            } else {
+                self.scene
+                    .destination_position(self.world.destination[slot])
+                    .unwrap_or(crate::units::Vec2::ZERO)
+            },
+            destination_bounds: if self.world.custom_destination_bounds[slot] {
+                crate::units::Aabb::new(
+                    crate::units::Vec2::new(
+                        self.world.destination_min_x[slot],
+                        self.world.destination_min_y[slot],
+                    ),
+                    crate::units::Vec2::new(
+                        self.world.destination_max_x[slot],
+                        self.world.destination_max_y[slot],
+                    ),
+                )
+            } else {
+                let point = self
+                    .scene
+                    .destination_position(self.world.destination[slot])
+                    .unwrap_or(crate::units::Vec2::ZERO);
+                crate::units::Aabb::new(point, point)
+            },
             commuter_state: self.world.commuter_state[slot],
             decision_reason: self.world.decision_reason[slot],
             clip_state: ClipState {
@@ -300,6 +367,9 @@ impl Simulation {
     /// arrived agent. Lets a test or caller verify *which* doorway an agent's
     /// current corridor actually uses, not merely that it has some route.
     pub fn route_crosses_any(&self, slot: u32, portals: &[PortalId]) -> bool {
+        if self.world.arrived[slot as usize] {
+            return false;
+        }
         let handle = self.world.route[slot as usize];
         if handle == NO_ROUTE {
             return false;

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ids::AgentId;
-use crate::units::Vec2;
+use crate::units::{Aabb, Vec2};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,6 +64,8 @@ pub struct AgentSnapshot {
     pub velocity: Vec2,
     pub desired_velocity: Vec2,
     pub destination_id: u32,
+    pub destination_point: Vec2,
+    pub destination_bounds: Aabb,
     pub commuter_state: CommuterState,
     pub decision_reason: DecisionReason,
     pub clip_state: ClipState,
@@ -83,6 +85,8 @@ pub struct RuntimeAgentSpec {
     pub population_id: u32,
     pub spawn_ordinal: u32,
     pub destination_id: u32,
+    pub destination_point: Vec2,
+    pub destination_bounds: Aabb,
     pub archetype_id: u32,
     pub variant_id: u32,
     pub radius_m: f32,
@@ -102,6 +106,16 @@ pub struct TimedPortalInput {
 #[derive(Clone, Copy, Debug)]
 pub struct RuntimeAnimationSettings {
     pub jog_threshold_mps: f32,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ProjectRuntimeData {
+    pub agent_specs_by_spawn: Vec<Vec<RuntimeAgentSpec>>,
+    pub timed_portal_events: Vec<TimedPortalInput>,
+    pub initially_closed_portals: Vec<String>,
+    pub spawn_interval_ticks: u32,
+    pub spawn_start_ticks: Vec<u64>,
+    pub animation: RuntimeAnimationSettings,
 }
 
 impl Default for RuntimeAnimationSettings {

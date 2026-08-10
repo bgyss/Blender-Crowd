@@ -92,6 +92,7 @@ pub struct NormalIrV1 {
 pub struct PopulationIrV1 {
     pub id: String,
     pub count: u32,
+    pub emission_interval_ticks: u32,
     pub spawn_source_ids: Vec<String>,
     pub destinations: Vec<WeightedRefIrV1>,
     pub archetypes: Vec<WeightedRefIrV1>,
@@ -128,6 +129,7 @@ pub struct BlockedIrV1 {
 pub struct SpawnIrV1 {
     pub id: String,
     pub walkable_id: String,
+    pub start_tick: u64,
     pub bounds: Bounds2IrV1,
 }
 
@@ -137,6 +139,7 @@ pub struct DestinationIrV1 {
     pub id: String,
     pub walkable_id: String,
     pub point: [f32; 2],
+    pub capacity_bounds: Bounds2IrV1,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -533,6 +536,13 @@ fn validate_project(project: &ProjectIrV1) -> Vec<Diagnostic> {
                 "population count must be positive",
             ));
         }
+        if population.emission_interval_ticks == 0 {
+            diagnostics.push(Diagnostic::error(
+                DiagnosticCode::InvalidCount,
+                &entity,
+                "population emission interval must be positive",
+            ));
+        }
         if population.spawn_source_ids.is_empty()
             || population
                 .spawn_source_ids
@@ -725,6 +735,11 @@ fn validate_semantics(project: &ProjectIrV1, diagnostics: &mut Vec<Diagnostic>) 
         }
     }
     for destination in &semantics.destinations {
+        validate_bounds(
+            &format!("destination:{}", destination.id),
+            destination.capacity_bounds,
+            diagnostics,
+        );
         if !finite_point(destination.point) {
             diagnostics.push(Diagnostic::error(
                 DiagnosticCode::InvalidRange,
@@ -740,12 +755,15 @@ fn validate_semantics(project: &ProjectIrV1, diagnostics: &mut Vec<Diagnostic>) 
         );
         if walkable_bounds
             .get(destination.walkable_id.as_str())
-            .is_some_and(|walkable| !contains_point(*walkable, destination.point))
+            .is_some_and(|walkable| {
+                !contains_point(*walkable, destination.point)
+                    || !contains_bounds(*walkable, destination.capacity_bounds)
+            })
         {
             diagnostics.push(Diagnostic::error(
                 DiagnosticCode::InvalidRange,
                 format!("destination:{}", destination.id),
-                "destination must stay inside its walkable region",
+                "destination point and capacity bounds must stay inside their walkable region",
             ));
         }
     }

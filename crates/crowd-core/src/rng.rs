@@ -26,6 +26,7 @@ pub enum Purpose {
     ArchetypeChoice,
     AppearanceChoice,
     Scale,
+    DestinationPosition,
 }
 
 impl Purpose {
@@ -40,6 +41,7 @@ impl Purpose {
             Purpose::ArchetypeChoice => 7,
             Purpose::AppearanceChoice => 8,
             Purpose::Scale => 9,
+            Purpose::DestinationPosition => 10,
         }
     }
 }

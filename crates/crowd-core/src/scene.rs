@@ -5,7 +5,9 @@
 //! reported in one pass, so a user is not forced to fix problems one at a
 //! time.
 
-use crate::commuter::{RuntimeAgentSpec, RuntimeAnimationSettings, TimedPortalInput};
+use crate::commuter::{
+    ProjectRuntimeData, RuntimeAgentSpec, RuntimeAnimationSettings, TimedPortalInput,
+};
 use crate::geometry::Segment;
 use crate::grid::SegmentIndex;
 use crate::ids::{hash_combine, hash_str, mix64};
@@ -156,6 +158,8 @@ pub struct CompiledScene {
     pub agent_specs_by_spawn: Vec<Vec<RuntimeAgentSpec>>,
     pub timed_portal_events: Vec<TimedPortalInput>,
     pub initially_closed_portals: Vec<String>,
+    pub runtime_spawn_interval_ticks: u32,
+    pub runtime_spawn_start_ticks: Vec<u64>,
     pub runtime_animation: RuntimeAnimationSettings,
     scene_hash: u64,
 }
@@ -354,6 +358,7 @@ impl SceneDef {
             &self.walls,
         );
 
+        let spawn_count = self.spawns.len();
         Ok(CompiledScene {
             name: self.name,
             bounds: self.bounds,
@@ -371,6 +376,8 @@ impl SceneDef {
             agent_specs_by_spawn: Vec::new(),
             timed_portal_events: Vec::new(),
             initially_closed_portals: Vec::new(),
+            runtime_spawn_interval_ticks: 1,
+            runtime_spawn_start_ticks: vec![0; spawn_count],
             runtime_animation: RuntimeAnimationSettings::default(),
             scene_hash,
         })
@@ -493,10 +500,7 @@ impl CompiledScene {
     pub(crate) fn attach_project_runtime(
         &mut self,
         source_hash: [u8; 32],
-        agent_specs_by_spawn: Vec<Vec<RuntimeAgentSpec>>,
-        timed_portal_events: Vec<TimedPortalInput>,
-        initially_closed_portals: Vec<String>,
-        runtime_animation: RuntimeAnimationSettings,
+        runtime: ProjectRuntimeData,
     ) {
         for chunk in source_hash.chunks_exact(8) {
             self.scene_hash = hash_combine(
@@ -504,10 +508,12 @@ impl CompiledScene {
                 u64::from_le_bytes(chunk.try_into().expect("eight-byte source hash chunk")),
             );
         }
-        self.agent_specs_by_spawn = agent_specs_by_spawn;
-        self.timed_portal_events = timed_portal_events;
-        self.initially_closed_portals = initially_closed_portals;
-        self.runtime_animation = runtime_animation;
+        self.agent_specs_by_spawn = runtime.agent_specs_by_spawn;
+        self.timed_portal_events = runtime.timed_portal_events;
+        self.initially_closed_portals = runtime.initially_closed_portals;
+        self.runtime_spawn_interval_ticks = runtime.spawn_interval_ticks;
+        self.runtime_spawn_start_ticks = runtime.spawn_start_ticks;
+        self.runtime_animation = runtime.animation;
     }
 
     pub fn scene_hash(&self) -> u64 {

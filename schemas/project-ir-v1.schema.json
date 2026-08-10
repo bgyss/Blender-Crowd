@@ -146,6 +146,7 @@
       "required": [
         "id",
         "count",
+        "emission_interval_ticks",
         "spawn_source_ids",
         "destinations",
         "archetypes",
@@ -157,6 +158,7 @@
       "properties": {
         "id": { "$ref": "#/$defs/logical_id" },
         "count": { "type": "integer", "minimum": 1 },
+        "emission_interval_ticks": { "type": "integer", "minimum": 1 },
         "spawn_source_ids": {
           "type": "array",
           "minItems": 1,
@@ -204,21 +206,23 @@
     "spawn": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "walkable_id", "bounds"],
+      "required": ["id", "walkable_id", "start_tick", "bounds"],
       "properties": {
         "id": { "$ref": "#/$defs/logical_id" },
         "walkable_id": { "$ref": "#/$defs/logical_id" },
+        "start_tick": { "type": "integer", "minimum": 0 },
         "bounds": { "$ref": "#/$defs/bounds" }
       }
     },
     "destination": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "walkable_id", "point"],
+      "required": ["id", "walkable_id", "point", "capacity_bounds"],
       "properties": {
         "id": { "$ref": "#/$defs/logical_id" },
         "walkable_id": { "$ref": "#/$defs/logical_id" },
-        "point": { "$ref": "#/$defs/point" }
+        "point": { "$ref": "#/$defs/point" },
+        "capacity_bounds": { "$ref": "#/$defs/bounds" }
       }
     },
     "portal": {

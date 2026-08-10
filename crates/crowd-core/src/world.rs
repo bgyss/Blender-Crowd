@@ -81,6 +81,14 @@ pub struct World {
     pub route: Vec<RouteHandle>,
     pub route_index: Vec<u16>,
     pub destination: Vec<u16>,
+    pub custom_destination: Vec<bool>,
+    pub destination_x: Vec<f32>,
+    pub destination_y: Vec<f32>,
+    pub custom_destination_bounds: Vec<bool>,
+    pub destination_min_x: Vec<f32>,
+    pub destination_min_y: Vec<f32>,
+    pub destination_max_x: Vec<f32>,
+    pub destination_max_y: Vec<f32>,
     pub arrived: Vec<bool>,
     /// Set when an agent has no usable route at all.
     ///
@@ -170,6 +178,14 @@ impl World {
         self.route.push(spawn.route);
         self.route_index.push(0);
         self.destination.push(spawn.destination);
+        self.custom_destination.push(false);
+        self.destination_x.push(0.0);
+        self.destination_y.push(0.0);
+        self.custom_destination_bounds.push(false);
+        self.destination_min_x.push(0.0);
+        self.destination_min_y.push(0.0);
+        self.destination_max_x.push(0.0);
+        self.destination_max_y.push(0.0);
         self.arrived.push(false);
         self.unrouted.push(false);
         self.commuter_state.push(CommuterState::Travel);
@@ -265,6 +281,18 @@ impl World {
             h = hash_combine(h, self.spawn_ordinal[slot] as u64);
             h = hash_combine(h, canonical_bits(self.scale[slot]));
             h = hash_combine(h, self.destination[slot] as u64);
+            h = hash_combine(h, self.custom_destination[slot] as u64);
+            if self.custom_destination[slot] {
+                h = hash_combine(h, canonical_bits(self.destination_x[slot]));
+                h = hash_combine(h, canonical_bits(self.destination_y[slot]));
+            }
+            h = hash_combine(h, self.custom_destination_bounds[slot] as u64);
+            if self.custom_destination_bounds[slot] {
+                h = hash_combine(h, canonical_bits(self.destination_min_x[slot]));
+                h = hash_combine(h, canonical_bits(self.destination_min_y[slot]));
+                h = hash_combine(h, canonical_bits(self.destination_max_x[slot]));
+                h = hash_combine(h, canonical_bits(self.destination_max_y[slot]));
+            }
             h = hash_combine(h, self.commuter_state[slot] as u64);
             h = hash_combine(h, self.decision_reason[slot] as u64);
             h = hash_combine(h, self.clip_id[slot] as u64);
@@ -373,6 +401,14 @@ mod tests {
         assert_eq!(world.playback_rate.len(), n);
         assert_eq!(world.visible.len(), n);
         assert_eq!(world.render_tier.len(), n);
+        assert_eq!(world.custom_destination.len(), n);
+        assert_eq!(world.destination_x.len(), n);
+        assert_eq!(world.destination_y.len(), n);
+        assert_eq!(world.custom_destination_bounds.len(), n);
+        assert_eq!(world.destination_min_x.len(), n);
+        assert_eq!(world.destination_min_y.len(), n);
+        assert_eq!(world.destination_max_x.len(), n);
+        assert_eq!(world.destination_max_y.len(), n);
     }
 
     #[test]

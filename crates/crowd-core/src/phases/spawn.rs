@@ -98,6 +98,13 @@ pub fn apply_spawns(
     let mut errors = Vec::new();
 
     for (spawn_index, region) in scene.spawns.iter().enumerate() {
+        if !scene.agent_specs_by_spawn.is_empty() && scene.runtime_spawn_interval_ticks > 1 {
+            let interval = u64::from(scene.runtime_spawn_interval_ticks);
+            let start_tick = scene.runtime_spawn_start_ticks[spawn_index];
+            if tick < start_tick || !(tick - start_tick).is_multiple_of(interval) {
+                continue;
+            }
+        }
         let already = state.emitted[spawn_index];
         let remaining = region.count.saturating_sub(already);
         let this_tick = remaining.min(region.per_tick);
@@ -209,6 +216,14 @@ pub fn apply_spawns(
                         world.variant_id[slot] = spec.variant_id;
                         world.spawn_ordinal[slot] = spec.spawn_ordinal;
                         world.scale[slot] = spec.scale;
+                        world.custom_destination[slot] = true;
+                        world.destination_x[slot] = spec.destination_point.x;
+                        world.destination_y[slot] = spec.destination_point.y;
+                        world.custom_destination_bounds[slot] = true;
+                        world.destination_min_x[slot] = spec.destination_bounds.min.x;
+                        world.destination_min_y[slot] = spec.destination_bounds.min.y;
+                        world.destination_max_x[slot] = spec.destination_bounds.max.x;
+                        world.destination_max_y[slot] = spec.destination_bounds.max.y;
                     }
                 }
                 Err(error) => errors.push(error),

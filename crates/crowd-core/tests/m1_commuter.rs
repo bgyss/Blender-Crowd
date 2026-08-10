@@ -31,10 +31,36 @@ fn reference_project_compiles_to_a_real_concourse_scene() {
 
     assert_eq!(scene.total_agents(), 40);
     assert_eq!(scene.spawns.len(), 2);
+    assert!(scene.spawns.iter().all(|spawn| spawn.per_tick == 1));
+    assert_eq!(scene.runtime_spawn_interval_ticks, 5);
+    assert_eq!(scene.runtime_spawn_start_ticks, vec![0, 4_000]);
     assert_eq!(scene.destinations.len(), 3);
-    assert!(scene.nav.as_ref().unwrap().portals_named("east_gate").len() > 1);
-    assert!(scene.nav.as_ref().unwrap().portals_named("west_gate").len() > 1);
+    assert!(scene.nav.as_ref().unwrap().portals_named("east_gate").len() > 10);
+    assert!(scene.nav.as_ref().unwrap().portals_named("west_gate").len() > 10);
     assert_eq!(scene.timed_portal_events.len(), 2);
+    let east_exit_goals: std::collections::BTreeSet<_> = scene
+        .agent_specs_by_spawn
+        .iter()
+        .flatten()
+        .filter(|spec| spec.destination_id == 1)
+        .map(|spec| {
+            (
+                spec.destination_point.x.to_bits(),
+                spec.destination_point.y.to_bits(),
+            )
+        })
+        .collect();
+    assert!(east_exit_goals.len() > 5);
+    let east_to_west_uses_north_lane = scene.agent_specs_by_spawn[0]
+        .iter()
+        .filter(|spec| spec.destination_id == 2)
+        .all(|spec| spec.destination_point.y > 10.0);
+    let west_to_east_uses_south_lane = scene.agent_specs_by_spawn[1]
+        .iter()
+        .filter(|spec| spec.destination_id == 1)
+        .all(|spec| spec.destination_point.y < 10.0);
+    assert!(east_to_west_uses_north_lane);
+    assert!(west_to_east_uses_south_lane);
 }
 
 #[test]
@@ -55,6 +81,16 @@ fn spawned_agents_retain_compiled_static_choices() {
         assert_eq!(snapshot.scale.to_bits(), expected.scale.to_bits());
         assert_eq!(snapshot.destination_id, expected.destination_id);
     }
+}
+
+#[test]
+fn authored_destination_capacity_finishes_agents_without_point_convergence() {
+    let (_, mut sim) = concourse_simulation(40);
+    sim.run(30);
+    assert!(
+        sim.metrics().arrived() > 0,
+        "no commuter completed an authored destination region"
+    );
 }
 
 #[test]

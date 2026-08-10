@@ -2,16 +2,23 @@
 
 use std::collections::BTreeMap;
 
-use crate::commuter::{RuntimeAgentSpec, RuntimeAnimationSettings, TimedPortalInput};
+use crate::commuter::{
+    ProjectRuntimeData, RuntimeAgentSpec, RuntimeAnimationSettings, TimedPortalInput,
+};
 use crate::geometry::Segment;
 use crate::ids::{hash_combine, hash_str};
 use crate::nav::{CrossingAxis, NavMeshDef};
 use crate::project::{CompiledProject, Diagnostic, DiagnosticCode, PortalAxisIrV1, ProjectIrV1};
+use crate::rng::{Purpose, StableRng};
 use crate::route::WaypointGraph;
 use crate::scene::{CompiledScene, Destination, PopulationParams, SceneDef, SpawnRegion};
 use crate::units::{Aabb, Vec2};
 
-const AGENTS_PER_SPAWN_PER_TICK: u32 = 16;
+// The reference population is intentionally emitted as a sustained flow.
+// Bursting hundreds of agents into each platform before the first commuters
+// can clear creates an artificial packed-start deadlock that no doorway-width
+// or duration increase fixes.
+const AGENTS_PER_SPAWN_PER_TICK: u32 = 1;
 
 pub fn compile_concourse(project: &CompiledProject) -> Result<CompiledScene, Vec<Diagnostic>> {
     let ir = project.ir();
@@ -47,15 +54,24 @@ pub fn compile_concourse(project: &CompiledProject) -> Result<CompiledScene, Vec
         .collect();
 
     let mut specs_by_spawn = vec![Vec::new(); ir.semantics.spawns.len()];
+    let stable_seed = hash_combine(ir.seed, hash_str(&ir.project_id));
     for agent in project.agent_spawns() {
         let Some(specs) = specs_by_spawn.get_mut(agent.spawn_source_id as usize) else {
             continue;
         };
+        let capacity = directional_capacity(ir, agent);
+        let mut destination_rng =
+            StableRng::for_agent(stable_seed, agent.agent_id, Purpose::DestinationPosition);
         specs.push(RuntimeAgentSpec {
             agent_id: agent.agent_id,
             population_id: agent.population_id,
             spawn_ordinal: agent.spawn_ordinal,
             destination_id: agent.destination_id,
+            destination_point: Vec2::new(
+                destination_rng.range_f32(capacity.min[0], capacity.max[0]),
+                destination_rng.range_f32(capacity.min[1], capacity.max[1]),
+            ),
+            destination_bounds: to_aabb(capacity),
             archetype_id: agent.archetype_id,
             variant_id: agent.appearance_id,
             radius_m: agent.radius_m,
@@ -123,7 +139,7 @@ pub fn compile_concourse(project: &CompiledProject) -> Result<CompiledScene, Vec
         destinations,
         spawns,
         populations,
-        project_seed: hash_combine(ir.seed, hash_str(&ir.project_id)),
+        project_seed: stable_seed,
         ticks_per_second: ir.clock.ticks_per_second,
         duration_ticks,
         nav: Some(NavMeshDef {
@@ -178,14 +194,47 @@ pub fn compile_concourse(project: &CompiledProject) -> Result<CompiledScene, Vec
         .collect();
     compiled.attach_project_runtime(
         project.source_hash(),
-        specs_by_spawn,
-        timed_portal_events,
-        initially_closed_portals,
-        RuntimeAnimationSettings {
-            jog_threshold_mps: ir.settings.animation.jog_threshold_mps,
+        ProjectRuntimeData {
+            agent_specs_by_spawn: specs_by_spawn,
+            timed_portal_events,
+            initially_closed_portals,
+            spawn_interval_ticks: ir.populations[0].emission_interval_ticks,
+            spawn_start_ticks: ir
+                .semantics
+                .spawns
+                .iter()
+                .map(|spawn| spawn.start_tick)
+                .collect(),
+            animation: RuntimeAnimationSettings {
+                jog_threshold_mps: ir.settings.animation.jog_threshold_mps,
+            },
         },
     );
     Ok(compiled)
+}
+
+fn directional_capacity(
+    ir: &ProjectIrV1,
+    agent: &crate::project::CompiledAgentSpawn,
+) -> crate::project::Bounds2IrV1 {
+    let spawn = &ir.semantics.spawns[agent.spawn_source_id as usize];
+    let destination = &ir.semantics.destinations[agent.destination_id as usize];
+    let mut capacity = destination.capacity_bounds;
+    if spawn.walkable_id == destination.walkable_id {
+        return capacity;
+    }
+
+    let spawn_center_x = (spawn.bounds.min[0] + spawn.bounds.max[0]) * 0.5;
+    let lane_mid = (capacity.min[1] + capacity.max[1]) * 0.5;
+    let lane_separator = 0.5;
+    if spawn_center_x < destination.point[0] {
+        // Eastbound commuters keep the south lane.
+        capacity.max[1] = lane_mid - lane_separator;
+    } else {
+        // Westbound commuters keep the north lane.
+        capacity.min[1] = lane_mid + lane_separator;
+    }
+    capacity
 }
 
 fn project_bounds(ir: &ProjectIrV1) -> Aabb {

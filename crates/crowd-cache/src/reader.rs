@@ -123,6 +123,26 @@ impl CacheReader {
         let decoded = decode_chunk(&bytes).map_err(|source| CacheError::Codec { path, source })?;
         Ok(decoded.frames[(tick - chunk.tick_start) as usize].clone())
     }
+
+    /// Decode every frame sequentially, loading each chunk exactly once.
+    ///
+    /// Acceptance and render-preflight scans must not repeatedly decode the
+    /// same chunk through `read_tick`; this path preserves cache order while
+    /// keeping work proportional to the cache size.
+    pub fn read_all_frames(&self) -> Result<Vec<Frame>, CacheError> {
+        let mut frames =
+            Vec::with_capacity((self.manifest.tick_end - self.manifest.tick_start + 1) as usize);
+        for chunk in &self.manifest.chunks {
+            let path = safe_join(&self.root, &chunk.path)?;
+            let bytes = validate_chunk_file(&path, chunk)?;
+            let decoded = decode_chunk(&bytes).map_err(|source| CacheError::Codec {
+                path: path.clone(),
+                source,
+            })?;
+            frames.extend(decoded.frames);
+        }
+        Ok(frames)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

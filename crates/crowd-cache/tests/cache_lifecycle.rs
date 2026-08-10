@@ -107,6 +107,20 @@ fn complete_cache_round_trips_in_nonsequential_tick_order() {
 }
 
 #[test]
+fn complete_cache_decodes_each_frame_in_sequential_order() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("sequential.crowd");
+    write_complete_cache(&target, 4, 59);
+
+    let reader = CacheReader::open_complete(&target).unwrap();
+    let frames = reader.read_all_frames().unwrap();
+    assert_eq!(frames.len(), 60);
+    for (tick, actual) in frames.iter().enumerate() {
+        assert_eq!(*actual, frame(4, tick as u64));
+    }
+}
+
+#[test]
 fn complete_reader_names_a_corrupt_chunk() {
     let temp = tempfile::tempdir().unwrap();
     let target = temp.path().join("corrupt.crowd");
