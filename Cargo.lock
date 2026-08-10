@@ -180,8 +180,11 @@ dependencies = [
 name = "crowd-core"
 version = "0.1.0"
 dependencies = [
+ "blake3",
+ "jsonschema",
  "proptest",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
