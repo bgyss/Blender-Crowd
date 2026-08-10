@@ -14,6 +14,7 @@ mod svg;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use crowd_bench::cache_bench::{run_experiment, write_report, ExperimentOptions};
 use crowd_core::scenes;
 
 use crate::report::{run_scene, RunOptions};
@@ -34,6 +35,7 @@ fn usage() -> &'static str {
   crowd-bench check [--agents N] [--seed N] [--solver NAME]
   crowd-bench compare [--scene NAME] [--out DIR]
   crowd-bench nav-reroute [--agents N] [--seed N] [--out DIR] [--svg]
+  crowd-bench cache-experiment [--agents N] [--seed N] [--out DIR]
 
 Omitting --scene runs every scene."
 }
@@ -358,6 +360,24 @@ fn command_nav_reroute(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
+fn command_cache_experiment(args: &Args) -> Result<(), String> {
+    let report = run_experiment(&ExperimentOptions {
+        agents: args.agents,
+        frames: 120,
+        seed: args.seed,
+        out_dir: args.out.clone(),
+    })?;
+    write_report(&report, &args.out)?;
+    println!(
+        "cache experiment: {} candidates; selected {} with {}-tick chunks -> {}",
+        report.results.len(),
+        report.selected.position_encoding,
+        report.selected.chunk_ticks,
+        args.out.join("report.json").display()
+    );
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let Some((command, rest)) = argv.split_first() else {
@@ -380,6 +400,7 @@ fn main() -> ExitCode {
         "check" => command_check(&args),
         "compare" => command_compare(&args).map(|()| true),
         "nav-reroute" => command_nav_reroute(&args).map(|()| true),
+        "cache-experiment" => command_cache_experiment(&args).map(|()| true),
         other => Err(format!("unknown command: {other}\n\n{}", usage())),
     };
 

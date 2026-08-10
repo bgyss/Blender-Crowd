@@ -46,6 +46,34 @@ fn millimeter_positions_round_trip_with_half_millimeter_error() {
 }
 
 #[test]
+fn millimeter_declared_bound_covers_f32_rounding_at_scene_scale() {
+    let records = (0..10_000)
+        .map(|index| {
+            let value = index as f32 * 0.0037 - 18.5;
+            record(index as u64 + 1, [value, -value * 1.37])
+        })
+        .collect();
+    let frames = vec![Frame { records }];
+    let encoded = encode_chunk(0, &frames, PositionEncoding::MillimeterI32).unwrap();
+    let decoded = decode_chunk(&encoded.bytes).unwrap();
+    assert_eq!(decoded.position_error_bound, encoded.position_error_bound);
+
+    let max_error = frames[0]
+        .records
+        .iter()
+        .zip(&decoded.frames[0].records)
+        .flat_map(|(source, restored)| {
+            (0..2).map(move |axis| (source.position[axis] - restored.position[axis]).abs())
+        })
+        .fold(0.0f32, f32::max);
+    assert!(
+        max_error <= encoded.position_error_bound,
+        "observed {max_error}m but declared {}m",
+        encoded.position_error_bound
+    );
+}
+
+#[test]
 fn a_payload_bit_flip_is_rejected() {
     let frames = vec![Frame {
         records: vec![record(1, [1.0, 2.0])],
@@ -203,7 +231,7 @@ proptest! {
                 for axis in 0..2 {
                     let error = (source.position[axis] - restored.position[axis]).abs();
                     prop_assert!(
-                        error <= encoded.position_error_bound + 0.001,
+                        error <= encoded.position_error_bound,
                         "{encoding:?} axis {axis} error {error} exceeded {}",
                         encoded.position_error_bound
                     );

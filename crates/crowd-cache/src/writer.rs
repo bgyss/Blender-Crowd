@@ -223,6 +223,19 @@ impl CacheWriter {
                 path: self.target.join("frames"),
                 source,
             })?;
+        if let Some(position) = self
+            .manifest
+            .channels
+            .iter_mut()
+            .find(|channel| channel.name == "position")
+        {
+            position.quantization_error = Some(
+                position
+                    .quantization_error
+                    .unwrap_or(0.0)
+                    .max(encoded.position_error_bound),
+            );
+        }
         let relative = format!("frames/{tick_start:06}-{tick_end:06}.chunk");
         let path = safe_join(&self.target, &relative)?;
         atomic_write(&path, &encoded.bytes)?;

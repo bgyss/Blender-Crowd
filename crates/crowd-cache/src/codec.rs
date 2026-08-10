@@ -385,8 +385,8 @@ pub fn decode_chunk(bytes: &[u8]) -> Result<DecodedChunk, CodecError> {
     }
     let position_error_bound = match position_encoding {
         PositionEncoding::F32 => 0.0,
-        PositionEncoding::MillimeterI32 => 0.0005,
-        PositionEncoding::AffineI16 => scale[0].max(scale[1]) * 0.5,
+        PositionEncoding::MillimeterI32 => scale[0],
+        PositionEncoding::AffineI16 => affine_error_bound(origin, scale),
     };
 
     Ok(DecodedChunk {
@@ -421,13 +421,26 @@ fn position_metadata(
     records: &[&FrameRecord],
     encoding: PositionEncoding,
 ) -> Result<([f32; 2], [f32; 2], f32), CodecError> {
-    if encoding != PositionEncoding::AffineI16 || records.is_empty() {
-        let error = if encoding == PositionEncoding::MillimeterI32 {
-            0.0005
-        } else {
-            0.0
-        };
-        return Ok(([0.0, 0.0], [1.0, 1.0], error));
+    if records.is_empty() {
+        return Ok(([0.0, 0.0], [0.0, 0.0], 0.0));
+    }
+    if encoding == PositionEncoding::F32 {
+        return Ok(([0.0, 0.0], [0.0, 0.0], 0.0));
+    }
+    if encoding == PositionEncoding::MillimeterI32 {
+        // Half a millimetre is the mathematical quantization bound, but the
+        // f32 multiply/round/divide operations can add a few micrometres at
+        // ordinary scene scales (and more at very large magnitudes). Measure
+        // the exact per-chunk bound and preserve it in the first scale field.
+        let mut error_bound = 0.0005f32;
+        for record in records {
+            for component in record.position {
+                let millimeters = (component * 1_000.0).round();
+                let restored = millimeters / 1_000.0;
+                error_bound = error_bound.max((component - restored).abs());
+            }
+        }
+        return Ok(([0.0, 0.0], [error_bound, 0.0], error_bound));
     }
     let mut min = records[0].position;
     let mut max = records[0].position;
@@ -444,7 +457,27 @@ fn position_metadata(
             scale[axis] = span / 65_534.0;
         }
     }
-    Ok((min, scale, scale[0].max(scale[1]) * 0.5))
+    Ok((min, scale, affine_error_bound(min, scale)))
+}
+
+fn affine_error_bound(origin: [f32; 2], scale: [f32; 2]) -> f32 {
+    let quantization = scale[0].max(scale[1]) * 0.5;
+    if quantization == 0.0 {
+        return 0.0;
+    }
+    let max_reconstructed_magnitude = (0..2)
+        .flat_map(|axis| {
+            [
+                origin[axis].abs(),
+                (origin[axis] + scale[axis] * 65_534.0).abs(),
+            ]
+        })
+        .fold(0.0f32, f32::max);
+    // Encoding performs subtraction/division/rounding and decoding performs
+    // multiply/add in f32. Four ULPs at the chunk's largest magnitude cover
+    // those operations without pretending the mathematical half-step is the
+    // complete machine-level error bound.
+    quantization + max_reconstructed_magnitude * f32::EPSILON * 4.0
 }
 
 fn read_bytes<const N: usize>(bytes: &[u8], cursor: &mut usize) -> Result<[u8; N], CodecError> {

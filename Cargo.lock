@@ -146,10 +146,12 @@ dependencies = [
 name = "crowd-bench"
 version = "0.1.0"
 dependencies = [
+ "crowd-cache",
  "crowd-core",
  "crowd-trace",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
