@@ -108,7 +108,26 @@ def _named_attribute(nodes, name, data_type, location):
     return node
 
 
-def ensure_cache_node_group(prototypes):
+def clip_amplitudes(clips, field):
+    """Per-clip amplitudes in radians read from `field`, indexed by clip ID."""
+    return [float(clip[field]) for clip in clips]
+
+
+def _amplitude_switch(nodes, links, index_socket, amplitudes, name, location):
+    """Select a per-clip amplitude by clip ID."""
+    node = nodes.new("GeometryNodeIndexSwitch")
+    node.name = name
+    node.data_type = "FLOAT"
+    node.location = location
+    while len(node.index_switch_items) < len(amplitudes):
+        node.index_switch_items.new()
+    links.new(index_socket, node.inputs["Index"])
+    for offset, radians in enumerate(amplitudes):
+        node.inputs[offset + 1].default_value = radians
+    return node
+
+
+def ensure_cache_node_group(prototypes, clips):
     """Build the versioned cache-only instancing contract."""
     existing = bpy.data.node_groups.get(CACHE_NODE_GROUP_NAME)
     if existing is not None:
@@ -172,19 +191,47 @@ def ensure_cache_node_group(prototypes):
     phase_sine.location = (-600, 80)
     links.new(phase_angle.outputs[0], phase_sine.inputs[0])
 
+    # Every amplitude is manifest data. A clip declares how far a limb swings
+    # and how far the body leans, and idle declares zero for both, so neither
+    # this graph nor the canonical rig invents an amplitude of its own.
+    limb_radians = clip_amplitudes(clips, "swing_radians")
+    body_radians = clip_amplitudes(clips, "body_swing_radians")
+
     clip = _named_attribute(nodes, "crowd_clip_id", "INT", (-1000, -80))
-    moving_clip = nodes.new("FunctionNodeCompare")
-    moving_clip.data_type = "INT"
-    moving_clip.operation = "GREATER_THAN"
-    moving_clip.inputs["B"].default_value = 0
-    moving_clip.location = (-800, -80)
-    links.new(clip.outputs["Attribute"], moving_clip.inputs["A"])
+    clip_index = nodes.new("ShaderNodeMath")
+    clip_index.operation = "MINIMUM"
+    clip_index.inputs[1].default_value = float(max(len(limb_radians) - 1, 0))
+    clip_index.location = (-870, -80)
+    links.new(clip.outputs["Attribute"], clip_index.inputs[0])
+    clip_floor = nodes.new("ShaderNodeMath")
+    clip_floor.operation = "MAXIMUM"
+    clip_floor.inputs[1].default_value = 0.0
+    clip_floor.location = (-700, -80)
+    links.new(clip_index.outputs[0], clip_floor.inputs[0])
+
+    limb_amplitude = _amplitude_switch(
+        nodes,
+        links,
+        clip_floor.outputs[0],
+        limb_radians,
+        "M1 Clip Swing Amplitude",
+        (-540, -80),
+    )
+    body_amplitude = _amplitude_switch(
+        nodes,
+        links,
+        clip_floor.outputs[0],
+        body_radians,
+        "M1 Clip Body Amplitude",
+        (-540, -260),
+    )
+
     swing = nodes.new("ShaderNodeMath")
     swing.name = "M1 Walk Jog Proxy Swing"
     swing.operation = "MULTIPLY"
     swing.location = (-380, 60)
     links.new(phase_sine.outputs[0], swing.inputs[0])
-    links.new(moving_clip.outputs["Result"], swing.inputs[1])
+    links.new(limb_amplitude.outputs[0], swing.inputs[1])
 
     store_swing = nodes.new("GeometryNodeStoreNamedAttribute")
     store_swing.domain = "POINT"
@@ -204,9 +251,20 @@ def ensure_cache_node_group(prototypes):
     orientation = _named_attribute(
         nodes, "crowd_orientation", "FLOAT", (-390, -500)
     )
+    # swing_radians is what a limb travels; crowd_proxy_swing carries it and
+    # the canonical rig swings through the same value. A body does not travel
+    # as far as the limb attached to it, so the lean has its own declared
+    # amplitude rather than a fraction of the limb's.
+    body_lean = nodes.new("ShaderNodeMath")
+    body_lean.name = "M1 Proxy Body Lean"
+    body_lean.operation = "MULTIPLY"
+    body_lean.location = (-300, -430)
+    links.new(phase_sine.outputs[0], body_lean.inputs[0])
+    links.new(body_amplitude.outputs[0], body_lean.inputs[1])
+
     rotation = nodes.new("ShaderNodeCombineXYZ")
     rotation.location = (-120, -430)
-    links.new(swing.outputs[0], rotation.inputs["X"])
+    links.new(body_lean.outputs[0], rotation.inputs["X"])
     links.new(orientation.outputs["Attribute"], rotation.inputs["Z"])
 
     scale_value = _named_attribute(nodes, "crowd_scale", "FLOAT", (-390, -650))
@@ -229,9 +287,9 @@ def ensure_cache_node_group(prototypes):
     return group
 
 
-def attach_cache(obj, prototypes):
+def attach_cache(obj, prototypes, clips):
     modifier = obj.modifiers.get(CACHE_MODIFIER_NAME)
     if modifier is None:
         modifier = obj.modifiers.new(CACHE_MODIFIER_NAME, "NODES")
-    modifier.node_group = ensure_cache_node_group(prototypes)
+    modifier.node_group = ensure_cache_node_group(prototypes, clips)
     return modifier

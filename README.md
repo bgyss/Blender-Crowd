@@ -45,6 +45,31 @@ completed cache after the simulation process is gone. See the
 [M1 acceptance evidence](docs/benchmarks/2026-08-10-m1-vertical-slice.md) and
 [clean-file walkthrough](docs/user/m1-reference-walkthrough.md).
 
+![The 1,000-agent M1 reference concourse rendered from a completed cache](docs/media/m1-concourse-1000.gif)
+
+The M1 reference concourse: 1,000 agents over the full 10,000-tick strict bake,
+rendered in Blender 5.2 LTS from a **completed cache with no simulation session
+in the process**. 96% of agents reach their destination with zero static-boundary
+escapes. The `east_gate` portal closes at tick 600 and reopens at tick 900; the
+65 routes that used it are invalidated and fully recovered by tick 913, and the
+55 routes that did not use it are untouched.
+
+This clip is a visualisation, not a measurement. Frames are rendered one at a
+time with a cache sync between them, so neither its length nor its frame rate
+says anything about playback or simulation speed; every 20th tick becomes a
+frame, so it runs at roughly 20x simulation time by design. The measured
+costs — simulation, cache write, cache read, point upload, armature evaluation,
+Eevee, and Cycles CPU — are recorded separately in the
+[M1 acceptance evidence](docs/benchmarks/2026-08-10-m1-vertical-slice.md).
+
+Regenerate it with `scripts/make-m1-recording.sh` (needs Blender and `ffmpeg`).
+It bakes a strict cache, clean-installs the extension, and records from that
+cache; an `.mp4` and a `docs/media/m1-concourse-1000.json` sidecar naming the
+exact cache manifest hash are written alongside the GIF.
+
+The earlier `crossing` clips below are kept deliberately. M1 did not close the
+flow-quality gap they show.
+
 ![1,000 baked agents playing back in Blender through Geometry Nodes](docs/media/blender-playback-crossing-1000.gif)
 
 A 1,000-agent `crossing` bake played back inside Blender 5.2 LTS, coloured by
@@ -115,6 +140,7 @@ scripts/verify-wheel.sh                                   # trace + wheel round 
 scripts/blender-install-test.sh                           # clean install + native module load
 scripts/blender-playback-test.sh                          # 1,000-point playback, costs reported separately
 scripts/make-blender-recording.sh crossing 1000           # playback clip -> docs/media/ (needs ffmpeg)
+scripts/make-m1-recording.sh                              # M1 cache-only concourse clip -> docs/media/ (needs ffmpeg)
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 1000 --trace
 ```

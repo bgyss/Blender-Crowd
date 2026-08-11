@@ -74,7 +74,9 @@ class CROWD_OT_attach_cache(Operator):
         try:
             assets = reference_assets.ensure_reference_assets(context.scene)
             playback = cache_playback.CachePlayback(path)
-            geometry_nodes.attach_cache(playback.object, assets["prototypes"])
+            geometry_nodes.attach_cache(
+                playback.object, assets["prototypes"], assets["manifest"]["clips"]
+            )
             cache_playback.set_active(playback)
             _ACTIVE["cache_playback"] = playback
             context.scene.frame_start = playback.tick_start

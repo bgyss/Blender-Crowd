@@ -35,7 +35,7 @@ the [M0 consolidated report](2026-08-10-m0-consolidated.md).
 | Static-agent digest | `4076b0e828eaf990e502abd020751cca5c7938cd1c989b306a653061874f8988` |
 | Dynamic discrete digest | `80737b41bc70d8cbe3b70c3dd23721ec72ad0359bdcbbc0d4832ef7e21fd247a` |
 | Render cache-manifest hash | `619eecf7925fc7423ff9d708804dc4eb65261790a82cf35d14ef4c5058028e4a` |
-| Render scene hash | `9b4dff120c5b4a95ab9e97abb476d89a994cc0d464bd53194d7df5da9b1d04f1` |
+| Render scene hash | `554b6cb1b767cf174d9619f9a9b402e1bb3de0bd92ab175289165b58d67edc8a` |
 
 The reference assets are redistributable procedural fixtures bundled with the
 extension: four meshes, four materials, one canonical proxy armature, and
@@ -136,15 +136,82 @@ commuters were visible. It measured presentation costs independently:
 
 | Measurement | Result |
 |---|---:|
-| Cache decode plus point upload | 0.00421 s |
-| Canonical single-armature evaluation loop | 0.13464 s |
-| Eevee, GPU, 16 samples | 0.45818 s |
-| Cycles, CPU, 4 samples | 0.03559 s |
-| Peak Blender resident memory | 421,117,952 bytes |
+| Cache decode plus point upload | 0.00485 s |
+| Canonical single-armature evaluation loop | 0.00144 s |
+| Eevee, GPU, 16 samples | 0.50545 s |
+| Cycles, CPU, 4 samples | 0.05709 s |
+| Peak Blender resident memory | 425,394,176 bytes |
+
+These five figures were remeasured on 2026-08-10, after the original run was
+found to be wrong and after the reference camera was reframed; see
+[Corrections](#corrections-2026-08-10). The cache manifest hash is unchanged.
+The render scene hash changed with the camera and is stated above.
 
 The tiny smoke renders use different engines and sample counts; their wall
 times are not a quality-normalized renderer comparison. None of these values is
 added to, or presented as, isolated simulation throughput.
+
+## Corrections (2026-08-10)
+
+The first version of this report published five presentation figures that were
+measured wrongly. Both defects are fixed, the reference camera was reframed, the
+render run was repeated, and the tables above carry the remeasured values. The
+record of what was wrong stays here rather than being quietly overwritten.
+
+**The reference images were drawn at tick 1, not tick 4,999.** `CachePlayback`
+registers a `frame_change_post` handler, and `bpy.ops.render.render()` fires it.
+The workflow positioned playback with `sync_to_tick(4999)`, measured 700 proxy
+instances there, and then rendered — at which point the handler re-synced
+playback to `frame_current`, which was still 1. The reported tick and instance
+count were honest measurements of a state that was discarded before a pixel was
+drawn. The published Eevee and Cycles times were therefore timings of a nearly
+empty concourse, and understated the real cost.
+
+`render_reference` now positions through the scene frame, the shipped playback
+path, and raises if the frame does not land on the reference tick. The metrics
+gained `rendered_tick` and `post_render_proxy_instance_count`, both measured
+after the renders rather than before, and `tests/blender/test_m1_render.py`
+requires `rendered_tick` to equal `reference_tick`. The previous test could not
+catch this: it only asserted that a render contained more than 100
+non-background pixels, which an opening frame satisfies.
+
+**The armature figure was mostly cache decoding.** `_measure_armature` steps the
+timeline 31 times, and with the handler attached each step decoded a cache tick.
+The published 0.13464 s was therefore a measurement of 31 cache reads plus
+armature evaluation, in a report whose stated purpose is to keep those costs
+apart. The loop now runs under `cache_playback.suspended_frame_sync()`, and the
+isolated cost is 0.00122 s.
+
+**The reference camera was reframed.** The concourse ground is 60 x 20, roughly
+3:1, against a 16:9 frame. Viewing it square-on from the south left the crowd in
+a band across the middle with dead space above and below. The camera now looks
+along the long axis from the south-west corner, at `(-10, -22, 17)` with a 42 mm
+lens aimed at `(32, 11, 1)`, which runs the concourse up the frame diagonal and
+keeps near agents large enough to read. This changes the render scene hash from
+`9b4dff120c5b4a95ab9e97abb476d89a994cc0d464bd53194d7df5da9b1d04f1` to the value
+stated in the environment table. It is a framing change only: the cache, the
+tick, and the 700 instances rendered are the same.
+
+**The proxy gait tipped commuters over.** The node group fed its walk-cycle
+swing straight into the instance rotation's X component, which is in radians,
+with an implied amplitude of 1.0 rad. Every moving commuter therefore pitched
+through +/-57.3 degrees, and at the reference tick 47 of the 109 moving agents
+were leaning past 45 degrees, which reads as agents lying on the floor. The
+amplitude was also invented rather than read: `commuter-assets-v1.json` declares
+`swing_radians` per clip, 0.0 idle, 0.55 walk, 0.9 jog, and the node group
+ignored all three, so the graph and the canonical rig disagreed about the same
+clip. That declared value is how far a limb travels, not how far a body leans,
+so the fixture now declares both: `body_swing_radians` is 0.0 idle, 0.08 walk,
+0.14 jog, and the node group selects each by clip ID. Neither consumer derives
+one amplitude from the other or invents its own. The worst instance lean at the
+reference tick is now 4.58 degrees, and `tests/blender/test_m1_cache_playback.py`
+measures the worst lean off the evaluated instance transforms and fails past 15
+degrees.
+
+No simulation, cache, determinism, portal, override, or channel result is
+affected: all of those come from the Rust kernel and the cache readers, not from
+the render workflow or the node group. The remeasured renders are slower than
+the retracted ones, and the remeasured armature figure is faster.
 
 ## Acceptance criteria 1–8
 
