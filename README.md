@@ -43,15 +43,16 @@ strict 10,000-tick rebake, isolates a timed portal change, preserves all v1
 playback channels, supports a reversible one-agent pin, and renders from a
 completed cache after the simulation process is gone. See the
 [M1 acceptance evidence](docs/benchmarks/2026-08-10-m1-vertical-slice.md) and
-[clean-file walkthrough](docs/user/m1-reference-walkthrough.md).
+[standstill correction](docs/benchmarks/2026-08-11-standstill-correction.md),
+plus the [clean-file walkthrough](docs/user/m1-reference-walkthrough.md).
 
 ![The 1,000-agent M1 reference concourse rendered from a completed cache](docs/media/m1-concourse-1000.gif)
 
 The M1 reference concourse: 1,000 agents over the full 10,000-tick strict bake,
 rendered in Blender 5.2 LTS from a **completed cache with no simulation session
-in the process**. 96% of agents reach their destination with zero static-boundary
+in the process**. 96.4% of agents reach their destination with zero static-boundary
 escapes. The `east_gate` portal closes at tick 600 and reopens at tick 900; the
-65 routes that used it are invalidated and fully recovered by tick 913, and the
+65 routes that used it are invalidated and fully recovered by tick 907, and the
 55 routes that did not use it are untouched.
 
 This clip is a visualisation, not a measurement. Frames are rendered one at a
