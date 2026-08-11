@@ -136,11 +136,11 @@ commuters were visible. It measured presentation costs independently:
 
 | Measurement | Result |
 |---|---:|
-| Cache decode plus point upload | 0.00457 s |
-| Canonical single-armature evaluation loop | 0.00159 s |
-| Eevee, GPU, 16 samples | 0.54714 s |
-| Cycles, CPU, 4 samples | 0.06796 s |
-| Peak Blender resident memory | 429,441,024 bytes |
+| Cache decode plus point upload | 0.00485 s |
+| Canonical single-armature evaluation loop | 0.00144 s |
+| Eevee, GPU, 16 samples | 0.50545 s |
+| Cycles, CPU, 4 samples | 0.05709 s |
+| Peak Blender resident memory | 425,394,176 bytes |
 
 These five figures were remeasured on 2026-08-10, after the original run was
 found to be wrong and after the reference camera was reframed; see
@@ -192,10 +192,24 @@ keeps near agents large enough to read. This changes the render scene hash from
 stated in the environment table. It is a framing change only: the cache, the
 tick, and the 700 instances rendered are the same.
 
+**The proxy gait tipped commuters over.** The node group fed its walk-cycle
+swing straight into the instance rotation's X component, which is in radians,
+with an implied amplitude of 1.0 rad. Every moving commuter therefore pitched
+through +/-57.3 degrees, and at the reference tick 47 of the 109 moving agents
+were leaning past 45 degrees, which reads as agents lying on the floor. The
+amplitude was also invented rather than read: `commuter-assets-v1.json` declares
+`swing_radians` per clip, 0.0 idle, 0.55 walk, 0.9 jog, and the node group
+ignored all three, so the graph and the canonical rig disagreed about the same
+clip. The graph now reads the manifest amplitude by clip ID and leans the body
+through `BODY_LEAN_FRACTION` of it, since the declared value is a limb swing
+rather than a body lean. The worst instance lean at the reference tick is now
+4.73 degrees, and `tests/blender/test_m1_cache_playback.py` measures the worst
+lean off the evaluated instance transforms and fails past 15 degrees.
+
 No simulation, cache, determinism, portal, override, or channel result is
 affected: all of those come from the Rust kernel and the cache readers, not from
-the render workflow. The remeasured renders are slower than the retracted ones,
-and the remeasured armature figure is faster.
+the render workflow or the node group. The remeasured renders are slower than
+the retracted ones, and the remeasured armature figure is faster.
 
 ## Acceptance criteria 1–8
 
