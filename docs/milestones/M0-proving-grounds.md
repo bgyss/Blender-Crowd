@@ -11,6 +11,7 @@ Blender bridge evidence before building polished authoring UI.
 - [Industrial capability roadmap](../industrial-crowd-capability-roadmap.md)
 - [Kernel slice design](../superpowers/specs/2026-08-04-crowd-sim-kernel-design.md)
 - [Kernel slice implementation plan](../superpowers/plans/2026-08-04-crowd-sim-kernel.md)
+- [Final M0 acceptance evidence](../benchmarks/2026-08-10-m0-consolidated.md)
 
 ## Prerequisites and baseline
 

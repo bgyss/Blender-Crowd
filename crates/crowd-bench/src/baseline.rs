@@ -215,6 +215,7 @@ pub fn compare(baseline: &Baseline, report: &Report) -> Comparison {
 mod tests {
     use super::*;
     use crate::report::{run_scene, RunOptions};
+    use std::path::PathBuf;
 
     fn report() -> crate::report::Report {
         run_scene(&RunOptions {
@@ -312,6 +313,32 @@ mod tests {
         let json = serde_json::to_string_pretty(&baseline).unwrap();
         let parsed: Baseline = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, baseline);
+    }
+
+    #[test]
+    fn checked_in_baselines_match_the_current_scene_identity_contract() {
+        let baseline_dir =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/baselines");
+
+        for scene_name in crowd_core::scenes::SCENE_NAMES {
+            let path = baseline_dir.join(format!("{scene_name}.json"));
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+            let baseline: Baseline = serde_json::from_str(&text)
+                .unwrap_or_else(|error| panic!("cannot parse {}: {error}", path.display()));
+            let scene = crowd_core::scenes::build(scene_name, baseline.agents, baseline.seed)
+                .unwrap_or_else(|| panic!("cannot build baseline scene {scene_name}"));
+            let compiled = scene
+                .compile()
+                .unwrap_or_else(|errors| panic!("cannot compile {scene_name}: {errors:?}"));
+
+            assert_eq!(
+                baseline.scene_hash,
+                compiled.scene_hash(),
+                "{} was measured against an obsolete scene identity; regenerate its baseline",
+                path.display()
+            );
+        }
     }
 
     #[test]

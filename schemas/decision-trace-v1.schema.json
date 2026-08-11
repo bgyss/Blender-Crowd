@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.invalid/schemas/decision-trace-v1.schema.json",
+  "title": "Blender Crowd selected-agent decision trace v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "agent_id",
+    "tick",
+    "position",
+    "desired_velocity",
+    "solved_velocity",
+    "corridor_portal_ids",
+    "corridor_points",
+    "next_target",
+    "destination_id",
+    "path_status",
+    "commuter_state_code",
+    "commuter_state",
+    "clip_id",
+    "clip_phase",
+    "playback_rate",
+    "relevant_portals",
+    "decision_code",
+    "decision_reason"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "agent_id": { "type": "integer", "minimum": 0 },
+    "tick": { "type": "integer", "minimum": 0 },
+    "position": { "$ref": "#/$defs/vec2" },
+    "desired_velocity": { "$ref": "#/$defs/vec2" },
+    "solved_velocity": { "$ref": "#/$defs/vec2" },
+    "corridor_portal_ids": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 }
+    },
+    "corridor_points": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/vec2" }
+    },
+    "next_target": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/vec2" }
+      ]
+    },
+    "destination_id": { "type": "integer", "minimum": 0 },
+    "path_status": { "enum": ["routed", "unrouted", "arrived"] },
+    "commuter_state_code": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "commuter_state": { "enum": ["unspawned", "travel", "arrived", "blocked"] },
+    "clip_id": { "type": "integer", "minimum": 0 },
+    "clip_phase": { "type": "number", "minimum": 0, "exclusiveMaximum": 1 },
+    "playback_rate": { "type": "number", "minimum": 0 },
+    "relevant_portals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["portal_id", "open"],
+        "properties": {
+          "portal_id": { "type": "string", "minLength": 1 },
+          "open": { "type": "boolean" }
+        }
+      }
+    },
+    "decision_code": { "type": "integer", "minimum": 0, "maximum": 6 },
+    "decision_reason": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "vec2": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "number" },
+        { "type": "number" }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    }
+  }
+}

@@ -4,7 +4,9 @@ Deliberately reads the trace a second time with hand-rolled `struct` parsing
 instead of trusting the extension module's own numbers. A bridge that agrees
 with itself proves nothing; the point is to confirm that what crosses the FFI
 boundary still matches the bytes on disk, in the layout `numpy.frombuffer`
-plus `foreach_set` will assume.
+plus `foreach_set` will assume. It then drives the coarse project/session/cache
+facade, including cross-thread cancellation while the native bake releases the
+GIL.
 
 Stdlib only: this must run in a bare interpreter, and in Blender's Python
 (task 7) where third-party packages are not a given.
@@ -12,8 +14,14 @@ Stdlib only: this must run in a bare interpreter, and in Blender's Python
 Usage: python scripts/verify_wheel.py <trace-file>
 """
 
+import glob
+import os
+from pathlib import Path
 import struct
 import sys
+import tempfile
+import threading
+import time
 
 import blender_crowd_native
 
@@ -33,6 +41,27 @@ CHANNELS = {
     "clip_index": 1,
     "phase": 1,
     "playback_rate": 1,
+    "render_tier": 1,
+}
+
+CACHE_CHANNELS = {
+    "position": 3,
+    "orientation": 1,
+    "scale": 1,
+    "agent_id_lo": 1,
+    "agent_id_hi": 1,
+    "population_id": 1,
+    "archetype_id": 1,
+    "variant_id": 1,
+    "spawn_ordinal": 1,
+    "clip_id": 1,
+    "phase": 1,
+    "playback_rate": 1,
+    "behavior_state": 1,
+    "decision_reason": 1,
+    "destination_id": 1,
+    "velocity": 3,
+    "visible": 1,
     "render_tier": 1,
 }
 
@@ -169,6 +198,88 @@ def main(path):
         print(f"  ok: negative tick raises OSError ({exc})")
     else:
         raise Failure("negative tick did not raise OSError")
+
+    print("project/session/cache facade:")
+    project_path = Path(__file__).resolve().parents[1] / "assets/reference/concourse-project-v1.json"
+    project_json = project_path.read_text(encoding="utf-8")
+    project = blender_crowd_native.compile_project(project_json)
+    check(project.agent_count == 1000, "reference project compiles to 1,000 agents")
+    agent_ids = project.agent_ids()
+    check(len(agent_ids) == 1000 and len(set(agent_ids)) == 1000, "compiled agent IDs are unique")
+
+    session = project.create_session(agent_count=25)
+    check(session.agent_count == 25, "strict session contains 25 requested agents")
+    session.step(10)
+    snapshot = session.query_agent(agent_ids[0])
+    check(snapshot["agent_id"] == agent_ids[0], "query_agent preserves the stable ID")
+    check(snapshot["visible"] is True, "queried agent has spawned after ten ticks")
+
+    with tempfile.TemporaryDirectory(prefix="blender-crowd-wheel-") as temp:
+        complete_path = os.path.join(temp, "complete.crowd")
+        complete_result = session.bake(
+            complete_path,
+            ticks=60,
+            cancel_token=blender_crowd_native.CancelToken(),
+        )
+        check(complete_result["status"] == "complete", "facade bake completes")
+        del session
+
+        cache = blender_crowd_native.Cache(complete_path, require_complete=True)
+        check(cache.agent_count == 25, "complete cache reopens after session destruction")
+        buffers = cache.read_tick(cache.tick_start)
+        check(set(buffers) == set(CACHE_CHANNELS), "cache returns every v1 playback channel")
+        for name, per_agent in CACHE_CHANNELS.items():
+            expected = cache.agent_count * per_agent * 4
+            check(
+                isinstance(buffers[name], bytes) and len(buffers[name]) == expected,
+                f"cache {name} is {expected} bytes",
+            )
+
+        canceled_path = os.path.join(temp, "canceled.crowd")
+        token = blender_crowd_native.CancelToken()
+        worker_result = {}
+        worker_error = []
+        ready = threading.Event()
+
+        def bake_worker():
+            try:
+                canceled_session = project.create_session(agent_count=25)
+                ready.set()
+                worker_result.update(
+                    canceled_session.bake(canceled_path, ticks=6000, cancel_token=token)
+                )
+            except Exception as error:  # surfaced below with its exact repr
+                worker_error.append(error)
+
+        worker = threading.Thread(target=bake_worker, name="crowd-bake-verifier")
+        worker.start()
+        check(ready.wait(timeout=5), "cancellation worker entered bake setup")
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if glob.glob(os.path.join(canceled_path, "frames", "*.chunk")):
+                break
+            if not worker.is_alive():
+                break
+            time.sleep(0.005)
+        check(
+            bool(glob.glob(os.path.join(canceled_path, "frames", "*.chunk"))),
+            "cancellation waits for one atomically published chunk",
+        )
+        token.cancel()
+        worker.join(timeout=15)
+        check(not worker.is_alive(), "canceled bake worker joins")
+        check(not worker_error, f"canceled bake raised no worker error ({worker_error!r})")
+        check(worker_result.get("status") == "canceled", "bake reports canceled")
+
+        try:
+            blender_crowd_native.Cache(canceled_path, require_complete=True)
+        except OSError as exc:
+            print(f"  ok: complete reader rejects canceled cache ({exc})")
+        else:
+            raise Failure("complete reader accepted canceled cache")
+        recovery = blender_crowd_native.inspect_cache(canceled_path)
+        check(recovery["status"] == "canceled", "recovery inspector reports canceled")
+        check(recovery["valid_chunk_count"] >= 1, "recovery inspector preserves completed chunks")
 
     print("PASS")
 

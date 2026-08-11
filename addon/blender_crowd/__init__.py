@@ -5,12 +5,18 @@ the extension is imported as `bl_ext.user_default.blender_crowd`, so absolute
 imports of the package name fail.
 """
 
-from . import operators
+from . import cache_playback, operators, panels, properties
 
 
 def register():
+    properties.register()
+    cache_playback.register()
     operators.register()
+    panels.register()
 
 
 def unregister():
+    panels.unregister()
     operators.unregister()
+    cache_playback.unregister()
+    properties.unregister()

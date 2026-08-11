@@ -33,11 +33,38 @@ integration proposal backed by production evidence.
 
 ## Status
 
-Phase 0 is implemented: a headless, deterministic Rust simulation kernel with
-structure-of-arrays agents, a fixed tick, spatial queries, three avoidance
-solvers, six benchmark scenes, and measured metrics reports. A reproducible
-72-report bake-off selected `sampled_velocity` as the production default.
-Nothing here touches Blender yet.
+M0 and M1 are accepted, and M2 is unblocked. The implemented system includes a
+headless deterministic Rust kernel, selected navigation and avoidance, a
+recoverable versioned cache, an abi3 native facade, a clean-install Blender
+extension, and cache-only Geometry Nodes presentation.
+
+The M1 reference concourse compiles exactly 1,000 stable agents, performs a
+strict 10,000-tick rebake, isolates a timed portal change, preserves all v1
+playback channels, supports a reversible one-agent pin, and renders from a
+completed cache after the simulation process is gone. See the
+[M1 acceptance evidence](docs/benchmarks/2026-08-10-m1-vertical-slice.md) and
+[clean-file walkthrough](docs/user/m1-reference-walkthrough.md).
+
+![1,000 baked agents playing back in Blender through Geometry Nodes](docs/media/blender-playback-crossing-1000.gif)
+
+A 1,000-agent `crossing` bake played back inside Blender 5.2 LTS, coloured by
+which stream each agent entered from: orange enters from the west heading east,
+blue from the south heading north. Every frame is a Blender render of the point
+cloud the shipped `TracePlayback` synced, instanced by the shipped node group.
+
+This clip is a visualisation, not a measurement. Frames are rendered one at a
+time with a sync between them, so neither its length nor its frame rate says
+anything about playback speed; it runs at roughly 10x simulation time by
+design. The measured playback cost is in the
+[Blender bridge benchmark report](docs/benchmarks/2026-08-07-blender-bridge.md),
+and it is reported separately from the bake that produced the trace.
+
+It also shows the open problem, the same one the 600-agent GIF below shows: the
+two streams jam where they intersect and only a trickle escapes. That is the
+24% completion rate in the metrics, not a rendering artefact.
+
+Regenerate it with `scripts/make-blender-recording.sh` (needs Blender and
+`ffmpeg`). An `.mp4` of the same run is written alongside the GIF.
 
 ![600 agents crossing, sampled_velocity solver](docs/media/crossing-600.gif)
 
@@ -71,6 +98,15 @@ cargo run --release -p crowd-bench -- run --agents 1000 --svg --solver sampled_v
 cargo run --release -p crowd-bench -- check --agents 1000 # regression against baselines
 cargo run --release -p crowd-bench -- compare --out benchmarks/reports  # three-solver, four-scale bake-off
 
+cargo run --release -p crowd-bench -- nav-reroute --agents 1000 --svg  # tiled-navmesh portal reroute (M0 item 4)
+cargo test --release -p crowd-core --test two_room_reroute -- --ignored  # 1,000-agent reroute acceptance test
+scripts/cache-experiment.sh                               # measured 1,000-agent cache matrix
+scripts/m0-acceptance.sh                                  # complete ordered M0 gate + JSON evidence
+cargo test --release -p crowd-core --test m1_strict -- --ignored --nocapture
+scripts/m1-bake-test.sh                                   # two strict bakes + cancel/recovery proof
+scripts/m1-blender-test.sh                                # clean project/cache/override/render suite
+scripts/m1-render-test.sh --out /tmp/blender-crowd-m1-render  # detailed render metrics + PNGs
+
 cargo run --release -p crowd-bench -- run --scene crossing --agents 600 --frames
 scripts/make-gif.sh crossing 600                          # frames -> docs/media/crossing-600.gif
 
@@ -78,6 +114,7 @@ scripts/build-wheel.sh                                    # abi3 wheel -> addon/
 scripts/verify-wheel.sh                                   # trace + wheel round trip in a plain CPython
 scripts/blender-install-test.sh                           # clean install + native module load
 scripts/blender-playback-test.sh                          # 1,000-point playback, costs reported separately
+scripts/make-blender-recording.sh crossing 1000           # playback clip -> docs/media/ (needs ffmpeg)
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 1000 --trace
 ```
@@ -99,7 +136,9 @@ includes that per-tick disk I/O plus the invoking process's own overhead
 not the simulator alone. Quote timings only from unrecorded runs.
 
 `cargo test --workspace` runs the density fuzz in debug, which is slow; use the
-release invocation above when iterating.
+release invocation above when iterating. The M0 acceptance runner executes the
+rest of the workspace in debug and the density cases once in release so the
+complete gate does not duplicate the same long stress tests in two profiles.
 
 Baselines in `benchmarks/baselines/` record measured output, not targets. Per
 the contract, quality thresholds are set only after a baseline is reviewed.

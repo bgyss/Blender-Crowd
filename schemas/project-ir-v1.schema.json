@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/project-ir-v1.schema.json",
+  "title": "Blender Crowd Project IR v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "seed",
+    "units",
+    "clock",
+    "mode",
+    "commuter_program",
+    "archetypes",
+    "appearances",
+    "populations",
+    "semantics",
+    "portal_events",
+    "settings"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "project_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "seed": { "type": "integer", "minimum": 0 },
+    "units": { "$ref": "#/$defs/units" },
+    "clock": { "$ref": "#/$defs/clock" },
+    "mode": { "enum": ["strict", "fast"] },
+    "commuter_program": { "const": "commuter_v1" },
+    "archetypes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/archetype" }
+    },
+    "appearances": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/appearance" }
+    },
+    "populations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/population" }
+    },
+    "semantics": { "$ref": "#/$defs/semantics" },
+    "portal_events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/portal_event" }
+    },
+    "settings": { "$ref": "#/$defs/settings" }
+  },
+  "$defs": {
+    "logical_id": { "type": "string", "minLength": 1 },
+    "finite_number": { "type": "number" },
+    "point": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "$ref": "#/$defs/finite_number" },
+        { "$ref": "#/$defs/finite_number" }
+      ],
+      "items": false
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "$ref": "#/$defs/point" },
+        "max": { "$ref": "#/$defs/point" }
+      }
+    },
+    "units": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["length", "angle"],
+      "properties": {
+        "length": { "const": "meters" },
+        "angle": { "const": "radians" }
+      }
+    },
+    "clock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticks_per_second", "frame_start", "frame_end", "frames_per_second"],
+      "properties": {
+        "ticks_per_second": { "type": "integer", "minimum": 1 },
+        "frame_start": { "type": "integer" },
+        "frame_end": { "type": "integer" },
+        "frames_per_second": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "archetype": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "asset_id", "clip_set_id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/logical_id" },
+        "asset_id": { "$ref": "#/$defs/logical_id" },
+        "clip_set_id": { "$ref": "#/$defs/logical_id" }
+      }
+    },
+    "appearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "material_id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/logical_id" },
+        "material_id": { "$ref": "#/$defs/logical_id" }
+      }
+    },
+    "weighted_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "weight"],
+      "properties": {
+        "id": { "$ref": "#/$defs/logical_id" },
+        "weight": { "type": "number", "minimum": 0 }
+      }
+    },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "$ref": "#/$defs/finite_number" },
+        "max": { "$ref": "#/$defs/finite_number" }
+      }
+    },
+    "normal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mean", "stddev"],
+      "properties": {
+        "mean": { "$ref": "#/$defs/finite_number" },
+        "stddev": { "type": "number", "minimum": 0 }
+      }
+    },
+    "population": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "count",
+        "emission_interval_ticks",
+        "spawn_source_ids",
+        "destinations",
+        "archetypes",
+        "appearances",
+        "radius_m",
+        "preferred_speed_mps",
+        "scale"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/logical_id" },
+        "count": { "type": "integer", "minimum": 1 },
+        "emission_interval_ticks": { "type": "integer", "minimum": 1 },
+        "spawn_source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/logical_id" }
+        },
+        "destinations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/weighted_ref" }
+        },
+        "archetypes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/weighted_ref" }
+        },
+        "appearances": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/weighted_ref" }
+        },
+        "radius_m": { "$ref": "#/$defs/range" },
+        "preferred_speed_mps": { "$ref": "#/$defs/normal" },
+        "scale": { "$ref": "#/$defs/range" }
+      }
+    },
+    "walkable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "bounds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/logical_id" },
+        "bounds": { "$ref": "#/$defs/bounds" }
+      }
+    },
+    "blocked": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "walkable_id", "bounds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/logical_id" },
+        "walkable_id": { "$ref": "#/$defs/logical_id" },
+        "bounds": { "$ref": "#/$defs/bounds" }
+      }
+    },
+    "spawn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "walkable_id", "start_tick", "bounds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/logical_id" },
+        "walkable_id": { "$ref": "#/$defs/logical_id" },
+        "start_tick": { "type": "integer", "minimum": 0 },
+        "bounds": { "$ref": "#/$defs/bounds" }
+      }
+    },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "walkable_id", "point", "capacity_bounds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/logical_id" },
+        "walkable_id": { "$ref": "#/$defs/logical_id" },
+        "point": { "$ref": "#/$defs/point" },
+        "capacity_bounds": { "$ref": "#/$defs/bounds" }
+      }
+    },
+    "portal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "from_walkable_id",
+        "to_walkable_id",
+        "center",
+        "width_m",
+        "axis",
+        "bidirectional",
+        "initially_open"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/logical_id" },
+        "from_walkable_id": { "$ref": "#/$defs/logical_id" },
+        "to_walkable_id": { "$ref": "#/$defs/logical_id" },
+        "center": { "$ref": "#/$defs/point" },
+        "width_m": { "type": "number", "exclusiveMinimum": 0 },
+        "axis": { "enum": ["east_west", "north_south"] },
+        "bidirectional": { "type": "boolean" },
+        "initially_open": { "type": "boolean" }
+      }
+    },
+    "semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["walkable", "blocked", "spawns", "destinations", "portals"],
+      "properties": {
+        "walkable": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/walkable" }
+        },
+        "blocked": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/blocked" }
+        },
+        "spawns": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/spawn" }
+        },
+        "destinations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/destination" }
+        },
+        "portals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/portal" }
+        }
+      }
+    },
+    "portal_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tick", "portal_id", "open"],
+      "properties": {
+        "tick": { "type": "integer", "minimum": 0 },
+        "portal_id": { "$ref": "#/$defs/logical_id" },
+        "open": { "type": "boolean" }
+      }
+    },
+    "navigation_settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tile_size_m", "agent_radius_m"],
+      "properties": {
+        "tile_size_m": { "type": "number", "exclusiveMinimum": 0 },
+        "agent_radius_m": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "avoidance_settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["solver"],
+      "properties": {
+        "solver": { "const": "sampled_velocity" }
+      }
+    },
+    "animation_settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locomotion_set_id", "jog_threshold_mps"],
+      "properties": {
+        "locomotion_set_id": { "$ref": "#/$defs/logical_id" },
+        "jog_threshold_mps": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["navigation", "avoidance", "animation"],
+      "properties": {
+        "navigation": { "$ref": "#/$defs/navigation_settings" },
+        "avoidance": { "$ref": "#/$defs/avoidance_settings" },
+        "animation": { "$ref": "#/$defs/animation_settings" }
+      }
+    }
+  }
+}

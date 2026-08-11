@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "project_id": "6b5ad627-360b-4c58-9df5-52e306cf20d6",
+  "seed": 2026,
+  "units": {
+    "length": "meters",
+    "angle": "radians"
+  },
+  "clock": {
+    "ticks_per_second": 30,
+    "frame_start": 0,
+    "frame_end": 9999,
+    "frames_per_second": 30
+  },
+  "mode": "strict",
+  "commuter_program": "commuter_v1",
+  "archetypes": [
+    {
+      "id": "adult_a",
+      "asset_id": "procedural_commuter_a",
+      "clip_set_id": "pedestrian_basic_a"
+    },
+    {
+      "id": "adult_b",
+      "asset_id": "procedural_commuter_b",
+      "clip_set_id": "pedestrian_basic_b"
+    },
+    {
+      "id": "adult_c",
+      "asset_id": "procedural_commuter_c",
+      "clip_set_id": "pedestrian_basic_c"
+    }
+  ],
+  "appearances": [
+    { "id": "blue", "material_id": "commuter_blue" },
+    { "id": "green", "material_id": "commuter_green" },
+    { "id": "orange", "material_id": "commuter_orange" },
+    { "id": "red", "material_id": "commuter_red" }
+  ],
+  "populations": [
+    {
+      "id": "commuters",
+      "count": 1000,
+      "emission_interval_ticks": 5,
+      "spawn_source_ids": ["east_platform", "west_platform"],
+      "destinations": [
+        { "id": "central_stop", "weight": 0.2 },
+        { "id": "east_exit", "weight": 0.4 },
+        { "id": "west_exit", "weight": 0.4 }
+      ],
+      "archetypes": [
+        { "id": "adult_a", "weight": 0.4 },
+        { "id": "adult_b", "weight": 0.35 },
+        { "id": "adult_c", "weight": 0.25 }
+      ],
+      "appearances": [
+        { "id": "blue", "weight": 0.25 },
+        { "id": "green", "weight": 0.25 },
+        { "id": "orange", "weight": 0.25 },
+        { "id": "red", "weight": 0.25 }
+      ],
+      "radius_m": { "min": 0.24, "max": 0.38 },
+      "preferred_speed_mps": { "mean": 1.35, "stddev": 0.18 },
+      "scale": { "min": 0.94, "max": 1.06 }
+    }
+  ],
+  "semantics": {
+    "walkable": [
+      { "id": "central_concourse", "bounds": { "min": [20.0, 0.0], "max": [40.0, 20.0] } },
+      { "id": "east_hall", "bounds": { "min": [40.0, 0.0], "max": [60.0, 20.0] } },
+      { "id": "west_hall", "bounds": { "min": [0.0, 0.0], "max": [20.0, 20.0] } }
+    ],
+    "blocked": [
+      {
+        "id": "central_kiosk",
+        "walkable_id": "central_concourse",
+        "bounds": { "min": [28.0, 8.0], "max": [32.0, 12.0] }
+      }
+    ],
+    "spawns": [
+      {
+        "id": "east_platform",
+        "walkable_id": "east_hall",
+        "start_tick": 0,
+        "bounds": { "min": [42.0, 2.0], "max": [58.0, 18.0] }
+      },
+      {
+        "id": "west_platform",
+        "walkable_id": "west_hall",
+        "start_tick": 4000,
+        "bounds": { "min": [2.0, 2.0], "max": [18.0, 18.0] }
+      }
+    ],
+    "destinations": [
+      {
+        "id": "central_stop",
+        "walkable_id": "central_concourse",
+        "point": [35.0, 16.0],
+        "capacity_bounds": { "min": [20.5, 0.5], "max": [39.5, 7.5] }
+      },
+      {
+        "id": "east_exit",
+        "walkable_id": "east_hall",
+        "point": [58.0, 10.0],
+        "capacity_bounds": { "min": [40.5, 0.5], "max": [59.5, 19.5] }
+      },
+      {
+        "id": "west_exit",
+        "walkable_id": "west_hall",
+        "point": [2.0, 10.0],
+        "capacity_bounds": { "min": [0.5, 0.5], "max": [19.5, 19.5] }
+      }
+    ],
+    "portals": [
+      {
+        "id": "east_gate",
+        "from_walkable_id": "central_concourse",
+        "to_walkable_id": "east_hall",
+        "center": [40.0, 10.0],
+        "width_m": 18.0,
+        "axis": "east_west",
+        "bidirectional": true,
+        "initially_open": true
+      },
+      {
+        "id": "west_gate",
+        "from_walkable_id": "west_hall",
+        "to_walkable_id": "central_concourse",
+        "center": [20.0, 10.0],
+        "width_m": 18.0,
+        "axis": "east_west",
+        "bidirectional": true,
+        "initially_open": true
+      }
+    ]
+  },
+  "portal_events": [
+    { "tick": 600, "portal_id": "east_gate", "open": false },
+    { "tick": 900, "portal_id": "east_gate", "open": true }
+  ],
+  "settings": {
+    "navigation": { "tile_size_m": 0.5, "agent_radius_m": 0.3 },
+    "avoidance": { "solver": "sampled_velocity" },
+    "animation": { "locomotion_set_id": "pedestrian_basic", "jog_threshold_mps": 1.8 }
+  }
+}

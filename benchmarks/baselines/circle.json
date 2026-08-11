@@ -2,7 +2,7 @@
   "scene": "circle",
   "agents": 1000,
   "seed": 2026,
-  "scene_hash": 5123858751233080433,
+  "scene_hash": 17865299596926110879,
   "solver": "sampled_velocity",
   "metrics": {
     "abrupt_turns": {
@@ -90,7 +90,7 @@
       "tolerance": 0.0
     },
     "ticks_per_second_achieved": {
-      "value": 103.78960992702763,
+      "value": 99.4362294513148,
       "tolerance": 0.5
     },
     "wall_corrections": {
@@ -98,7 +98,7 @@
       "tolerance": 0.0
     },
     "wall_time_seconds": {
-      "value": 54.841713,
+      "value": 57.242717583,
       "tolerance": 0.5
     }
   }

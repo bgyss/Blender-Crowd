@@ -188,6 +188,8 @@ fn bidirectional_corridor(agents: u32, seed: u64) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: 1800,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -241,6 +243,8 @@ fn crossing(agents: u32, seed: u64) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: 1800,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -298,6 +302,8 @@ fn bottleneck(agents: u32, seed: u64, scale: f32) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: (3600.0 * scale).round() as u64,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -362,6 +368,8 @@ fn dense_flow(agents: u32, seed: u64, scale: f32) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: (3600.0 * scale).round() as u64,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -409,6 +417,8 @@ fn l_corridor(agents: u32, seed: u64) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: 2400,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -416,17 +426,40 @@ fn l_corridor(agents: u32, seed: u64) -> SceneDef {
 ///
 /// Everyone converges on the centre simultaneously with perfect symmetry,
 /// which is why this is the standard oscillation and deadlock test.
+// Authored as literal f32 points rather than evaluated with sin/cos.
+// LLVM can reassociate the angle arithmetic in optimized builds, producing a
+// one-bit coordinate difference and therefore a different scene identity for
+// the same source input in debug and release profiles.
+// The bits are the previously measured release geometry, so making the
+// coordinates deterministic does not redefine the accepted benchmark.
+const CIRCLE_POINTS: [Vec2; 16] = [
+    Vec2::new(f32::from_bits(0x4170_0000), f32::from_bits(0x0000_0000)),
+    Vec2::new(f32::from_bits(0x415d_bb28), f32::from_bits(0x40b7_b025)),
+    Vec2::new(f32::from_bits(0x4129_b4a4), f32::from_bits(0x4129_b4a4)),
+    Vec2::new(f32::from_bits(0x40b7_b024), f32::from_bits(0x415d_bb28)),
+    Vec2::new(f32::from_bits(0xb530_015b), f32::from_bits(0x4170_0000)),
+    Vec2::new(f32::from_bits(0xc0b7_b026), f32::from_bits(0x415d_bb28)),
+    Vec2::new(f32::from_bits(0xc129_b4a4), f32::from_bits(0x4129_b4a4)),
+    Vec2::new(f32::from_bits(0xc15d_bb2a), f32::from_bits(0x40b7_b01f)),
+    Vec2::new(f32::from_bits(0xc170_0000), f32::from_bits(0xb5b0_015b)),
+    Vec2::new(f32::from_bits(0xc15d_bb28), f32::from_bits(0xc0b7_b024)),
+    Vec2::new(f32::from_bits(0xc129_b4a2), f32::from_bits(0xc129_b4a6)),
+    Vec2::new(f32::from_bits(0xc0b7_b01a), f32::from_bits(0xc15d_bb2b)),
+    Vec2::new(f32::from_bits(0x3440_104b), f32::from_bits(0xc170_0000)),
+    Vec2::new(f32::from_bits(0x40b7_b029), f32::from_bits(0xc15d_bb27)),
+    Vec2::new(f32::from_bits(0x4129_b4a8), f32::from_bits(0xc129_b4a0)),
+    Vec2::new(f32::from_bits(0x415d_bb29), f32::from_bits(0xc0b7_b024)),
+];
+
 fn circle(agents: u32, seed: u64) -> SceneDef {
-    const SECTORS: u32 = 16;
-    const RADIUS: f32 = 15.0;
+    const SECTORS: u32 = CIRCLE_POINTS.len() as u32;
     let bounds = Aabb::new(Vec2::new(-20.0, -20.0), Vec2::new(20.0, 20.0));
 
     let mut waypoints = WaypointGraph::new();
     let centre = waypoints.add_node(Vec2::ZERO);
     let mut perimeter = Vec::new();
-    for sector in 0..SECTORS {
-        let angle = std::f32::consts::TAU * sector as f32 / SECTORS as f32;
-        let node = waypoints.add_node(Vec2::from_yaw(angle) * RADIUS);
+    for point in CIRCLE_POINTS {
+        let node = waypoints.add_node(point);
         waypoints.add_edge(centre, node);
         perimeter.push(node);
     }
@@ -440,8 +473,7 @@ fn circle(agents: u32, seed: u64) -> SceneDef {
 
     let spawns: Vec<SpawnRegion> = (0..SECTORS)
         .map(|sector| {
-            let angle = std::f32::consts::TAU * sector as f32 / SECTORS as f32;
-            let centre_point = Vec2::from_yaw(angle) * RADIUS;
+            let centre_point = CIRCLE_POINTS[sector as usize];
             SpawnRegion {
                 id: sector as u16,
                 population_id: 0,
@@ -468,6 +500,8 @@ fn circle(agents: u32, seed: u64) -> SceneDef {
         project_seed: seed,
         ticks_per_second: 30,
         duration_ticks: 1800,
+        nav: None,
+        nav_destinations: Vec::new(),
     }
 }
 
@@ -481,6 +515,38 @@ mod tests {
     fn every_named_scene_builds() {
         for name in SCENE_NAMES {
             assert!(build(name, 100, 42).is_some(), "{name} did not build");
+        }
+    }
+
+    #[test]
+    fn circle_geometry_uses_profile_independent_authored_directions() {
+        let expected = [
+            [0x4170_0000, 0x0000_0000],
+            [0x415d_bb28, 0x40b7_b025],
+            [0x4129_b4a4, 0x4129_b4a4],
+            [0x40b7_b024, 0x415d_bb28],
+            [0xb530_015b, 0x4170_0000],
+            [0xc0b7_b026, 0x415d_bb28],
+            [0xc129_b4a4, 0x4129_b4a4],
+            [0xc15d_bb2a, 0x40b7_b01f],
+            [0xc170_0000, 0xb5b0_015b],
+            [0xc15d_bb28, 0xc0b7_b024],
+            [0xc129_b4a2, 0xc129_b4a6],
+            [0xc0b7_b01a, 0xc15d_bb2b],
+            [0x3440_104b, 0xc170_0000],
+            [0x40b7_b029, 0xc15d_bb27],
+            [0x4129_b4a8, 0xc129_b4a0],
+            [0x415d_bb29, 0xc0b7_b024],
+        ];
+        let scene = circle(16, 2026);
+
+        for (sector, expected_bits) in expected.into_iter().enumerate() {
+            let actual = scene.waypoints.position(sector as u32 + 1);
+            assert_eq!(
+                [actual.x.to_bits(), actual.y.to_bits()],
+                expected_bits,
+                "sector {sector} changed with floating-point evaluation strategy"
+            );
         }
     }
 

@@ -9,6 +9,7 @@ use crowd_core::avoidance::{
     AnticipatorySolver, AvoidanceSolver, OrcaSolver, SampledVelocitySolver,
 };
 use crowd_core::ids::AgentId;
+use crowd_core::nav_scenes::{two_room, SOUTH_DOOR};
 use crowd_core::scenes;
 use crowd_core::sim::{SimConfig, Simulation};
 use crowd_core::world::World;
@@ -179,6 +180,66 @@ fn changing_the_seed_changes_the_outcome() {
         let a = simulate(solver_name, "crossing", 200, 1, 200);
         let b = simulate(solver_name, "crossing", 200, 2, 200);
         assert_ne!(a.state_hash(), b.state_hash(), "{solver_name}");
+    }
+}
+
+#[test]
+fn two_room_identical_runs_produce_identical_state_hashes() {
+    for solver_name in SOLVER_NAMES {
+        let build = || {
+            Simulation::new(
+                two_room(60, 2026).compile().unwrap(),
+                boxed_solver(solver_name),
+                SimConfig::default(),
+            )
+        };
+        let mut a = build();
+        let mut b = build();
+        for tick in 0..300 {
+            a.step();
+            b.step();
+            assert_eq!(
+                a.state_hash(),
+                b.state_hash(),
+                "{solver_name}: diverged at tick {tick}"
+            );
+        }
+    }
+}
+
+#[test]
+fn two_room_portal_close_stays_deterministic() {
+    for solver_name in SOLVER_NAMES {
+        let build = || {
+            Simulation::new(
+                two_room(60, 2026).compile().unwrap(),
+                boxed_solver(solver_name),
+                SimConfig::default(),
+            )
+        };
+        let mut a = build();
+        let mut b = build();
+        for _ in 0..100 {
+            a.step();
+            b.step();
+        }
+        let south_a = a.nav().unwrap().portals_named(SOUTH_DOOR).to_vec();
+        let south_b = b.nav().unwrap().portals_named(SOUTH_DOOR).to_vec();
+        assert_eq!(
+            south_a, south_b,
+            "{solver_name}: named-portal resolution itself must be deterministic"
+        );
+        a.set_portals_open(&south_a, false);
+        b.set_portals_open(&south_b, false);
+        for tick in 0..300 {
+            a.step();
+            b.step();
+            assert_eq!(
+                a.state_hash(),
+                b.state_hash(),
+                "{solver_name}: diverged at tick {tick} after portal close"
+            );
+        }
     }
 }
 

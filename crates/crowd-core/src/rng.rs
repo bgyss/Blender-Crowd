@@ -22,6 +22,11 @@ pub enum Purpose {
     MaxSpeed,
     SpawnPosition,
     DestinationChoice,
+    SpawnSourceChoice,
+    ArchetypeChoice,
+    AppearanceChoice,
+    Scale,
+    DestinationPosition,
 }
 
 impl Purpose {
@@ -32,6 +37,11 @@ impl Purpose {
             Purpose::MaxSpeed => 3,
             Purpose::SpawnPosition => 4,
             Purpose::DestinationChoice => 5,
+            Purpose::SpawnSourceChoice => 6,
+            Purpose::ArchetypeChoice => 7,
+            Purpose::AppearanceChoice => 8,
+            Purpose::Scale => 9,
+            Purpose::DestinationPosition => 10,
         }
     }
 }
