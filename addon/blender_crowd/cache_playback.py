@@ -1,5 +1,6 @@
 """Cache v1 playback into Blender point attributes without a live session."""
 
+import contextlib
 import json
 
 import numpy as np
@@ -194,6 +195,24 @@ def set_active(playback):
 
 def active_playback():
     return _ACTIVE
+
+
+@contextlib.contextmanager
+def suspended_frame_sync():
+    """Detach the frame handler so scene frame changes do not touch the cache.
+
+    Scoped measurements that step the timeline for their own reasons need this:
+    without it every frame_set decodes a cache tick, which both moves playback
+    off the tick under measurement and folds cache reads into the measurement.
+    """
+    attached = _frame_change_handler in bpy.app.handlers.frame_change_post
+    if attached:
+        bpy.app.handlers.frame_change_post.remove(_frame_change_handler)
+    try:
+        yield
+    finally:
+        if attached and _frame_change_handler not in bpy.app.handlers.frame_change_post:
+            bpy.app.handlers.frame_change_post.append(_frame_change_handler)
 
 
 def _frame_change_handler(scene, _depsgraph=None):
