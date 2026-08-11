@@ -28,6 +28,7 @@ use crate::phases::plan::{invalidate_portal, plan, PlanConfig, PlanState};
 use crate::phases::spawn::{apply_spawns, SpawnState};
 use crate::phases::steer::{steer, SteerConfig, SteerScratch};
 use crate::route::RouteArena;
+use crate::runtime_behavior::RuntimeBehaviorController;
 use crate::scene::CompiledScene;
 use crate::world::{SpawnError, World, NO_ROUTE};
 
@@ -67,6 +68,7 @@ pub struct Simulation {
     integrate_scratch: IntegrateScratch,
 
     metrics: Metrics,
+    authorable_behavior: Option<RuntimeBehaviorController>,
 }
 
 impl Simulation {
@@ -115,6 +117,7 @@ impl Simulation {
             steer_scratch: SteerScratch::default(),
             integrate_scratch: IntegrateScratch::default(),
             metrics: Metrics::new(),
+            authorable_behavior: None,
         }
     }
 
@@ -152,6 +155,17 @@ impl Simulation {
 
     pub fn nav(&self) -> Option<&TileGraph> {
         self.nav.as_ref()
+    }
+
+    pub fn enable_authorable_behavior(&mut self, controller: RuntimeBehaviorController) {
+        self.authorable_behavior = Some(controller);
+    }
+
+    pub fn behavior_trace(
+        &self,
+        agent_id: crate::ids::AgentId,
+    ) -> Option<&crate::behavior::DecisionOutcome> {
+        self.authorable_behavior.as_ref()?.trace(agent_id)
     }
 
     /// Toggle a portal's open/closed state and selectively invalidate the
@@ -437,6 +451,9 @@ impl Simulation {
 
         let start = Instant::now();
         decide(&mut self.world, &self.routes, &self.config.decide);
+        if let Some(controller) = &mut self.authorable_behavior {
+            controller.apply(&mut self.world, &self.neighbors, self.clock.tick());
+        }
         self.metrics
             .record_phase(Phase::Decide, start.elapsed().as_nanos() as u64);
 

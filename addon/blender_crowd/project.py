@@ -12,6 +12,9 @@ PROJECT_TEXT_NAME = "CrowdProjectIrV1"
 SEMANTIC_COLLECTION_NAME = "Crowd Project Semantics"
 SEMANTIC_BOX_MESH_ID = "crowd_semantic_unit_box"
 REFERENCE_PROJECT_FILE = "concourse-project-v1.json"
+BEHAVIOR_GRAPH_TEXT_NAME = "CrowdBehaviorGraphV1"
+REFERENCE_BEHAVIOR_GRAPH_FILE = "leave-concourse-v1.json"
+REFERENCE_AUTHORING_FILE = "concourse-authoring-v2.json"
 
 _BOUNDED_TYPES = {
     "walkable": "bounds",
@@ -35,6 +38,24 @@ def _reference_path(filename):
 def load_reference_project():
     with _reference_path(REFERENCE_PROJECT_FILE).open(encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def load_reference_behavior_graph():
+    with _reference_path(REFERENCE_BEHAVIOR_GRAPH_FILE).open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def load_reference_authoring_semantics():
+    with _reference_path(REFERENCE_AUTHORING_FILE).open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def behavior_graph_json():
+    """Return the artist-editable graph text, never a per-agent Python callback."""
+    text = bpy.data.texts.get(BEHAVIOR_GRAPH_TEXT_NAME)
+    if text is None:
+        raise ValueError("create a reference project or behavior graph first")
+    return text.as_string()
 
 
 def _semantic_collection(scene):
@@ -163,6 +184,13 @@ def create_reference_project(scene):
     text.clear()
     text.write(json.dumps(ir, sort_keys=True, separators=(",", ":")))
     text["crowd_logical_id"] = "reference_project_ir_v1"
+
+    graph_text = bpy.data.texts.get(BEHAVIOR_GRAPH_TEXT_NAME)
+    if graph_text is None:
+        graph_text = bpy.data.texts.new(BEHAVIOR_GRAPH_TEXT_NAME)
+    graph_text.clear()
+    graph_text.write(json.dumps(load_reference_behavior_graph(), sort_keys=True, separators=(",", ":")))
+    graph_text["crowd_logical_id"] = "reference_behavior_graph_v1"
 
     collection = _semantic_collection(scene)
     semantics = ir["semantics"]
