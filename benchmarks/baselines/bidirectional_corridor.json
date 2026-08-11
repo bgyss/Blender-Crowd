@@ -2,7 +2,7 @@
   "scene": "bidirectional_corridor",
   "agents": 1000,
   "seed": 2026,
-  "scene_hash": 3190085348676797339,
+  "scene_hash": 4409500316940296349,
   "solver": "sampled_velocity",
   "metrics": {
     "abrupt_turns": {
@@ -66,7 +66,7 @@
       "tolerance": 0.0
     },
     "peak_allocated_bytes": {
-      "value": 353989.0,
+      "value": 418139.0,
       "tolerance": 0.15
     },
     "penetration_agent_ticks": {
@@ -90,7 +90,7 @@
       "tolerance": 0.0
     },
     "ticks_per_second_achieved": {
-      "value": 106.3335830072452,
+      "value": 104.31160458423021,
       "tolerance": 0.5
     },
     "wall_corrections": {
@@ -98,7 +98,7 @@
       "tolerance": 0.0
     },
     "wall_time_seconds": {
-      "value": 53.529654875,
+      "value": 54.567274875,
       "tolerance": 0.5
     }
   }

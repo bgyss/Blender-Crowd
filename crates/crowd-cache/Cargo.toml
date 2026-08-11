@@ -1,0 +1,16 @@
+[package]
+name = "crowd-cache"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+blake3 = { workspace = true }
+crc32c = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+jsonschema = { version = "0.33", default-features = false }
+proptest = { workspace = true }
+tempfile = "3.20"

@@ -2,7 +2,7 @@
   "scene": "dense_flow",
   "agents": 1000,
   "seed": 2026,
-  "scene_hash": 11316014117645596981,
+  "scene_hash": 7202504934273943188,
   "solver": "sampled_velocity",
   "metrics": {
     "abrupt_turns": {
@@ -66,7 +66,7 @@
       "tolerance": 0.0
     },
     "peak_allocated_bytes": {
-      "value": 456649.0,
+      "value": 457822.0,
       "tolerance": 0.15
     },
     "penetration_agent_ticks": {
@@ -90,7 +90,7 @@
       "tolerance": 0.0
     },
     "ticks_per_second_achieved": {
-      "value": 100.19178716740191,
+      "value": 99.6716511211162,
       "tolerance": 0.5
     },
     "wall_corrections": {
@@ -98,7 +98,7 @@
       "tolerance": 0.0
     },
     "wall_time_seconds": {
-      "value": 113.622087417,
+      "value": 114.21502375,
       "tolerance": 0.5
     }
   }

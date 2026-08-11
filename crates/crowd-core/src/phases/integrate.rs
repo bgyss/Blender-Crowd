@@ -165,6 +165,8 @@ mod tests {
             project_seed: 1,
             ticks_per_second: 30,
             duration_ticks: 10,
+            nav: None,
+            nav_destinations: Vec::new(),
         }
         .compile()
         .unwrap()

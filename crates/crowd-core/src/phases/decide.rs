@@ -32,6 +32,20 @@ pub fn decide(world: &mut World, routes: &RouteArena, config: &DecideConfig) {
             continue;
         }
 
+        if world.custom_destination_bounds[slot] {
+            let position = world.position(slot as u32);
+            if position.x >= world.destination_min_x[slot]
+                && position.x <= world.destination_max_x[slot]
+                && position.y >= world.destination_min_y[slot]
+                && position.y <= world.destination_max_y[slot]
+            {
+                world.arrived[slot] = true;
+                world.des_vel_x[slot] = 0.0;
+                world.des_vel_y[slot] = 0.0;
+                continue;
+            }
+        }
+
         let position = Vec2::new(world.pos_x[slot], world.pos_y[slot]);
         let points = routes.points(world.route[slot]);
 

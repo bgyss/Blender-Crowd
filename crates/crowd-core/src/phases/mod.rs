@@ -4,14 +4,18 @@
 //! mutable next-state buffers, so read and write sets are visible in the
 //! signature and a later parallel pass needs no semantic change.
 
+pub mod animate;
 pub mod decide;
 pub mod integrate;
 pub mod perceive;
+pub mod plan;
 pub mod spawn;
 pub mod steer;
 
+pub use animate::{animate, AnimateConfig, IDLE_CLIP_ID, JOG_CLIP_ID, WALK_CLIP_ID};
 pub use decide::{decide, DecideConfig};
 pub use integrate::{integrate, IntegrateConfig, IntegrateReport, IntegrateScratch};
 pub use perceive::{perceive, PerceiveConfig, PerceiveScratch};
+pub use plan::{invalidate_portal, plan, PlanConfig, PlanState};
 pub use spawn::{apply_spawns, SpawnState};
 pub use steer::{steer, SteerConfig, SteerReport, SteerScratch};

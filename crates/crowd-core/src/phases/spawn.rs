@@ -98,23 +98,41 @@ pub fn apply_spawns(
     let mut errors = Vec::new();
 
     for (spawn_index, region) in scene.spawns.iter().enumerate() {
+        if !scene.agent_specs_by_spawn.is_empty() && scene.runtime_spawn_interval_ticks > 1 {
+            let interval = u64::from(scene.runtime_spawn_interval_ticks);
+            let start_tick = scene.runtime_spawn_start_ticks[spawn_index];
+            if tick < start_tick || !(tick - start_tick).is_multiple_of(interval) {
+                continue;
+            }
+        }
         let already = state.emitted[spawn_index];
         let remaining = region.count.saturating_sub(already);
         let this_tick = remaining.min(region.per_tick);
 
         for offset in 0..this_tick {
             let ordinal = already + offset;
-            let agent_id =
-                derive_agent_id(scene.project_seed, region.population_id, region.id, ordinal);
+            let runtime_spec = scene
+                .agent_specs_by_spawn
+                .get(spawn_index)
+                .and_then(|specs| specs.get(ordinal as usize));
+            let agent_id = runtime_spec.map_or_else(
+                || derive_agent_id(scene.project_seed, region.population_id, region.id, ordinal),
+                |spec| spec.agent_id,
+            );
 
-            let params = &scene.populations[region.population_id as usize];
+            let population_id =
+                runtime_spec.map_or(region.population_id, |spec| spec.population_id as u16);
+            let params = &scene.populations[population_id as usize];
 
-            let mut radius_rng =
-                StableRng::for_agent(scene.project_seed, agent_id, Purpose::Radius);
-            let radius = radius_rng.range_f32(params.radius_min, params.radius_max);
+            let radius = runtime_spec.map_or_else(
+                || {
+                    let mut radius_rng =
+                        StableRng::for_agent(scene.project_seed, agent_id, Purpose::Radius);
+                    radius_rng.range_f32(params.radius_min, params.radius_max)
+                },
+                |spec| spec.radius_m,
+            );
 
-            let mut speed_rng =
-                StableRng::for_agent(scene.project_seed, agent_id, Purpose::PreferredSpeed);
             // Clamp keeps a rare tail sample from producing a zero or negative
             // preferred speed, which would make an agent permanently stalled.
             //
@@ -123,9 +141,16 @@ pub fn apply_spawns(
             // ceiling is always at least twice the floor. That check is what
             // makes this `clamp` safe — `f32::clamp` panics on inverted
             // bounds, in release as well as debug.
-            let preferred_speed = speed_rng
-                .normal_f32(params.speed_mean, params.speed_stddev)
-                .clamp(MIN_PREFERRED_SPEED, params.speed_mean * 2.0);
+            let preferred_speed = runtime_spec.map_or_else(
+                || {
+                    let mut speed_rng =
+                        StableRng::for_agent(scene.project_seed, agent_id, Purpose::PreferredSpeed);
+                    speed_rng
+                        .normal_f32(params.speed_mean, params.speed_stddev)
+                        .clamp(MIN_PREFERRED_SPEED, params.speed_mean * 2.0)
+                },
+                |spec| spec.preferred_speed_mps,
+            );
 
             let mut position_rng =
                 StableRng::for_agent(scene.project_seed, agent_id, Purpose::SpawnPosition);
@@ -137,40 +162,71 @@ pub fn apply_spawns(
                 SPAWN_CLEARANCE,
             );
 
-            let destination_node = scene.destinations[region.destination as usize].node;
-            let route = match scene.waypoints.nearest_node(position) {
-                Some(from) => match scene.waypoints.shortest_path(from, destination_node) {
-                    Some(path) => {
-                        let points: Vec<Vec2> =
-                            path.iter().map(|n| scene.waypoints.position(*n)).collect();
-                        routes.push_route(&points)
-                    }
-                    // Compilation already proved reachability from the region
-                    // centre; an individual sample can still fail only if the
-                    // graph is malformed, and an unrouted agent is preferable
-                    // to a panic mid-bake.
+            let destination =
+                runtime_spec.map_or(region.destination, |spec| spec.destination_id as u16);
+            let (route, heading) = if let Some(dest_point) = scene
+                .nav
+                .as_ref()
+                .and(scene.nav_destinations.get(destination as usize))
+            {
+                // A nav-routed scene assigns no route at spawn time: the new
+                // `plan` phase (Task 6) budgets pathfinding across ticks. The
+                // agent starts `NO_ROUTE` and is picked up by `plan` this
+                // tick or a later one.
+                (NO_ROUTE, (*dest_point - position).normalize_or_zero())
+            } else {
+                let destination_node = scene.destinations[destination as usize].node;
+                let route = match scene.waypoints.nearest_node(position) {
+                    Some(from) => match scene.waypoints.shortest_path(from, destination_node) {
+                        Some(path) => {
+                            let points: Vec<Vec2> =
+                                path.iter().map(|n| scene.waypoints.position(*n)).collect();
+                            routes.push_route(&points)
+                        }
+                        // Compilation already proved reachability from the
+                        // region centre; an individual sample can still fail
+                        // only if the graph is malformed, and an unrouted
+                        // agent is preferable to a panic mid-bake.
+                        None => NO_ROUTE,
+                    },
                     None => NO_ROUTE,
-                },
-                None => NO_ROUTE,
+                };
+                let heading =
+                    (scene.waypoints.position(destination_node) - position).normalize_or_zero();
+                (route, heading)
             };
-
-            let heading =
-                (scene.waypoints.position(destination_node) - position).normalize_or_zero();
 
             let spawn = AgentSpawn {
                 agent_id,
-                population_id: region.population_id,
+                population_id,
                 position,
                 yaw: heading.to_yaw(),
                 radius,
                 max_speed: preferred_speed * params.max_speed_factor,
                 preferred_speed,
                 route,
-                destination: region.destination,
+                destination,
             };
 
-            if let Err(error) = world.spawn(spawn, tick) {
-                errors.push(error);
+            match world.spawn(spawn, tick) {
+                Ok(slot) => {
+                    if let Some(spec) = runtime_spec {
+                        let slot = slot as usize;
+                        world.archetype_id[slot] = spec.archetype_id;
+                        world.variant_id[slot] = spec.variant_id;
+                        world.spawn_ordinal[slot] = spec.spawn_ordinal;
+                        world.scale[slot] = spec.scale;
+                        world.custom_destination[slot] = true;
+                        world.destination_x[slot] = spec.destination_point.x;
+                        world.destination_y[slot] = spec.destination_point.y;
+                        world.custom_destination_bounds[slot] = true;
+                        world.destination_min_x[slot] = spec.destination_bounds.min.x;
+                        world.destination_min_y[slot] = spec.destination_bounds.min.y;
+                        world.destination_max_x[slot] = spec.destination_bounds.max.x;
+                        world.destination_max_y[slot] = spec.destination_bounds.max.y;
+                    }
+                }
+                Err(error) => errors.push(error),
             }
         }
 
@@ -213,6 +269,8 @@ mod tests {
             project_seed: 42,
             ticks_per_second: 30,
             duration_ticks: 100,
+            nav: None,
+            nav_destinations: Vec::new(),
         }
         .compile()
         .unwrap()
@@ -246,6 +304,8 @@ mod tests {
             project_seed: 42,
             ticks_per_second: 30,
             duration_ticks: 100,
+            nav: None,
+            nav_destinations: Vec::new(),
         }
         .compile()
         .unwrap()

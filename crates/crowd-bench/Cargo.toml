@@ -13,7 +13,11 @@ name = "crowd-bench"
 path = "src/main.rs"
 
 [dependencies]
+crowd-cache = { path = "../crowd-cache" }
 crowd-core = { path = "../crowd-core" }
 crowd-trace = { path = "../crowd-trace" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.20"

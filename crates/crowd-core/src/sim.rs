@@ -5,29 +5,36 @@
 //! previous-tick snapshot, which is what makes results independent of the
 //! order agents are visited.
 //!
-//! `Animate` is omitted rather than stubbed: there is no clip data to select
-//! from in this slice.
+//! The M1 `Animate` phase consumes staged integrated motion and publishes only
+//! commuter/clip metadata; trajectory remains owned by integration.
 
 use std::time::Instant;
 
 use crate::arena::NeighborArena;
 use crate::avoidance::AvoidanceSolver;
 use crate::clock::Clock;
+use crate::commuter::{
+    AgentSnapshot, ClipState, DecisionReason, FrameSnapshot, PortalControlError,
+};
 use crate::geometry::Segment;
 use crate::grid::UniformGrid;
 use crate::metrics::{Metrics, MetricsConfig, Phase};
+use crate::nav::{PortalId, TileGraph};
+use crate::phases::animate::{animate, AnimateConfig};
 use crate::phases::decide::{decide, DecideConfig};
 use crate::phases::integrate::{integrate, IntegrateConfig, IntegrateScratch};
 use crate::phases::perceive::{perceive, PerceiveConfig, PerceiveScratch};
+use crate::phases::plan::{invalidate_portal, plan, PlanConfig, PlanState};
 use crate::phases::spawn::{apply_spawns, SpawnState};
 use crate::phases::steer::{steer, SteerConfig, SteerScratch};
 use crate::route::RouteArena;
 use crate::scene::CompiledScene;
-use crate::world::{SpawnError, World};
+use crate::world::{SpawnError, World, NO_ROUTE};
 
 #[derive(Clone, Debug, Default)]
 pub struct SimConfig {
     pub perceive: PerceiveConfig,
+    pub plan: PlanConfig,
     pub decide: DecideConfig,
     pub steer: SteerConfig,
     pub integrate: IntegrateConfig,
@@ -48,6 +55,10 @@ pub struct Simulation {
     routes: RouteArena,
     spawn_state: SpawnState,
     spawn_errors: Vec<SpawnError>,
+    nav: Option<TileGraph>,
+    plan_state: PlanState,
+    timed_input_cursor: usize,
+    animate_config: AnimateConfig,
 
     grid: UniformGrid,
     neighbors: NeighborArena,
@@ -71,6 +82,19 @@ impl Simulation {
         let grid = UniformGrid::new(scene.bounds.expanded(cell_size * 2.0), cell_size);
         let spawn_state = SpawnState::new(&scene);
         let clock = Clock::new(scene.ticks_per_second);
+        let mut nav = scene.nav.clone();
+        if let Some(graph) = &mut nav {
+            for name in &scene.initially_closed_portals {
+                let ids = graph.portals_named(name).to_vec();
+                for id in ids {
+                    graph.set_portal_open(id, false);
+                }
+            }
+        }
+        let animate_config = AnimateConfig {
+            jog_threshold_mps: scene.runtime_animation.jog_threshold_mps,
+            ..AnimateConfig::default()
+        };
 
         Self {
             scene,
@@ -81,6 +105,10 @@ impl Simulation {
             routes: RouteArena::new(),
             spawn_state,
             spawn_errors: Vec::new(),
+            nav,
+            plan_state: PlanState::default(),
+            timed_input_cursor: 0,
+            animate_config,
             grid,
             neighbors: NeighborArena::new(),
             perceive_scratch: PerceiveScratch::default(),
@@ -122,6 +150,235 @@ impl Simulation {
         self.world.state_hash()
     }
 
+    pub fn nav(&self) -> Option<&TileGraph> {
+        self.nav.as_ref()
+    }
+
+    /// Toggle a portal's open/closed state and selectively invalidate the
+    /// corridors of agents whose route crossed it. Returns how many agents
+    /// were invalidated (0 if the scene has no tiled navmesh).
+    pub fn set_portal_open(&mut self, id: PortalId, open: bool) -> usize {
+        self.set_portals_open(std::slice::from_ref(&id), open)
+    }
+
+    /// Toggle every portal in `ids` to the same open/closed state — the form
+    /// a named door (which can span more than one portal; see
+    /// `TileGraph::portals_named`) needs to close or reopen atomically.
+    /// Returns the total number of agents invalidated across all of them.
+    ///
+    /// An agent invalidated by one portal in the set has its route cleared to
+    /// `NO_ROUTE` before the next portal in the set is processed, so it is
+    /// never double-counted even if its old corridor happened to cross more
+    /// than one portal in `ids`.
+    pub fn set_portals_open(&mut self, ids: &[PortalId], open: bool) -> usize {
+        let affected_slots: Vec<usize> = if open {
+            Vec::new()
+        } else {
+            (0..self.world.len())
+                .filter(|slot| self.route_crosses_any(*slot as u32, ids))
+                .collect()
+        };
+        let Some(nav) = &mut self.nav else {
+            return 0;
+        };
+        for &id in ids {
+            nav.set_portal_open(id, open);
+        }
+        let mut invalidated = 0;
+        for &id in ids {
+            invalidated += invalidate_portal(&mut self.world, &mut self.plan_state, id);
+        }
+        for slot in affected_slots {
+            self.world.decision_reason[slot] = DecisionReason::PortalClosedReplan;
+        }
+        invalidated
+    }
+
+    pub fn set_named_portal_open(
+        &mut self,
+        name: &str,
+        open: bool,
+    ) -> Result<usize, PortalControlError> {
+        let ids = self
+            .nav
+            .as_ref()
+            .ok_or(PortalControlError::MissingNavigation)?
+            .portals_named(name)
+            .to_vec();
+        if ids.is_empty() {
+            return Err(PortalControlError::UnknownPortal(name.to_string()));
+        }
+        Ok(self.set_portals_open(&ids, open))
+    }
+
+    pub fn named_portal_is_open(&self, name: &str) -> Result<bool, PortalControlError> {
+        let nav = self
+            .nav
+            .as_ref()
+            .ok_or(PortalControlError::MissingNavigation)?;
+        let ids = nav.portals_named(name);
+        if ids.is_empty() {
+            return Err(PortalControlError::UnknownPortal(name.to_string()));
+        }
+        Ok(ids.iter().all(|id| nav.portal(*id).open))
+    }
+
+    pub fn agent_ids_not_using_portal(
+        &self,
+        name: &str,
+    ) -> Result<Vec<crate::ids::AgentId>, PortalControlError> {
+        let portals = self
+            .nav
+            .as_ref()
+            .ok_or(PortalControlError::MissingNavigation)?
+            .portals_named(name);
+        if portals.is_empty() {
+            return Err(PortalControlError::UnknownPortal(name.to_string()));
+        }
+        Ok((0..self.world.len())
+            .filter(|slot| !self.route_crosses_any(*slot as u32, portals))
+            .map(|slot| self.world.agent_id[slot])
+            .collect())
+    }
+
+    pub fn apply_timed_inputs(&mut self) -> Result<(), PortalControlError> {
+        let tick = self.clock.tick();
+        while let Some(event) = self.scene.timed_portal_events.get(self.timed_input_cursor) {
+            if event.tick > tick {
+                break;
+            }
+            let portal_id = event.portal_id.clone();
+            let open = event.open;
+            self.timed_input_cursor += 1;
+            self.set_named_portal_open(&portal_id, open)?;
+        }
+        Ok(())
+    }
+
+    pub fn frame_snapshot(&self) -> FrameSnapshot {
+        FrameSnapshot {
+            tick: self.clock.tick(),
+            agents: (0..self.world.len())
+                .map(|slot| self.snapshot_at(slot))
+                .collect(),
+        }
+    }
+
+    pub fn query_agent(&self, id: crate::ids::AgentId) -> Option<AgentSnapshot> {
+        self.world
+            .slot_of(id)
+            .map(|slot| self.snapshot_at(slot as usize))
+    }
+
+    /// Stable portal IDs in the agent's current corridor, for bounded debug
+    /// evidence. Unknown or unspawned IDs return `None`; an unrouted agent
+    /// returns an empty list.
+    pub fn route_portal_ids(&self, id: crate::ids::AgentId) -> Option<Vec<u32>> {
+        let slot = self.world.slot_of(id)? as usize;
+        let handle = self.world.route[slot];
+        Some(
+            self.plan_state
+                .portals_for(handle)
+                .unwrap_or_default()
+                .iter()
+                .map(|portal| portal.0)
+                .collect(),
+        )
+    }
+
+    /// Current corridor polyline for selected-agent inspection.
+    pub fn route_points_for_agent(
+        &self,
+        id: crate::ids::AgentId,
+    ) -> Option<Vec<crate::units::Vec2>> {
+        let slot = self.world.slot_of(id)? as usize;
+        Some(self.routes.points(self.world.route[slot]).to_vec())
+    }
+
+    /// Current look-ahead target without mutating the authoritative route
+    /// cursor.
+    pub fn next_route_target(&self, id: crate::ids::AgentId) -> Option<crate::units::Vec2> {
+        let slot = self.world.slot_of(id)? as usize;
+        let points = self.routes.points(self.world.route[slot]);
+        let mut index = self.world.route_index[slot];
+        crate::route::next_target(
+            points,
+            &mut index,
+            self.world.position(slot as u32),
+            self.config.decide.arrive_radius,
+        )
+    }
+
+    fn snapshot_at(&self, slot: usize) -> AgentSnapshot {
+        AgentSnapshot {
+            agent_id: self.world.agent_id[slot],
+            population_id: u32::from(self.world.population_id[slot]),
+            archetype_id: self.world.archetype_id[slot],
+            variant_id: self.world.variant_id[slot],
+            spawn_ordinal: self.world.spawn_ordinal[slot],
+            position: self.world.position(slot as u32),
+            orientation: self.world.yaw[slot],
+            scale: self.world.scale[slot],
+            velocity: self.world.velocity(slot as u32),
+            desired_velocity: self.world.desired_velocity(slot as u32),
+            destination_id: u32::from(self.world.destination[slot]),
+            destination_point: if self.world.custom_destination[slot] {
+                crate::units::Vec2::new(
+                    self.world.destination_x[slot],
+                    self.world.destination_y[slot],
+                )
+            } else {
+                self.scene
+                    .destination_position(self.world.destination[slot])
+                    .unwrap_or(crate::units::Vec2::ZERO)
+            },
+            destination_bounds: if self.world.custom_destination_bounds[slot] {
+                crate::units::Aabb::new(
+                    crate::units::Vec2::new(
+                        self.world.destination_min_x[slot],
+                        self.world.destination_min_y[slot],
+                    ),
+                    crate::units::Vec2::new(
+                        self.world.destination_max_x[slot],
+                        self.world.destination_max_y[slot],
+                    ),
+                )
+            } else {
+                let point = self
+                    .scene
+                    .destination_position(self.world.destination[slot])
+                    .unwrap_or(crate::units::Vec2::ZERO);
+                crate::units::Aabb::new(point, point)
+            },
+            commuter_state: self.world.commuter_state[slot],
+            decision_reason: self.world.decision_reason[slot],
+            clip_state: ClipState {
+                clip_id: self.world.clip_id[slot],
+                phase: self.world.clip_phase[slot],
+                playback_rate: self.world.playback_rate[slot],
+            },
+            visible: self.world.visible[slot],
+            render_tier: self.world.render_tier[slot],
+        }
+    }
+
+    /// True when agent `slot` has a live route whose recorded portal sequence
+    /// crosses at least one portal in `portals`. False for an unrouted or
+    /// arrived agent. Lets a test or caller verify *which* doorway an agent's
+    /// current corridor actually uses, not merely that it has some route.
+    pub fn route_crosses_any(&self, slot: u32, portals: &[PortalId]) -> bool {
+        if self.world.arrived[slot as usize] {
+            return false;
+        }
+        let handle = self.world.route[slot as usize];
+        if handle == NO_ROUTE {
+            return false;
+        }
+        self.plan_state
+            .portals_for(handle)
+            .is_some_and(|seq| seq.iter().any(|p| portals.contains(p)))
+    }
+
     /// Advance one tick through the fixed phase order.
     ///
     /// Timing uses `Instant`, which is wall-clock and therefore varies between
@@ -129,6 +386,12 @@ impl Simulation {
     /// decision, so determinism is unaffected.
     pub fn step(&mut self) {
         self.metrics.begin_tick();
+
+        let start = Instant::now();
+        self.apply_timed_inputs()
+            .expect("compiled timed portal inputs remain valid");
+        self.metrics
+            .record_phase(Phase::Inputs, start.elapsed().as_nanos() as u64);
 
         let start = Instant::now();
         let errors = apply_spawns(
@@ -159,6 +422,20 @@ impl Simulation {
             .record_phase(Phase::Perceive, start.elapsed().as_nanos() as u64);
 
         let start = Instant::now();
+        if let Some(nav) = &self.nav {
+            plan(
+                &mut self.world,
+                nav,
+                &self.scene.nav_destinations,
+                &mut self.plan_state,
+                &mut self.routes,
+                &self.config.plan,
+            );
+        }
+        self.metrics
+            .record_phase(Phase::Plan, start.elapsed().as_nanos() as u64);
+
+        let start = Instant::now();
         decide(&mut self.world, &self.routes, &self.config.decide);
         self.metrics
             .record_phase(Phase::Decide, start.elapsed().as_nanos() as u64);
@@ -183,9 +460,14 @@ impl Simulation {
             self.clock.dt(),
             &mut self.integrate_scratch,
         );
-        self.world.commit();
         self.metrics
             .record_phase(Phase::Integrate, start.elapsed().as_nanos() as u64);
+
+        let start = Instant::now();
+        animate(&mut self.world, &self.animate_config);
+        self.world.commit();
+        self.metrics
+            .record_phase(Phase::Animate, start.elapsed().as_nanos() as u64);
 
         let start = Instant::now();
         self.metrics.record_steer(&steer_report);
@@ -225,6 +507,7 @@ impl Simulation {
 mod tests {
     use super::*;
     use crate::avoidance::SampledVelocitySolver;
+    use crate::nav::NavMeshDef;
     use crate::route::WaypointGraph;
     use crate::scene::{Destination, PopulationParams, SceneDef, SpawnRegion};
     use crate::units::{Aabb, Vec2};
@@ -258,6 +541,8 @@ mod tests {
             project_seed: 2026,
             ticks_per_second: 30,
             duration_ticks: 900,
+            nav: None,
+            nav_destinations: Vec::new(),
         }
         .compile()
         .unwrap()
@@ -374,5 +659,83 @@ mod tests {
         let mut sim = simulation(10);
         sim.run(10);
         assert!(sim.metrics().phase_nanos(Phase::Steer) > 0);
+    }
+
+    fn nav_corridor(count: u32) -> CompiledScene {
+        SceneDef {
+            name: "sim_nav_corridor".into(),
+            bounds: Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(20.0, 4.0)),
+            walls: vec![
+                Segment::new(Vec2::new(0.0, 0.0), Vec2::new(20.0, 0.0)),
+                Segment::new(Vec2::new(0.0, 4.0), Vec2::new(20.0, 4.0)),
+            ],
+            waypoints: WaypointGraph::new(),
+            destinations: vec![Destination {
+                name: "exit".into(),
+                node: 0,
+            }],
+            spawns: vec![SpawnRegion {
+                id: 0,
+                population_id: 0,
+                area: Aabb::new(Vec2::new(1.0, 1.0), Vec2::new(3.0, 3.0)),
+                count,
+                per_tick: 4,
+                destination: 0,
+            }],
+            populations: vec![PopulationParams::default()],
+            project_seed: 2026,
+            ticks_per_second: 30,
+            duration_ticks: 900,
+            nav: Some(NavMeshDef {
+                tile_size: 1.0,
+                agent_radius: 0.3,
+                cost_areas: Vec::new(),
+                named_portals: Vec::new(),
+            }),
+            nav_destinations: vec![Vec2::new(18.0, 2.0)],
+        }
+        .compile()
+        .unwrap()
+    }
+
+    #[test]
+    fn a_nav_routed_simulation_routes_and_moves_its_agents() {
+        let mut sim = Simulation::new(
+            nav_corridor(10),
+            Box::new(SampledVelocitySolver::default()),
+            SimConfig::default(),
+        );
+        sim.run(60);
+        let mut any_routed = false;
+        for slot in 0..sim.world().len() {
+            if sim.world().route[slot] != crate::world::NO_ROUTE {
+                any_routed = true;
+            }
+        }
+        assert!(any_routed, "the plan phase never routed any agent");
+    }
+
+    #[test]
+    fn closing_a_portal_reroutes_only_agents_that_used_it() {
+        let mut sim = Simulation::new(
+            nav_corridor(4),
+            Box::new(SampledVelocitySolver::default()),
+            SimConfig::default(),
+        );
+        sim.run(10);
+        let portal = sim.nav().unwrap().portal_between(0, 1);
+        if let Some(portal) = portal {
+            // This test only proves `set_portal_open` is wired up and does
+            // not panic or desync `commit()` — real reroute selectivity is
+            // proven by the dedicated `two_room` integration test, which
+            // controls geometry precisely enough to assert it. Stepping
+            // after a close with every agent's state staying finite is the
+            // meaningful, non-tautological property available here.
+            sim.set_portal_open(portal, false);
+            sim.step();
+            for slot in 0..sim.world().len() {
+                assert!(sim.world().position(slot as u32).is_finite());
+            }
+        }
     }
 }

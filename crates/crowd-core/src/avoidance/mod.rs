@@ -61,7 +61,7 @@ pub struct AvoidanceOutput {
 // kinematic state into the quality metrics. The steer phase measures the real
 // one against the velocity the agent will actually use.
 
-pub trait AvoidanceSolver {
+pub trait AvoidanceSolver: Send + Sync {
     fn name(&self) -> &'static str;
     fn solve(&self, input: &AvoidanceInput<'_>) -> AvoidanceOutput;
 }
