@@ -200,11 +200,13 @@ were leaning past 45 degrees, which reads as agents lying on the floor. The
 amplitude was also invented rather than read: `commuter-assets-v1.json` declares
 `swing_radians` per clip, 0.0 idle, 0.55 walk, 0.9 jog, and the node group
 ignored all three, so the graph and the canonical rig disagreed about the same
-clip. The graph now reads the manifest amplitude by clip ID and leans the body
-through `BODY_LEAN_FRACTION` of it, since the declared value is a limb swing
-rather than a body lean. The worst instance lean at the reference tick is now
-4.73 degrees, and `tests/blender/test_m1_cache_playback.py` measures the worst
-lean off the evaluated instance transforms and fails past 15 degrees.
+clip. That declared value is how far a limb travels, not how far a body leans,
+so the fixture now declares both: `body_swing_radians` is 0.0 idle, 0.08 walk,
+0.14 jog, and the node group selects each by clip ID. Neither consumer derives
+one amplitude from the other or invents its own. The worst instance lean at the
+reference tick is now 4.58 degrees, and `tests/blender/test_m1_cache_playback.py`
+measures the worst lean off the evaluated instance transforms and fails past 15
+degrees.
 
 No simulation, cache, determinism, portal, override, or channel result is
 affected: all of those come from the Rust kernel and the cache readers, not from
