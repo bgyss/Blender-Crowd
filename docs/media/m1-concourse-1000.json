@@ -1,0 +1,18 @@
+{
+  "agent_count": 1000,
+  "blender_version": "5.2.0 LTS",
+  "cache_manifest_hash": "619eecf7925fc7423ff9d708804dc4eb65261790a82cf35d14ef4c5058028e4a",
+  "cache_only": true,
+  "eevee_samples": 16,
+  "frame_count": 500,
+  "measurement": false,
+  "render_wall_seconds": 94.66842054203153,
+  "resolution": [
+    960,
+    540
+  ],
+  "schema_version": 1,
+  "tick_end": 9999,
+  "tick_start": 0,
+  "tick_step": 20
+}
