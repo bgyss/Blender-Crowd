@@ -68,6 +68,20 @@ def main():
         "render did not evaluate a substantial commuter crowd",
     )
     require(metrics["image_size"] == [320, 180], "metrics image size is wrong")
+    # Rendering fires the playback frame handler, so the tick that was measured
+    # is not necessarily the tick that was drawn. Require them to be the same.
+    require(
+        metrics["rendered_tick"] == metrics["reference_tick"],
+        "renders were drawn at tick {}, not the reference tick {}".format(
+            metrics["rendered_tick"], metrics["reference_tick"]
+        ),
+    )
+    require(
+        metrics["post_render_proxy_instance_count"] >= 600,
+        "the rendered state held only {} commuter instances".format(
+            metrics["post_render_proxy_instance_count"]
+        ),
+    )
     require(metrics["point_upload_seconds"] >= 0.0, "point upload timing missing")
     require(metrics["armature_evaluation_seconds"] >= 0.0, "armature timing missing")
     require(set(metrics["renders"]) == {"eevee", "cycles"}, "renderer metrics missing")

@@ -136,15 +136,55 @@ commuters were visible. It measured presentation costs independently:
 
 | Measurement | Result |
 |---|---:|
-| Cache decode plus point upload | 0.00421 s |
-| Canonical single-armature evaluation loop | 0.13464 s |
-| Eevee, GPU, 16 samples | 0.45818 s |
-| Cycles, CPU, 4 samples | 0.03559 s |
-| Peak Blender resident memory | 421,117,952 bytes |
+| Cache decode plus point upload | 0.00442 s |
+| Canonical single-armature evaluation loop | 0.00122 s |
+| Eevee, GPU, 16 samples | 0.53370 s |
+| Cycles, CPU, 4 samples | 0.05187 s |
+| Peak Blender resident memory | 422,313,984 bytes |
+
+These five figures were corrected on 2026-08-10 after the original run was found
+to be wrong; see [Correction](#correction-render-tick-and-armature-isolation).
+The cache manifest hash and the render scene hash are unchanged.
 
 The tiny smoke renders use different engines and sample counts; their wall
 times are not a quality-normalized renderer comparison. None of these values is
 added to, or presented as, isolated simulation throughput.
+
+## Correction: render tick and armature isolation
+
+The first version of this report published five presentation figures that were
+measured wrongly. Both defects are fixed, the render run was repeated, and the
+table above carries the corrected values. The record of what was wrong stays
+here rather than being quietly overwritten.
+
+**The reference images were drawn at tick 1, not tick 4,999.** `CachePlayback`
+registers a `frame_change_post` handler, and `bpy.ops.render.render()` fires it.
+The workflow positioned playback with `sync_to_tick(4999)`, measured 700 proxy
+instances there, and then rendered — at which point the handler re-synced
+playback to `frame_current`, which was still 1. The reported tick and instance
+count were honest measurements of a state that was discarded before a pixel was
+drawn. The published Eevee and Cycles times were therefore timings of a nearly
+empty concourse, and understated the real cost.
+
+`render_reference` now positions through the scene frame, the shipped playback
+path, and raises if the frame does not land on the reference tick. The metrics
+gained `rendered_tick` and `post_render_proxy_instance_count`, both measured
+after the renders rather than before, and `tests/blender/test_m1_render.py`
+requires `rendered_tick` to equal `reference_tick`. The previous test could not
+catch this: it only asserted that a render contained more than 100
+non-background pixels, which an opening frame satisfies.
+
+**The armature figure was mostly cache decoding.** `_measure_armature` steps the
+timeline 31 times, and with the handler attached each step decoded a cache tick.
+The published 0.13464 s was therefore a measurement of 31 cache reads plus
+armature evaluation, in a report whose stated purpose is to keep those costs
+apart. The loop now runs under `cache_playback.suspended_frame_sync()`, and the
+isolated cost is 0.00122 s.
+
+No simulation, cache, determinism, portal, override, or channel result is
+affected: all of those come from the Rust kernel and the cache readers, not from
+the render workflow. The corrected renders are slower than the retracted ones,
+and the corrected armature figure is faster.
 
 ## Acceptance criteria 1–8
 

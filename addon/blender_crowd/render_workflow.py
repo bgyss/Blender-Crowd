@@ -9,6 +9,8 @@ import time
 import bpy
 from mathutils import Vector
 
+from . import cache_playback
+
 
 IMAGE_SIZE = (320, 180)
 REFERENCE_TICK = 4999
@@ -142,13 +144,17 @@ def _measure_armature(scene):
     rig.animation_data_create()
     previous_action = rig.animation_data.action
     rig.animation_data.action = action
-    started = time.perf_counter()
-    for frame in range(31):
-        scene.frame_set(frame)
-        bpy.context.view_layer.update()
-    elapsed = time.perf_counter() - started
-    rig.animation_data.action = previous_action
-    scene.frame_set(previous_frame)
+    # Stepping the timeline would otherwise decode 31 cache ticks, which both
+    # moves playback off the reference tick and charges cache reads to the
+    # armature measurement this function exists to isolate.
+    with cache_playback.suspended_frame_sync():
+        started = time.perf_counter()
+        for frame in range(31):
+            scene.frame_set(frame)
+            bpy.context.view_layer.update()
+        elapsed = time.perf_counter() - started
+        rig.animation_data.action = previous_action
+        scene.frame_set(previous_frame)
     return elapsed
 
 
@@ -219,7 +225,17 @@ def render_reference(scene, playback, output_dir):
     playback.sync_to_tick(reference_tick)
     point_upload_seconds = time.perf_counter() - started
     armature_evaluation_seconds = _measure_armature(scene)
-    playback.sync_to_tick(reference_tick)
+    # Position through the scene frame, not sync_to_tick: rendering fires the
+    # playback frame handler, which re-syncs to frame_current and would discard
+    # a direct sync, drawing the opening tick instead of the reference tick.
+    reference_frame = scene.frame_start + (reference_tick - playback.tick_start)
+    scene.frame_set(reference_frame)
+    if playback.current_tick != reference_tick:
+        raise ValueError(
+            "frame {} drove playback to tick {}, not the reference tick {}".format(
+                reference_frame, playback.current_tick, reference_tick
+            )
+        )
     bpy.context.view_layer.update()
     depsgraph = bpy.context.evaluated_depsgraph_get()
     proxy_instance_count = sum(
@@ -236,13 +252,22 @@ def render_reference(scene, playback, output_dir):
         "eevee": _render(scene, _eevee_engine_identifier(scene), target / "m1-eevee.png"),
         "cycles": _render(scene, "CYCLES", target / "m1-cycles.png"),
     }
+    # What was drawn, not what was requested. Rendering fires the playback frame
+    # handler, so these are measured after the renders rather than trusted.
+    bpy.context.view_layer.update()
+    post_render_depsgraph = bpy.context.evaluated_depsgraph_get()
+    post_render_proxy_instance_count = sum(
+        1 for instance in post_render_depsgraph.object_instances if instance.is_instance
+    )
     metrics = {
         "schema_version": 1,
         "cache_only": True,
         "blender_version": bpy.app.version_string,
         "agent_count": playback.agent_count,
         "proxy_instance_count": proxy_instance_count,
+        "post_render_proxy_instance_count": post_render_proxy_instance_count,
         "reference_tick": reference_tick,
+        "rendered_tick": playback.current_tick,
         "image_size": list(IMAGE_SIZE),
         "cache_manifest_hash": _manifest_hash(scene.crowd_project.cache_path),
         "scene_hash": _scene_hash(scene),
