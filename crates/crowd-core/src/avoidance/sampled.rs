@@ -149,7 +149,7 @@ impl SampledVelocitySolver {
         // A lone stopped neighbor is ordinary queueing. The absorbing state
         // recorded in the deadlock report had 15 stationary blockers, so only
         // apply recovery after a genuine stopped core has formed.
-        if blocking_stationary_neighbors >= 8 {
+        if blocking_stationary_neighbors >= 12 {
             self.goal_weight * preferred.length() * (1.0 - self.queue_urgency)
         } else {
             0.0
@@ -455,7 +455,7 @@ mod tests {
                     // A dense blocked front, with lateral escape space.
                     // That detour is not ideal progress, but it breaks the
                     // standstill so the next ticks can route around it.
-                    position: Vec2::new(1.2, (index as f32 - 7.0) * 0.15),
+                    position: Vec2::new(1.2, (index as f32 - 7.0) * 0.08),
                     velocity: Vec2::ZERO,
                     radius: 0.355,
                     agent_id: AgentId(index + 2),

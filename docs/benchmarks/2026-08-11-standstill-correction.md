@@ -28,19 +28,28 @@ per-scene baselines carry the measured quality metrics.
 
 The solver also has a narrowly scoped restart escape for an agent already
 stopped behind a dense stationary core: it adds cost only to selecting the
-zero-velocity fallback when eight or more stationary neighbors block the
+zero-velocity fallback when twelve or more stationary neighbors block the
 preferred route. A unit regression proves that a deterministic lateral detour
 is chosen, and that `queue_urgency = 1.0` preserves the old absorbing fallback.
 This is not a claim that all jams are solved; physical overlaps, closed exits,
 and arbitrary queue behavior remain outside M1.
 
-## Verification required for a baseline change
+## Verification
 
-Regenerate and check the six deterministic 1,000-agent baselines before
-merging a solver revision:
+The accepted twelve-blocker trigger does not require baseline regeneration:
+all six deterministic 1,000-agent baselines match exactly. The tightened
+density suite and complete M1 runners also pass:
 
 ```sh
-cargo run --release -p crowd-bench -- baseline --agents 1000 --seed 2026
 cargo run --release -p crowd-bench -- check --agents 1000 --seed 2026
 cargo test --release -p crowd-core --test fuzz_density
+cargo test --release -p crowd-core --test m1_strict -- --ignored --nocapture
+scripts/m1-bake-test.sh
+scripts/m1-blender-test.sh
+scripts/m1-render-test.sh --out /private/tmp/blender-crowd-m1-2026-08-11-final-render
 ```
+
+The first eight-blocker attempt was rejected because it changed `dense_flow`,
+lowered completion, and increased total stall time. The twelve-blocker trigger
+retains the isolated recovery regression and the `queue_urgency = 1.0` legacy
+control without changing any accepted scene baseline.
