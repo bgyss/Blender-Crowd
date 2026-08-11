@@ -95,7 +95,10 @@ fn the_crowd_does_not_deadlock_wholesale() {
     // Requires a *fraction* of the unfinished population to be moving. The
     // earlier `moving > 0` form passed with 399 of 400 agents frozen solid —
     // exactly the state it was meant to catch.
-    const MIN_MOVING_FRACTION: f32 = 0.1;
+    // A 10% fringe can still make a 90% frozen core look alive. Require at
+    // least one fifth of the unfinished crowd to be making progress; quality
+    // thresholds remain the responsibility of the recorded baselines.
+    const MIN_MOVING_FRACTION: f32 = 0.2;
 
     for solver_name in SOLVER_NAMES {
         for scene in scenes::SCENE_NAMES {
