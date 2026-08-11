@@ -79,9 +79,14 @@ def _ensure_camera(scene):
         camera = bpy.data.objects.new("M1 Reference Camera", data)
         camera["crowd_render_id"] = "reference_camera"
         scene.collection.objects.link(camera)
-    camera.location = (30.0, -42.0, 35.0)
-    camera.data.lens = 46.0
-    _look_at(camera, (30.0, 10.0, 1.0))
+    # The concourse ground is 60x20, roughly 3:1, against a 16:9 frame. Viewing
+    # it square-on from the south leaves the crowd in a band across the middle
+    # with dead space above and below. Looking along the long axis from the
+    # south-west corner instead runs the concourse up the frame diagonal, which
+    # fits its proportions and keeps near agents large enough to read.
+    camera.location = (-10.0, -22.0, 17.0)
+    camera.data.lens = 42.0
+    _look_at(camera, (32.0, 11.0, 1.0))
     scene.camera = camera
     return camera
 
