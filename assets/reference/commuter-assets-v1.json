@@ -39,9 +39,9 @@
     "bones": ["root", "spine", "head", "arm_l", "arm_r", "leg_l", "leg_r"]
   },
   "clips": [
-    { "id": "idle", "duration_frames": 30, "swing_radians": 0.0 },
-    { "id": "walk", "duration_frames": 30, "swing_radians": 0.55 },
-    { "id": "jog", "duration_frames": 20, "swing_radians": 0.9 }
+    { "id": "idle", "duration_frames": 30, "swing_radians": 0.0, "body_swing_radians": 0.0 },
+    { "id": "walk", "duration_frames": 30, "swing_radians": 0.55, "body_swing_radians": 0.08 },
+    { "id": "jog", "duration_frames": 20, "swing_radians": 0.9, "body_swing_radians": 0.14 }
   ],
   "normalized_phases": [0.0, 0.25, 0.5, 0.75, 1.0]
 }
