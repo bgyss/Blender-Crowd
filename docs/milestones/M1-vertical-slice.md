@@ -12,6 +12,7 @@ that cache without a live simulation session.
 - [Industrial capability roadmap](../industrial-crowd-capability-roadmap.md)
 - [M0 proving grounds](M0-proving-grounds.md)
 - [Final M1 acceptance evidence](../benchmarks/2026-08-10-m1-vertical-slice.md)
+- [Post-acceptance standstill correction](../benchmarks/2026-08-11-standstill-correction.md)
 - [Clean-file reference walkthrough](../user/m1-reference-walkthrough.md)
 
 ## Prerequisites

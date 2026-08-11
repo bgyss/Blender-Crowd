@@ -51,7 +51,7 @@ production evaluation. M8 consumes stable outputs from M4 through M6.
 
 ## Current baseline
 
-As of 2026-08-10, **M0 and M1 are accepted, and M2 is unblocked**. The complete
+As of 2026-08-11, **M0 and M1 are accepted, and M2 is unblocked**. The complete
 M0 ordered runner and criterion-by-criterion result are in the
 [M0 consolidated acceptance report](../benchmarks/2026-08-10-m0-consolidated.md),
 with its [machine-readable summary](../benchmarks/2026-08-10-m0-acceptance.json).
@@ -100,7 +100,7 @@ Evidence to date, each with its own environment and unsupported-claims section:
 
 All eight criteria are met. The checked project compiles exactly 1,000 unique
 stable IDs; two 10,000-tick strict bakes agree on exact static/discrete state
-and have 0.0 m observed position delta; 96% of agents arrive with zero static
+and have 0.0 m observed position delta; 96.4% of agents arrive with zero static
 boundary escapes; the timed portal event isolates affected routes; canceled
 caches remain recoverable but incomplete; fresh Blender processes play and
 render the complete cache without a live session; the selected-agent overlay
