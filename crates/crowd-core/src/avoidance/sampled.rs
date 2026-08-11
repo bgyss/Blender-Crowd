@@ -73,6 +73,21 @@ pub struct SampledVelocitySolver {
     pub density_speed_factor: f32,
     /// Cosine threshold for treating an encounter as head-on.
     pub head_on_cosine: f32,
+    /// Urgency retained by a neighbor that is not closing at all.
+    ///
+    /// Avoidance must stay a strong preference even for a motionless
+    /// obstacle, but it must not be an absolute veto. At 1.0 a standing crowd
+    /// is a wall and the crowd deadlocks permanently; at 0.0 agents walk into
+    /// a standing queue until they overlap and jam on contact instead. See
+    /// `collision_cost` for why standstill is otherwise self-sustaining.
+    ///
+    /// Swept at 1,000 agents over all six scenes and five seeds. Completion
+    /// rises monotonically as this falls to ~0.2 and collapses again below
+    /// ~0.05; 0.25 keeps 98-99% of the unfinished population moving on
+    /// `crossing` (against 65-72% at 1.0) and lowers peak penetration depth,
+    /// at the cost of more frequent shallow contact. Values below ~0.15 trade
+    /// completion for an order of magnitude more penetration.
+    pub queue_urgency: f32,
 }
 
 impl Default for SampledVelocitySolver {
@@ -92,6 +107,7 @@ impl Default for SampledVelocitySolver {
             personal_space: 0.45,
             density_speed_factor: 0.18,
             head_on_cosine: 0.7,
+            queue_urgency: 0.25,
         }
     }
 }
@@ -147,7 +163,29 @@ impl SampledVelocitySolver {
                 let relief = (separation_rate / input.max_speed.max(0.1)).clamp(0.0, 1.0);
                 cost += self.collision_weight * yield_weight * OVERLAP_URGENCY * (1.0 - relief);
             } else if t < self.time_horizon {
-                cost += self.collision_weight * yield_weight / t.max(MIN_TIME_FOR_COST);
+                // How much of the closure this agent cannot undo on its own.
+                //
+                // A neighbor that is itself closing can put the pair in
+                // contact whatever this agent does, so it keeps the full
+                // `1/t` urgency. A stationary or receding one cannot: the
+                // agent can always slow and stop short, so the encounter is a
+                // queue to join rather than a hazard to flee.
+                //
+                // Charging full urgency there makes a standing crowd behave
+                // like a wall, and that is what freezes a jam solid. Once a
+                // cluster stops, every relative velocity is zero, so
+                // *stopping* predicts no collision at all and scores exactly
+                // zero for avoidance, while any motion is charged `1/t`
+                // against every stationary neighbor simultaneously.
+                // Standstill becomes a strict cost minimum no candidate can
+                // beat, and the cluster never moves again -- the frozen-robot
+                // trap the overlap branch above avoids, reappearing one step
+                // before contact where nothing is overlapping yet.
+                let direction = relative_position.normalize_or_zero();
+                let closing =
+                    (-neighbor.velocity.dot(direction) / input.max_speed.max(0.1)).clamp(0.0, 1.0);
+                let urgency = self.queue_urgency + (1.0 - self.queue_urgency) * closing;
+                cost += self.collision_weight * yield_weight * urgency / t.max(MIN_TIME_FOR_COST);
             }
         }
 
@@ -303,6 +341,59 @@ mod tests {
         }
     }
 
+    /// A standing crowd is a queue to join, not a wall to stop at.
+    ///
+    /// Measured on `crossing` at 1,000 agents: charging a motionless neighbor
+    /// the full `1/t` urgency makes a stopped crowd impassable, and that is
+    /// what freezes a jam solid. Once a cluster stops, every relative
+    /// velocity is zero, so *stopping* predicts no collision at all and
+    /// scores a flat zero for avoidance, while any motion is charged against
+    /// every stationary neighbor at once -- measured 1.248 to stop against
+    /// 7.998 to move, with 15 of 16 neighbors motionless and none of them
+    /// overlapping. Standstill becomes a strict cost minimum, and 760 of
+    /// 1,000 agents were still parked at the intersection long after the
+    /// inflow had drained.
+    ///
+    /// Note what this does and does not buy: discounting a non-closing
+    /// neighbor stops a walking agent from braking into a standstill, so the
+    /// deadlock does not form. It does not let an agent that has *already*
+    /// stopped inside a stopped cluster escape -- stopping still costs
+    /// exactly zero there, so that state remains absorbing.
+    #[test]
+    fn a_standing_neighbor_ahead_does_not_deflect_a_walking_agent() {
+        let neighbors = [NeighborState {
+            position: Vec2::new(2.0, 0.0),
+            velocity: Vec2::ZERO,
+            radius: 0.355,
+            agent_id: AgentId(2),
+        }];
+        let preferred = Vec2::new(1.35, 0.0);
+        let out = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &neighbors, &[]));
+        assert_eq!(
+            out.status,
+            SolverStatus::Free,
+            "braked or swerved for a motionless neighbor 2 m ahead, chose {:?}",
+            out.velocity
+        );
+    }
+
+    /// The concession above is granted to *non-closing* neighbors only.
+    #[test]
+    fn the_same_neighbor_closing_head_on_still_gets_avoided() {
+        let neighbors = [NeighborState {
+            position: Vec2::new(2.0, 0.0),
+            velocity: Vec2::new(-1.35, 0.0),
+            radius: 0.355,
+            agent_id: AgentId(2),
+        }];
+        let preferred = Vec2::new(1.35, 0.0);
+        let out = solver().solve(&input(1, Vec2::ZERO, preferred, preferred, &neighbors, &[]));
+        assert_ne!(
+            out.status,
+            SolverStatus::Free,
+            "drove straight at a neighbor closing head-on"
+        );
+    }
     #[test]
     fn an_unobstructed_agent_keeps_its_preferred_velocity() {
         let preferred = Vec2::new(1.35, 0.0);
