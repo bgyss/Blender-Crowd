@@ -113,6 +113,49 @@ impl Default for SampledVelocitySolver {
 }
 
 impl SampledVelocitySolver {
+    /// Cost of remaining stopped when a stationary queue blocks the route.
+    ///
+    /// The normal collision score correctly gives a zero-velocity candidate
+    /// no future collision. That is a good graceful fallback for a moving
+    /// agent, but it makes a fully stopped queue absorbing: every non-zero
+    /// candidate pays for a nearby stationary neighbor while stopping pays
+    /// only the ordinary goal term. Charge that extra fallback only when the
+    /// agent is already stopped and its preferred route would enter such a
+    /// queue. The score is disabled at `queue_urgency == 1.0`, preserving the
+    /// old all-stationary-neighbor behavior as a compatibility control.
+    fn stationary_queue_restart_cost(&self, input: &AvoidanceInput<'_>, preferred: Vec2) -> f32 {
+        if self.queue_urgency >= 1.0
+            || input.velocity.length_squared() > f32::MIN_POSITIVE
+            || preferred.length_squared() <= f32::MIN_POSITIVE
+        {
+            return 0.0;
+        }
+
+        let reciprocal_preferred = preferred * 2.0 - input.velocity;
+        let blocking_stationary_neighbors = input
+            .neighbors
+            .iter()
+            .filter(|neighbor| {
+                neighbor.velocity.length_squared() <= f32::MIN_POSITIVE
+                    && time_to_collision_disc(
+                        neighbor.position - input.position,
+                        neighbor.velocity - reciprocal_preferred,
+                        input.radius + neighbor.radius,
+                    )
+                    .is_some_and(|t| t > 0.0 && t < self.time_horizon)
+            })
+            .count();
+
+        // A lone stopped neighbor is ordinary queueing. The absorbing state
+        // recorded in the deadlock report had 15 stationary blockers, so only
+        // apply recovery after a genuine stopped core has formed.
+        if blocking_stationary_neighbors >= 8 {
+            self.goal_weight * preferred.length() * (1.0 - self.queue_urgency)
+        } else {
+            0.0
+        }
+    }
+
     /// Collision penalty and earliest predicted collision for one candidate.
     ///
     /// Neighbors use the reciprocal construction: assuming the neighbor holds
@@ -257,6 +300,11 @@ impl AvoidanceSolver for SampledVelocitySolver {
                 let cost = self.goal_weight * (candidate - preferred).length()
                     + self.smoothness_weight * (candidate - input.velocity).length()
                     + collision_cost
+                    + if candidate.length_squared() <= f32::MIN_POSITIVE {
+                        self.stationary_queue_restart_cost(input, preferred)
+                    } else {
+                        0.0
+                    }
                     + side_bias_cost(
                         input.preferred,
                         input.position,
@@ -354,11 +402,10 @@ mod tests {
     /// 1,000 agents were still parked at the intersection long after the
     /// inflow had drained.
     ///
-    /// Note what this does and does not buy: discounting a non-closing
-    /// neighbor stops a walking agent from braking into a standstill, so the
-    /// deadlock does not form. It does not let an agent that has *already*
-    /// stopped inside a stopped cluster escape -- stopping still costs
-    /// exactly zero there, so that state remains absorbing.
+    /// The restart regression below covers the remaining state: a stopped
+    /// agent whose route enters a stopped queue must choose a deterministic
+    /// detour, while the `queue_urgency = 1.0` control preserves the old
+    /// absorbing fallback exactly.
     #[test]
     fn a_standing_neighbor_ahead_does_not_deflect_a_walking_agent() {
         let neighbors = [NeighborState {
@@ -392,6 +439,60 @@ mod tests {
             out.status,
             SolverStatus::Free,
             "drove straight at a neighbor closing head-on"
+        );
+    }
+
+    #[test]
+    fn a_stopped_agent_can_leave_a_stationary_queue() {
+        // This is the state the walking-agent regression cannot cover: all
+        // three agents have already stopped, but the lead agent still has a
+        // route.  The forward candidate is unsafe and the side candidates
+        // make less goal progress, so a pure zero-risk stop used to win
+        // forever.  There must be a deterministic escape candidate.
+        let neighbors: Vec<_> = (0..15)
+            .map(|index| {
+                NeighborState {
+                    // A dense blocked front, with lateral escape space.
+                    // That detour is not ideal progress, but it breaks the
+                    // standstill so the next ticks can route around it.
+                    position: Vec2::new(1.2, (index as f32 - 7.0) * 0.15),
+                    velocity: Vec2::ZERO,
+                    radius: 0.355,
+                    agent_id: AgentId(index + 2),
+                }
+            })
+            .collect();
+        let out = solver().solve(&input(
+            1,
+            Vec2::ZERO,
+            Vec2::ZERO,
+            Vec2::new(1.35, 0.0),
+            &neighbors,
+            &[],
+        ));
+        assert!(
+            out.velocity.length() > 0.05,
+            "stopped queue remained absorbing: {out:?}"
+        );
+        assert!(
+            out.velocity.y > 0.05,
+            "recovery did not choose its deterministic clear detour: {out:?}"
+        );
+
+        let mut legacy = solver();
+        legacy.queue_urgency = 1.0;
+        let old_setting = legacy.solve(&input(
+            1,
+            Vec2::ZERO,
+            Vec2::ZERO,
+            Vec2::new(1.35, 0.0),
+            &neighbors,
+            &[],
+        ));
+        assert_eq!(
+            old_setting.velocity,
+            Vec2::ZERO,
+            "queue_urgency = 1.0 must retain the legacy absorbing fallback: {old_setting:?}"
         );
     }
     #[test]
