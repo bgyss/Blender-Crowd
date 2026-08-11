@@ -13,6 +13,10 @@ CACHE_NODE_GROUP_NAME = "CrowdCacheInstancesV1"
 CACHE_MODIFIER_NAME = "CrowdCacheInstancesV1"
 CACHE_PROTOTYPE_COLLECTION = "CrowdCachePrototypesV1"
 
+# Share of a clip's limb-swing amplitude that the instanced body leans through.
+# A walking person's torso moves; it does not swing as far as their leg.
+BODY_LEAN_FRACTION = 0.15
+
 
 def ensure_crowd_node_group():
     """Return the crowd instancing node group, creating it if absent."""
@@ -108,7 +112,12 @@ def _named_attribute(nodes, name, data_type, location):
     return node
 
 
-def ensure_cache_node_group(prototypes):
+def clip_swing_amplitudes(clips):
+    """Per-clip swing amplitudes in radians, indexed by clip ID."""
+    return [float(clip["swing_radians"]) for clip in clips]
+
+
+def ensure_cache_node_group(prototypes, amplitudes):
     """Build the versioned cache-only instancing contract."""
     existing = bpy.data.node_groups.get(CACHE_NODE_GROUP_NAME)
     if existing is not None:
@@ -173,18 +182,36 @@ def ensure_cache_node_group(prototypes):
     links.new(phase_angle.outputs[0], phase_sine.inputs[0])
 
     clip = _named_attribute(nodes, "crowd_clip_id", "INT", (-1000, -80))
-    moving_clip = nodes.new("FunctionNodeCompare")
-    moving_clip.data_type = "INT"
-    moving_clip.operation = "GREATER_THAN"
-    moving_clip.inputs["B"].default_value = 0
-    moving_clip.location = (-800, -80)
-    links.new(clip.outputs["Attribute"], moving_clip.inputs["A"])
+    # Each clip declares its own swing amplitude in radians, and idle declares
+    # zero, so the amplitude comes from the manifest rather than from a
+    # moving/not-moving test with an implied amplitude of one radian.
+    clip_index = nodes.new("ShaderNodeMath")
+    clip_index.operation = "MINIMUM"
+    clip_index.inputs[1].default_value = float(max(len(amplitudes) - 1, 0))
+    clip_index.location = (-870, -80)
+    links.new(clip.outputs["Attribute"], clip_index.inputs[0])
+    clip_floor = nodes.new("ShaderNodeMath")
+    clip_floor.operation = "MAXIMUM"
+    clip_floor.inputs[1].default_value = 0.0
+    clip_floor.location = (-700, -80)
+    links.new(clip_index.outputs[0], clip_floor.inputs[0])
+
+    amplitude = nodes.new("GeometryNodeIndexSwitch")
+    amplitude.name = "M1 Clip Swing Amplitude"
+    amplitude.data_type = "FLOAT"
+    amplitude.location = (-540, -80)
+    while len(amplitude.index_switch_items) < len(amplitudes):
+        amplitude.index_switch_items.new()
+    links.new(clip_floor.outputs[0], amplitude.inputs["Index"])
+    for offset, radians in enumerate(amplitudes):
+        amplitude.inputs[offset + 1].default_value = radians
+
     swing = nodes.new("ShaderNodeMath")
     swing.name = "M1 Walk Jog Proxy Swing"
     swing.operation = "MULTIPLY"
     swing.location = (-380, 60)
     links.new(phase_sine.outputs[0], swing.inputs[0])
-    links.new(moving_clip.outputs["Result"], swing.inputs[1])
+    links.new(amplitude.outputs[0], swing.inputs[1])
 
     store_swing = nodes.new("GeometryNodeStoreNamedAttribute")
     store_swing.domain = "POINT"
@@ -204,9 +231,21 @@ def ensure_cache_node_group(prototypes):
     orientation = _named_attribute(
         nodes, "crowd_orientation", "FLOAT", (-390, -500)
     )
+    # The manifest amplitude is a limb swing: the canonical rig swings a limb
+    # through it, and crowd_proxy_swing carries it for anything that wants the
+    # same value. Leaning a whole body through it instead would tip a walking
+    # commuter 32 degrees and a jogging one 52, so the body gets a fraction of
+    # it, which is what reads as gait at instance scale.
+    body_lean = nodes.new("ShaderNodeMath")
+    body_lean.name = "M1 Proxy Body Lean"
+    body_lean.operation = "MULTIPLY"
+    body_lean.inputs[1].default_value = BODY_LEAN_FRACTION
+    body_lean.location = (-300, -430)
+    links.new(swing.outputs[0], body_lean.inputs[0])
+
     rotation = nodes.new("ShaderNodeCombineXYZ")
     rotation.location = (-120, -430)
-    links.new(swing.outputs[0], rotation.inputs["X"])
+    links.new(body_lean.outputs[0], rotation.inputs["X"])
     links.new(orientation.outputs["Attribute"], rotation.inputs["Z"])
 
     scale_value = _named_attribute(nodes, "crowd_scale", "FLOAT", (-390, -650))
@@ -229,9 +268,11 @@ def ensure_cache_node_group(prototypes):
     return group
 
 
-def attach_cache(obj, prototypes):
+def attach_cache(obj, prototypes, clips):
     modifier = obj.modifiers.get(CACHE_MODIFIER_NAME)
     if modifier is None:
         modifier = obj.modifiers.new(CACHE_MODIFIER_NAME, "NODES")
-    modifier.node_group = ensure_cache_node_group(prototypes)
+    modifier.node_group = ensure_cache_node_group(
+        prototypes, clip_swing_amplitudes(clips)
+    )
     return modifier

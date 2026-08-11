@@ -1,15 +1,20 @@
 """Verify cache-only M1 point playback and the Geometry Nodes contract."""
 
+import math
 import os
 import sys
 
 import addon_utils
 import bpy
 import numpy as np
+from mathutils import Vector
 
 
 EXTENSION = "bl_ext.user_default.blender_crowd"
 EXPECTED_AGENTS = 1000
+# A walking person leans; a falling one does not walk. The proxy gait cue has to
+# stay inside this angle from vertical.
+MAX_LEAN_DEGREES = 15.0
 EXPECTED_ATTRIBUTES = {
     "crowd_agent_id_lo": "INT",
     "crowd_agent_id_hi": "INT",
@@ -68,6 +73,39 @@ def assert_frame(playback, native_cache, tick):
             np.array_equal(actual, reference),
             "{} differs from cache at tick {}".format(attribute, tick),
         )
+
+
+def assert_upright(playback, tick):
+    """Commuter proxies must stand up.
+
+    The node group leans instances to suggest a gait. The lean is a body cue,
+    not a limb swing, so it has to stay within an angle a walking person could
+    hold. Measured off the evaluated instance transforms rather than the node
+    graph, so it covers whatever the graph actually does.
+    """
+    scene = bpy.context.scene
+    scene.frame_set(scene.frame_start + (tick - playback.tick_start))
+    require(playback.current_tick == tick, "frame did not drive playback to the tick")
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    worst = 0.0
+    counted = 0
+    for instance in depsgraph.object_instances:
+        if not instance.is_instance:
+            continue
+        up = instance.matrix_world.to_3x3() @ Vector((0.0, 0.0, 1.0))
+        if up.length == 0.0:
+            fail("an instance has a degenerate transform at tick {}".format(tick))
+        counted += 1
+        worst = max(worst, math.degrees(up.normalized().angle(Vector((0.0, 0.0, 1.0)))))
+    require(counted >= 600, "only {} instances to check at tick {}".format(counted, tick))
+    require(
+        worst <= MAX_LEAN_DEGREES,
+        "an instance leans {:.1f} deg at tick {}, over the {} deg limit".format(
+            worst, tick, MAX_LEAN_DEGREES
+        ),
+    )
+    print("worst instance lean at tick {}: {:.2f} deg".format(tick, worst))
 
 
 def main():
@@ -148,6 +186,8 @@ def main():
     node_names = {node.name for node in modifier.node_group.nodes}
     require("M1 Variant Instances" in node_names, "GN variant selection is missing")
     require("M1 Clip Phase Sine" in node_names, "GN phase motion is missing")
+
+    assert_upright(playback, native_cache.tick_start + 4999)
 
     print("sample stable IDs: {}".format(list(map(int, actual_ids))))
     print("sampled ticks: {}".format(ticks))
