@@ -190,6 +190,7 @@ def _ensure_action(rig, clip, phases):
     action["crowd_keyframe_count"] = len(phases)
     action["crowd_duration_frames"] = int(clip["duration_frames"])
     action["crowd_swing_radians"] = float(clip["swing_radians"])
+    action["crowd_body_swing_radians"] = float(clip["body_swing_radians"])
     return action
 
 
