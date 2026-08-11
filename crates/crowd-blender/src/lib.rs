@@ -20,7 +20,12 @@ use crowd_cache::{
     Frame as CacheFrame, FrameRecord, OverrideLayerV1, RecoveryInspector, RecoveryReport,
     ScalarType, CACHE_V1_DEFAULTS,
 };
+use crowd_core::authoring::{
+    compile_authorable_project as compile_core_authorable_project, migrate_project_v1,
+    AuthorableProjectV2,
+};
 use crowd_core::avoidance::SampledVelocitySolver;
+use crowd_core::behavior::{compile_graph, BehaviorGraphV1};
 use crowd_core::project::{
     compile_project as compile_core_project, CompiledAgentSpawn,
     CompiledProject as CoreCompiledProject, Diagnostic,
@@ -478,6 +483,73 @@ fn compile_project_py(project_json: &str) -> PyResult<PyCompiledProject> {
     Ok(PyCompiledProject {
         inner: Arc::new(compiled),
     })
+}
+
+/// Compile a typed authoring graph without entering Blender or the simulator.
+///
+/// Keeping this as a coarse Rust call makes graph validation identical in the
+/// node editor, headless validation, and eventual bake preflight.
+#[pyfunction(name = "compile_behavior_graph")]
+fn compile_behavior_graph_py<'py>(
+    py: Python<'py>,
+    graph_json: &str,
+) -> PyResult<Bound<'py, PyDict>> {
+    let graph: BehaviorGraphV1 = serde_json::from_str(graph_json)
+        .map_err(|error| PyValueError::new_err(format!("E_GRAPH_JSON: {error}")))?;
+    let program = compile_graph(&graph).map_err(|diagnostics| {
+        let message = diagnostics
+            .iter()
+            .map(|diagnostic| {
+                format!(
+                    "E_GRAPH_{:?} {}: {}",
+                    diagnostic.code, diagnostic.node_id, diagnostic.message
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        PyValueError::new_err(message)
+    })?;
+    let out = PyDict::new(py);
+    out.set_item("id", program.id())?;
+    out.set_item("entry_index", program.entry_index())?;
+    out.set_item("node_count", program.node_count())?;
+    Ok(out)
+}
+
+#[pyfunction(name = "migrate_project_v1")]
+fn migrate_project_v1_py(project_json: &str) -> PyResult<String> {
+    let project = serde_json::from_str(project_json)
+        .map_err(|error| PyValueError::new_err(format!("E_PROJECT_JSON: {error}")))?;
+    serde_json::to_string(&migrate_project_v1(project))
+        .map_err(|error| PyValueError::new_err(format!("E_PROJECT_V2_JSON: {error}")))
+}
+
+#[pyfunction(name = "compile_authorable_project")]
+fn compile_authorable_project_py<'py>(
+    py: Python<'py>,
+    project_json: &str,
+) -> PyResult<Bound<'py, PyDict>> {
+    let project: AuthorableProjectV2 = serde_json::from_str(project_json)
+        .map_err(|error| PyValueError::new_err(format!("E_PROJECT_V2_JSON: {error}")))?;
+    let compiled = compile_core_authorable_project(&project).map_err(|diagnostics| {
+        PyValueError::new_err(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    format!(
+                        "E_AUTHORING_{:?} {}: {}",
+                        diagnostic.code, diagnostic.entity_id, diagnostic.message
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    })?;
+    let out = PyDict::new(py);
+    out.set_item("agent_count", compiled.base().agent_spawns().len())?;
+    out.set_item("base_source_hash", compiled.base().source_hash_hex())?;
+    out.set_item("behavior_program_count", compiled.behavior_program_count())?;
+    Ok(out)
 }
 
 #[pyfunction]
@@ -1211,6 +1283,9 @@ fn blender_crowd_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCancelToken>()?;
     m.add_class::<PyCache>()?;
     m.add_function(wrap_pyfunction!(compile_project_py, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_behavior_graph_py, m)?)?;
+    m.add_function(wrap_pyfunction!(migrate_project_v1_py, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_authorable_project_py, m)?)?;
     m.add_function(wrap_pyfunction!(inspect_cache, m)?)?;
     Ok(())
 }

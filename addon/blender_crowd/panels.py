@@ -22,6 +22,8 @@ class CROWD_PT_project(Panel):
         layout.prop(props, "cache_path")
         layout.operator("crowd.create_reference_project")
         layout.operator("crowd.validate_project")
+        layout.operator("crowd.validate_behavior_graph")
+        layout.operator("crowd.validate_authorable_project")
         row = layout.row(align=True)
         row.operator("crowd.bake_cache")
         row.operator("crowd.cancel_bake")

@@ -3,7 +3,10 @@
 //! See `docs/superpowers/specs/2026-08-04-crowd-sim-kernel-design.md`.
 
 pub mod arena;
+pub mod assets;
+pub mod authoring;
 pub mod avoidance;
+pub mod behavior;
 pub mod clock;
 pub mod commuter;
 pub mod concourse;
@@ -17,9 +20,11 @@ pub mod phases;
 pub mod project;
 pub mod rng;
 pub mod route;
+pub mod runtime_behavior;
 pub mod scene;
 pub mod scenes;
 pub mod sim;
+pub mod social;
 pub mod units;
 pub mod world;
 

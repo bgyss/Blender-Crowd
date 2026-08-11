@@ -116,6 +116,8 @@ The Blender runners require Blender 5.2 LTS at
 
 ```sh
 cargo test --workspace                                    # unit, property, determinism
+cargo test -p crowd-core --test behavior_graph            # M2 typed graph schema/compiler
+scripts/m2-foundation-test.sh                             # implemented M2 compiler/data-layer checks
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
 cargo clippy --workspace --all-targets -- -D warnings
 
@@ -144,6 +146,12 @@ scripts/make-m1-recording.sh                              # M1 cache-only concou
 
 cargo run --release -p crowd-bench -- run --scene crossing --agents 1000 --trace
 ```
+
+The first M2 behavior-graph authoring slice is documented in
+[M2 behavior graph authoring](docs/user/m2-behavior-graph.md). It compiles
+typed, bounded graph data in Rust and exposes the same validation through
+Blender; the M1 commuter runtime remains deliberately isolated until the
+remaining M2 runtime acceptance suite exists.
 
 The wheel build needs `maturin`, pinned in `mise.toml` and installed by
 `mise install`. It is pinned through the `pipx:` backend (uv) rather than

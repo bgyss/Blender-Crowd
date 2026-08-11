@@ -223,6 +223,55 @@ class CROWD_OT_validate_project(Operator):
         return {"FINISHED"}
 
 
+class CROWD_OT_validate_behavior_graph(Operator):
+    bl_idname = "crowd.validate_behavior_graph"
+    bl_label = "Validate Behavior Graph"
+    bl_description = "Compile the typed graph in Rust and report the actionable first error"
+
+    def execute(self, context):
+        try:
+            compiled = blender_crowd_native.compile_behavior_graph(
+                project.behavior_graph_json()
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            context.scene.crowd_project.status = "Graph invalid: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        context.scene.crowd_project.status = "Graph valid: {} nodes, entry {}".format(
+            compiled["node_count"], compiled["entry_index"]
+        )
+        self.report({"INFO"}, context.scene.crowd_project.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_validate_authorable_project(Operator):
+    bl_idname = "crowd.validate_authorable_project"
+    bl_label = "Validate M2 Authorable Project"
+    bl_description = "Migrate the scene IR, attach the authored graph, and validate all M2 references"
+
+    def execute(self, context):
+        try:
+            base_json = _encode_ir(project.extract_ir(context.scene))
+            authorable = json.loads(blender_crowd_native.migrate_project_v1(base_json))
+            graph = json.loads(project.behavior_graph_json())
+            authorable["behavior_graphs"] = [graph]
+            authorable["semantics"] = project.load_reference_authoring_semantics()
+            for assignment in authorable["population_behaviors"]:
+                assignment["graph_id"] = graph["id"]
+            compiled = blender_crowd_native.compile_authorable_project(
+                _encode_ir(authorable)
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            context.scene.crowd_project.status = "M2 invalid: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        context.scene.crowd_project.status = "M2 valid: {} agents, {} graphs".format(
+            compiled["agent_count"], compiled["behavior_program_count"]
+        )
+        self.report({"INFO"}, context.scene.crowd_project.status)
+        return {"FINISHED"}
+
+
 def _encode_ir(ir):
     return json.dumps(ir, sort_keys=True, separators=(",", ":"))
 
@@ -376,6 +425,8 @@ _CLASSES = (
     CROWD_OT_render_reference_frame,
     CROWD_OT_create_reference_project,
     CROWD_OT_validate_project,
+    CROWD_OT_validate_behavior_graph,
+    CROWD_OT_validate_authorable_project,
     CROWD_OT_bake_cache,
     CROWD_OT_cancel_bake,
 )
