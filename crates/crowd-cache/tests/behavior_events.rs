@@ -1,6 +1,7 @@
 use crowd_cache::{
-    AgentStatic, BakeSpec, BehaviorEventKindV1, BehaviorEventV1, CacheReader, CacheWriter,
-    ChannelDef, Frame, FrameRecord, PositionEncoding, ScalarType,
+    compact_behavior_events, AgentStatic, BakeSpec, BehaviorEventCompactor, BehaviorEventKindV1,
+    BehaviorEventV1, CacheReader, CacheWriter, ChannelDef, Frame, FrameRecord, PositionEncoding,
+    ScalarType,
 };
 use tempfile::tempdir;
 
@@ -68,6 +69,59 @@ fn behavior_events_round_trip_with_cache_integrity_and_tick_order() {
     assert_eq!(events[0].kind, BehaviorEventKindV1::Decision);
     assert_eq!(events[1].kind, BehaviorEventKindV1::QueueAdmitted);
     assert!(reader.manifest().behavior_events.is_some());
+}
+
+#[test]
+fn compaction_keeps_decision_transitions_and_all_lifecycle_events() {
+    let events = vec![
+        BehaviorEventV1::decision(0, 7, "leave", "queue", "population:0"),
+        BehaviorEventV1::decision(1, 7, "leave", "queue", "population:0"),
+        BehaviorEventV1::new(1, 7, BehaviorEventKindV1::QueueRequested, "east_queue"),
+        BehaviorEventV1::decision(2, 7, "leave", "navigate", "population:0"),
+    ];
+    let compacted = compact_behavior_events(events);
+    assert_eq!(compacted.len(), 3);
+    assert_eq!(compacted[0].tick, 0);
+    assert_eq!(compacted[1].kind, BehaviorEventKindV1::QueueRequested);
+    assert_eq!(compacted[2].decisive_node.as_deref(), Some("navigate"));
+}
+
+#[test]
+fn streaming_compaction_discards_unchanged_decisions_before_they_accumulate() {
+    let mut compactor = BehaviorEventCompactor::default();
+    compactor.push(BehaviorEventV1::decision(
+        0,
+        7,
+        "leave",
+        "queue",
+        "population:0",
+    ));
+    compactor.push(BehaviorEventV1::decision(
+        1,
+        7,
+        "leave",
+        "queue",
+        "population:0",
+    ));
+    compactor.push(BehaviorEventV1::new(
+        1,
+        7,
+        BehaviorEventKindV1::QueueRequested,
+        "east_queue",
+    ));
+    compactor.push(BehaviorEventV1::decision(
+        2,
+        7,
+        "leave",
+        "navigate",
+        "population:0",
+    ));
+
+    let compacted = compactor.into_events();
+    assert_eq!(compacted.len(), 3);
+    assert_eq!(compacted[0].tick, 0);
+    assert_eq!(compacted[1].kind, BehaviorEventKindV1::QueueRequested);
+    assert_eq!(compacted[2].decisive_node.as_deref(), Some("navigate"));
 }
 
 #[test]

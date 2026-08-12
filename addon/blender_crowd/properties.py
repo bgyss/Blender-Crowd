@@ -88,6 +88,18 @@ class CrowdLayoutProperties(PropertyGroup):
     points_json: StringProperty(name="Points (JSON)", default="[]")
 
 
+class CrowdGroupProperties(PropertyGroup):
+    logical_id: StringProperty(name="Group ID")
+    kind: StringProperty(name="Kind", default="couple")
+    member_agent_ids_json: StringProperty(name="Stable Agent IDs (JSON)", default="[]")
+    leader_agent_id: StringProperty(name="Leader Agent ID (optional)", default="")
+    shared_destination_id: StringProperty(name="Shared Destination")
+    max_separation_millimeters: IntProperty(
+        name="Maximum Separation (mm)", min=1, default=2000
+    )
+    bottleneck_policy: StringProperty(name="Bottleneck Policy", default="individual")
+
+
 class CrowdProjectProperties(PropertyGroup):
     project_uuid: StringProperty(name="Project UUID")
     seed: IntProperty(name="Seed", min=0, default=2026)
@@ -112,6 +124,7 @@ class CrowdProjectProperties(PropertyGroup):
     clips: CollectionProperty(type=CrowdClipProperties)
     variations: CollectionProperty(type=CrowdVariationProperties)
     layouts: CollectionProperty(type=CrowdLayoutProperties)
+    groups: CollectionProperty(type=CrowdGroupProperties)
     active_queue_index: IntProperty(default=0, min=0)
     active_lane_index: IntProperty(default=0, min=0)
     active_cost_region_index: IntProperty(default=0, min=0)
@@ -126,6 +139,7 @@ _CLASSES = (
     CrowdClipProperties,
     CrowdVariationProperties,
     CrowdLayoutProperties,
+    CrowdGroupProperties,
     CrowdProjectProperties,
 )
 

@@ -43,19 +43,22 @@ cargo test -p crowd-core --test terrain_presentation
 scripts/m2-reference-acceptance.sh
 ```
 
-## Remaining M2 exit work
+## M2 acceptance evidence
 
-The authorable runtime now has deterministic leader-first group bottleneck
-steering as well as individual queue admission. It still needs the full
-authorable Blender bake and richer semantic-observation acceptance evidence.
+The authorable runtime has deterministic leader-first group bottleneck steering
+as well as individual queue admission. The Blender workspace now persists
+social groups with stable agent IDs and exposes their authorable contract in
+the Crowd Project panel. The full authorable Blender bake, cache-only replay,
+debug evidence, and Eevee/Cycles render subgate passed on 2026-08-11; see the
+[dated acceptance report](../benchmarks/2026-08-11-m2-acceptance.md).
 The Blender workspace provides saveable behavior-node, population,
 asset/retarget/variation, environment, and layout editors. The reference
 project includes a checked 50-seat layout; its guides are generated from the
 saved contract and do not become a second simulator. The automated UI-context
 runner passes graph/environment, population, clip, and layout edits through
 undo, save/reload, and native revalidation on Blender 5.2.
-The full authorable bake/render, independent non-developer reproduction pass,
-and final dated M2 acceptance report remain open.
+The remaining M2 exit gate is the independent non-developer reproduction pass.
+Use the copy-ready [reference reproduction procedure](m2-reference-reproduction.md).
 
 `scripts/m2-reference-acceptance.sh` emits a dated 10,000-tick runtime-evidence
 report for the 1,000-agent authorable reference. It is intentionally a
@@ -64,7 +67,7 @@ and visual presentation evidence are independently proven.
 The completed runtime-evidence artifact is
 [2026-08-11-m2-runtime-evidence](../benchmarks/2026-08-11-m2-runtime-evidence.md).
 
-Until those pass, M2 is not accepted and M3 remains blocked.
+Until that independent pass is recorded, M2 is not accepted and M3 remains blocked.
 
 ## Running the implemented gate runner
 

@@ -16,9 +16,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crowd_cache::{
-    compose_frame, AgentStatic, BakeSpec, BehaviorEventKindV1, BehaviorEventV1, CacheReader,
-    CacheStatus, CacheWriter, ChannelDef, Frame as CacheFrame, FrameRecord, OverrideLayerV1,
-    RecoveryInspector, RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
+    compose_frame, AgentStatic, BakeSpec, BehaviorEventCompactor, BehaviorEventKindV1,
+    BehaviorEventV1, CacheReader, CacheStatus, CacheWriter, ChannelDef, Frame as CacheFrame,
+    FrameRecord, OverrideLayerV1, RecoveryInspector, RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
 };
 use crowd_core::authoring::{
     compile_authorable_project as compile_core_authorable_project, migrate_project_v1,
@@ -335,11 +335,11 @@ impl Session {
             .collect();
         writer.write_agents(&agents)?;
 
-        let mut behavior_events = Vec::new();
+        let mut behavior_events = BehaviorEventCompactor::default();
         for offset in 0..ticks {
             if cancel_token.is_canceled() {
                 if self.authorable_bake {
-                    writer.write_behavior_events(&behavior_events)?;
+                    writer.write_behavior_events(&behavior_events.into_events())?;
                 }
                 let manifest = writer.cancel("canceled by caller")?;
                 return Ok(BakeOutcome {
@@ -349,19 +349,19 @@ impl Session {
             }
             writer.push_tick(tick_start + offset, self.cache_frame())?;
             self.simulation.step();
-            behavior_events.extend(self.simulation.drain_behavior_events().into_iter().map(
-                |event| BehaviorEventV1 {
+            for event in self.simulation.drain_behavior_events() {
+                behavior_events.push(BehaviorEventV1 {
                     tick: event.tick,
                     agent_id: event.agent_id.0,
                     kind: behavior_event_kind(event.kind),
                     detail: event.detail,
                     graph_id: event.graph_id,
                     decisive_node: event.decisive_node,
-                },
-            ));
+                });
+            }
         }
         if self.authorable_bake {
-            writer.write_behavior_events(&behavior_events)?;
+            writer.write_behavior_events(&behavior_events.into_events())?;
         }
         let manifest = writer.finish()?;
         Ok(BakeOutcome {
