@@ -25,6 +25,17 @@ def require(condition, message):
         fail(message)
 
 
+def require_rejected(operation, message, expected_text=None):
+    """Accept Blender's two Python representations of an operator rejection."""
+    try:
+        outcome = operation()
+    except RuntimeError as error:
+        if expected_text is not None:
+            require(expected_text.lower() in str(error).lower(), message)
+        return
+    require(outcome == {"CANCELLED"}, message)
+
+
 def agent_id_parts(agent_id):
     return agent_id & 0xFFFFFFFF, (agent_id >> 32) & 0xFFFFFFFF
 
@@ -106,9 +117,10 @@ def main():
     # changed. M3 must reject it rather than displaying old crowd geometry.
     original_seed = props.seed
     props.seed = original_seed + 1
-    require(
-        bpy.ops.crowd.attach_cache(filepath=cache_path) == {"CANCELLED"},
+    require_rejected(
+        lambda: bpy.ops.crowd.attach_cache(filepath=cache_path),
         "stale cache attached after project input changed",
+        "stale",
     )
     require(not props.cache_attached, "stale cache remained marked authoritative")
     props.seed = original_seed
@@ -175,9 +187,10 @@ def main():
         "corrupt cache could not be inspected",
     )
     require(props.cache_status == "corrupt", "corrupt cache was not labeled corrupt")
-    require(
-        bpy.ops.crowd.attach_cache(filepath=cache_path) == {"CANCELLED"},
+    require_rejected(
+        lambda: bpy.ops.crowd.attach_cache(filepath=cache_path),
         "corrupt cache attached as authoritative playback",
+        "do not attach",
     )
 
     report = {

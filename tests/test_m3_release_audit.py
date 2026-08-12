@@ -14,7 +14,13 @@ AUDIT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(AUDIT)
 
 
-def write_archive(path, include_wheel=True, contributor_path=False, source_dirty=False):
+def write_archive(
+    path,
+    include_wheel=True,
+    contributor_path=False,
+    source_dirty=False,
+    source_date_epoch=1_786_497_600,
+):
     manifest = '''schema_version = "1.0.0"
 id = "blender_crowd"
 version = "1.0.0"
@@ -42,7 +48,17 @@ wheels = ["./wheels/blender_crowd_native-1.0.0-cp311-abi3-macosx_11_0_arm64.whl"
         ):
             archive.writestr(name, "clean text" if not contributor_path else "/Users/example/private")
         archive.writestr("sbom.spdx.json", json.dumps({"spdxVersion": "SPDX-2.3", "packages": [{"name": "crowd-core"}]}))
-        archive.writestr("release-provenance.json", json.dumps({"version": "1.0.0", "source_revision": "0123456789abcdef", "source_dirty": source_dirty}))
+        archive.writestr(
+            "release-provenance.json",
+            json.dumps(
+                {
+                    "version": "1.0.0",
+                    "source_revision": "0123456789abcdef",
+                    "source_dirty": source_dirty,
+                    "source_date_epoch": source_date_epoch,
+                }
+            ),
+        )
         if include_wheel:
             archive.writestr("wheels/blender_crowd_native-1.0.0-cp311-abi3-macosx_11_0_arm64.whl", b"wheel")
 
@@ -77,3 +93,11 @@ class M3ReleaseAuditTests(unittest.TestCase):
             report = AUDIT.audit(archive)
             self.assertFalse(report["passed"])
             self.assertTrue(any("clean source" in error for error in report["errors"]))
+
+    def test_rejects_provenance_without_a_source_date_epoch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "release.zip"
+            write_archive(archive, source_date_epoch=None)
+            report = AUDIT.audit(archive)
+            self.assertFalse(report["passed"])
+            self.assertTrue(any("source date epoch" in error for error in report["errors"]))

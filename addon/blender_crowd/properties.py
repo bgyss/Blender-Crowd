@@ -128,7 +128,11 @@ class CrowdDiagnosticProperties(PropertyGroup):
     severity: StringProperty(name="Severity", default="INFO")
     summary: StringProperty(name="Summary")
     detail: StringProperty(name="Detail")
-    filepath: StringProperty(name="Affected File", subtype="FILE_PATH")
+    filepath: StringProperty(
+        name="Affected File",
+        subtype="FILE_PATH",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
+    )
     object_name: StringProperty(name="Affected Object")
     documentation: StringProperty(name="Recovery Documentation")
 
@@ -137,7 +141,11 @@ class CrowdProjectProperties(PropertyGroup):
     project_uuid: StringProperty(name="Project UUID")
     seed: IntProperty(name="Seed", min=0, default=2026)
     ticks_per_second: IntProperty(name="Ticks per Second", min=1, default=30)
-    cache_path: StringProperty(name="Cache Path", subtype="DIR_PATH")
+    cache_path: StringProperty(
+        name="Cache Path",
+        subtype="DIR_PATH",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
+    )
     status: StringProperty(name="Status", default="Not created")
     current_stage: StringProperty(name="Workflow Stage", default="Create or open a Crowd project")
     selection_context: StringProperty(name="Selection Context", default="No Crowd selection")

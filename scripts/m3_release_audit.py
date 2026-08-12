@@ -113,6 +113,8 @@ def audit(archive):
                         fail(errors, "release provenance has no source revision")
                     if provenance.get("source_dirty") is not False:
                         fail(errors, "release provenance must attest to a clean source tree")
+                    if not isinstance(provenance.get("source_date_epoch"), int) or provenance["source_date_epoch"] <= 0:
+                        fail(errors, "release provenance has no valid source date epoch")
                 except (UnicodeDecodeError, json.JSONDecodeError) as error:
                     fail(errors, "release provenance is invalid JSON: {}".format(error))
     except zipfile.BadZipFile:

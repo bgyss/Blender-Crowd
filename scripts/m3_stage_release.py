@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -30,6 +31,13 @@ def git_value(*args):
     return subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
 
 
+def normalize_timestamps(root, epoch):
+    """Give Blender's ZIP builder stable input mtimes for reproducible output."""
+    for path in sorted(root.rglob("*"), reverse=True):
+        os.utime(path, (epoch, epoch), follow_symlinks=False)
+    os.utime(root, (epoch, epoch), follow_symlinks=False)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path)
@@ -42,17 +50,23 @@ def main():
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
     subprocess.check_call(["python3", str(ROOT / "scripts" / "m3_sbom.py"), "--out", str(args.out / "sbom.spdx.json")], cwd=ROOT)
+    source_date_epoch = int(
+        os.environ.get("SOURCE_DATE_EPOCH")
+        or git_value("show", "-s", "--format=%ct", "HEAD")
+    )
     provenance = {
         "schema_version": 1,
         "project": "Blender Crowd",
         "version": "1.0.0",
         "source_revision": git_value("rev-parse", "HEAD"),
         "source_dirty": bool(git_value("status", "--porcelain")),
+        "source_date_epoch": source_date_epoch,
         "build_recipe": "scripts/build-wheel.sh + scripts/m3_stage_release.py",
     }
     (args.out / "release-provenance.json").write_text(
         json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    normalize_timestamps(args.out, source_date_epoch)
 
 
 if __name__ == "__main__":

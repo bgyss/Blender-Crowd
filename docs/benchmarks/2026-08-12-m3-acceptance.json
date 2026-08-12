@@ -5,17 +5,19 @@
   "decision": "not_accepted",
   "release_version": "1.0.0",
   "criteria": {
-    "clean_install_matrix": "unproven",
+    "clean_install_matrix": "partially_proven",
     "cache_compatibility_recovery": "partially_proven",
-    "blender_lifecycle": "unproven",
+    "blender_lifecycle": "partially_proven",
     "resource_budgets": "unproven",
     "binary_provenance": "partially_proven",
     "documentation": "partially_proven",
     "limitations_and_recovery": "partially_proven"
   },
   "blocking_conditions": [
-    "Blender 5.2.0 LTS extension validate crashes before archive creation on local macOS arm64",
-    "Windows and Linux release archives are not built",
-    "Signing, support-matrix budget evidence, and two independent evaluator records are absent"
+    "Post-debug fixes require a clean commit, rebuilt archive, and complete archive-first rerun",
+    "The declared Windows and Linux rows are unbuilt; otherwise the 1.0 support matrix must be narrowed explicitly to macOS arm64",
+    "Fixed enforcing support-matrix budgets are absent",
+    "Older-cache, missing-asset, linked/library-override, clean-preference, and explicit dependency-graph stress drills are absent",
+    "Signing applicability, human license review, accessibility review, and independent evaluator records are unresolved"
   ]
 }

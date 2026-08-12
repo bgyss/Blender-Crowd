@@ -1,5 +1,6 @@
 """M3 production-workflow persistence and cache-recovery smoke test."""
 
+import json
 import os
 import shutil
 import sys
@@ -20,6 +21,17 @@ def fail(message):
 def require(condition, message):
     if not condition:
         fail(message)
+
+
+def require_rejected(operation, message, expected_text=None):
+    """Accept Blender's two Python representations of an operator rejection."""
+    try:
+        outcome = operation()
+    except RuntimeError as error:
+        if expected_text is not None:
+            require(expected_text.lower() in str(error).lower(), message)
+        return
+    require(outcome == {"CANCELLED"}, message)
 
 
 def main():
@@ -54,7 +66,11 @@ def main():
     require(props.cache_status == "canceled", "health did not expose canceled status")
     require(not props.cache_attached, "canceled cache was marked authoritative")
     require("Do not attach" in props.cache_recovery_hint, "recovery hint is not actionable")
-    require(bpy.ops.crowd.attach_cache() == {"CANCELLED"}, "canceled cache attached as playback")
+    require_rejected(
+        bpy.ops.crowd.attach_cache,
+        "canceled cache attached as playback",
+        "do not attach",
+    )
     support_path = os.path.join(tempfile.mkdtemp(prefix="blender-crowd-m3-support-"), "support.json")
     require(
         bpy.ops.crowd.write_support_bundle(filepath=support_path) == {"FINISHED"},
@@ -87,9 +103,10 @@ def main():
     manifest["schema_version"] = 2
     with open(manifest_path, "w", encoding="utf-8") as handle:
         json.dump(manifest, handle)
-    require(
-        bpy.ops.crowd.inspect_cache_health() == {"CANCELLED"},
+    require_rejected(
+        bpy.ops.crowd.inspect_cache_health,
         "newer cache schema was treated as supported",
+        "unsupported",
     )
     require(props.cache_status == "unsupported", "newer cache schema was not labeled unsupported")
     require(not props.cache_attached, "unsupported cache was marked authoritative")
