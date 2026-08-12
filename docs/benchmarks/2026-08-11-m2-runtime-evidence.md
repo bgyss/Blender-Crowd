@@ -1,6 +1,8 @@
 # M2 authorable runtime evidence — 2026-08-11
 
-Status: runtime-evidence subgate passed; M2 is not accepted.
+Historical status: the runtime-evidence subgate passed on 2026-08-11, while M2
+was still awaiting operator reproduction. M2 was subsequently accepted on
+2026-08-12; see the [final acceptance record](2026-08-12-m2-acceptance.md).
 
 The checked [JSON report](2026-08-11-m2-runtime-evidence.json) was generated
 by `scripts/m2-reference-acceptance.sh` from the 1,000-agent reference

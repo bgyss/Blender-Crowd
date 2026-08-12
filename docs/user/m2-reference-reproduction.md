@@ -66,6 +66,7 @@ Open a new Blender session and use the installed **Crowd Project** panel:
    are unchanged.
 
 Record the operator status messages, the final acceptance JSON, Blender/OS
-version, GPU model, and any deviation. Do not mark M2 accepted merely because
-the scripted runner succeeds: a separate person must complete this procedure
-and attach their dated evidence to the acceptance report.
+version, GPU model, and any deviation. M2 was accepted on 2026-08-12 after the
+project operator completed this six-step spot check; see the
+[acceptance record](../benchmarks/2026-08-12-m2-acceptance.md). Future runs remain
+useful regression evidence, especially for the deferred UI/UX backlog.
