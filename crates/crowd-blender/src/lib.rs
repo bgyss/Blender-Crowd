@@ -16,11 +16,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crowd_cache::{
-    compose_frame, AgentStatic, BakeSpec, CacheReader, CacheStatus, CacheWriter, ChannelDef,
-    Frame as CacheFrame, FrameRecord, OverrideLayerV1, RecoveryInspector, RecoveryReport,
-    ScalarType, CACHE_V1_DEFAULTS,
+    compose_frame, AgentStatic, BakeSpec, BehaviorEventCompactor, BehaviorEventKindV1,
+    BehaviorEventV1, CacheReader, CacheStatus, CacheWriter, ChannelDef, Frame as CacheFrame,
+    FrameRecord, OverrideLayerV1, RecoveryInspector, RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
+};
+use crowd_core::authoring::{
+    compile_authorable_project as compile_core_authorable_project, migrate_project_v1,
+    AuthorableProjectV2, CompiledAuthorableProject,
 };
 use crowd_core::avoidance::SampledVelocitySolver;
+use crowd_core::behavior::{compile_graph, BehaviorGraphV1};
 use crowd_core::project::{
     compile_project as compile_core_project, CompiledAgentSpawn,
     CompiledProject as CoreCompiledProject, Diagnostic,
@@ -34,6 +39,35 @@ use pyo3::types::{PyBytes, PyDict};
 #[pyclass(name = "CompiledProject", frozen)]
 struct PyCompiledProject {
     inner: Arc<CoreCompiledProject>,
+}
+
+/// A compiled M2 project retains its graph and social controllers for a
+/// native-only bake.  It deliberately has the same narrow session boundary as
+/// the M1 project, so Blender never becomes an authoritative simulator.
+#[pyclass(name = "AuthorableProject", frozen)]
+struct PyAuthorableProject {
+    base: Arc<CoreCompiledProject>,
+    inner: Arc<CompiledAuthorableProject>,
+}
+
+#[pymethods]
+impl PyAuthorableProject {
+    #[getter]
+    fn agent_count(&self) -> usize {
+        self.base.agent_spawns().len()
+    }
+
+    #[pyo3(signature = (agent_count=None))]
+    fn create_session(&self, agent_count: Option<u32>) -> PyResult<Session> {
+        let requested = agent_count.unwrap_or(self.base.agent_spawns().len() as u32);
+        if requested == 0 || requested as usize > self.base.agent_spawns().len() {
+            return Err(PyValueError::new_err(format!(
+                "E_AGENT_COUNT: requested {requested}, project contains {}",
+                self.base.agent_spawns().len()
+            )));
+        }
+        Session::create_authorable(Arc::clone(&self.base), Arc::clone(&self.inner), requested)
+    }
 }
 
 #[pymethods]
@@ -101,6 +135,7 @@ impl PyCancelToken {
 #[pyclass]
 struct Session {
     project: Arc<CoreCompiledProject>,
+    authorable_bake: bool,
     simulation: Simulation,
     agent_count: u32,
 }
@@ -182,11 +217,33 @@ impl Session {
             .map_err(|error| PyValueError::new_err(format!("E_SESSION_COMPILE: {error}")))?;
         Ok(Self {
             project,
+            authorable_bake: false,
             simulation: Simulation::new(
                 scene,
                 Box::new(SampledVelocitySolver::default()),
                 SimConfig::default(),
             ),
+            agent_count,
+        })
+    }
+
+    fn create_authorable(
+        project: Arc<CoreCompiledProject>,
+        authorable: Arc<CompiledAuthorableProject>,
+        agent_count: u32,
+    ) -> PyResult<Self> {
+        let scene = facade_scene(&project, agent_count)
+            .map_err(|error| PyValueError::new_err(format!("E_SESSION_COMPILE: {error}")))?;
+        let mut simulation = Simulation::new(
+            scene,
+            Box::new(SampledVelocitySolver::default()),
+            SimConfig::default(),
+        );
+        simulation.enable_authorable_behavior(authorable.runtime_controller());
+        Ok(Self {
+            project,
+            authorable_bake: true,
+            simulation,
             agent_count,
         })
     }
@@ -278,8 +335,12 @@ impl Session {
             .collect();
         writer.write_agents(&agents)?;
 
+        let mut behavior_events = BehaviorEventCompactor::default();
         for offset in 0..ticks {
             if cancel_token.is_canceled() {
+                if self.authorable_bake {
+                    writer.write_behavior_events(&behavior_events.into_events())?;
+                }
                 let manifest = writer.cancel("canceled by caller")?;
                 return Ok(BakeOutcome {
                     status: manifest.status,
@@ -288,6 +349,19 @@ impl Session {
             }
             writer.push_tick(tick_start + offset, self.cache_frame())?;
             self.simulation.step();
+            for event in self.simulation.drain_behavior_events() {
+                behavior_events.push(BehaviorEventV1 {
+                    tick: event.tick,
+                    agent_id: event.agent_id.0,
+                    kind: behavior_event_kind(event.kind),
+                    detail: event.detail,
+                    graph_id: event.graph_id,
+                    decisive_node: event.decisive_node,
+                });
+            }
+        }
+        if self.authorable_bake {
+            writer.write_behavior_events(&behavior_events.into_events())?;
         }
         let manifest = writer.finish()?;
         Ok(BakeOutcome {
@@ -298,7 +372,7 @@ impl Session {
 }
 
 enum CacheBacking {
-    Complete(CacheReader),
+    Complete(Box<CacheReader>),
     Inspection(RecoveryReport),
 }
 
@@ -309,18 +383,40 @@ struct PyCache {
     override_layers: Vec<OverrideLayerV1>,
 }
 
+/// Select the event bundle that most recently explains an agent's state at a
+/// timeline tick. Decision events are sparse by design, so exact-tick lookup
+/// leaves the debugger blank for almost every frame.
+fn inspection_behavior_events(
+    events: &[BehaviorEventV1],
+    agent_id: u64,
+    tick: u64,
+) -> Vec<BehaviorEventV1> {
+    let latest_tick = events
+        .iter()
+        .filter(|event| event.agent_id == agent_id && event.tick <= tick)
+        .map(|event| event.tick)
+        .max();
+    latest_tick.map_or_else(Vec::new, |selected_tick| {
+        events
+            .iter()
+            .filter(|event| event.agent_id == agent_id && event.tick == selected_tick)
+            .cloned()
+            .collect()
+    })
+}
+
 #[pymethods]
 impl PyCache {
     #[new]
     #[pyo3(signature = (path, require_complete=true))]
     fn new(path: PathBuf, require_complete: bool) -> PyResult<Self> {
         let backing = if require_complete {
-            CacheBacking::Complete(CacheReader::open_complete(&path).map_err(|error| {
-                PyOSError::new_err(format!("E_CACHE_OPEN {}: {error}", path.display()))
-            })?)
+            CacheBacking::Complete(Box::new(CacheReader::open_complete(&path).map_err(
+                |error| PyOSError::new_err(format!("E_CACHE_OPEN {}: {error}", path.display())),
+            )?))
         } else {
             match CacheReader::open_complete(&path) {
-                Ok(reader) => CacheBacking::Complete(reader),
+                Ok(reader) => CacheBacking::Complete(Box::new(reader)),
                 Err(_) => {
                     CacheBacking::Inspection(RecoveryInspector::open(&path).map_err(|error| {
                         PyOSError::new_err(format!("E_CACHE_INSPECT {}: {error}", path.display()))
@@ -439,18 +535,31 @@ impl PyCache {
         out.set_item("playback_rate", record.playback_rate)?;
         out.set_item("visible", record.visible)?;
 
-        let evidence_path = self.path.join("debug/selected-agent.json");
-        let decision_trace_json = fs::read_to_string(&evidence_path).ok().filter(|text| {
-            serde_json::from_str::<serde_json::Value>(text)
-                .ok()
-                .and_then(|value| {
-                    Some((
-                        value.get("agent_id")?.as_u64()?,
-                        value.get("tick")?.as_u64()?,
-                    ))
-                })
-                == Some((agent_id, tick))
-        });
+        let behavior_events = self.complete()?.read_behavior_events().map_err(|error| {
+            PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
+        })?;
+        let cached_trace_json = inspection_behavior_events(&behavior_events, agent_id, tick);
+        let legacy_evidence_path = self.path.join("debug/selected-agent.json");
+        let legacy_trace_json = fs::read_to_string(&legacy_evidence_path)
+            .ok()
+            .filter(|text| {
+                serde_json::from_str::<serde_json::Value>(text)
+                    .ok()
+                    .and_then(|value| {
+                        Some((
+                            value.get("agent_id")?.as_u64()?,
+                            value.get("tick")?.as_u64()?,
+                        ))
+                    })
+                    == Some((agent_id, tick))
+            });
+        let decision_trace_json = if cached_trace_json.is_empty() {
+            legacy_trace_json
+        } else {
+            Some(serde_json::to_string(&cached_trace_json).map_err(|error| {
+                PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
+            })?)
+        };
         out.set_item("decision_trace_json", decision_trace_json)?;
         Ok(out)
     }
@@ -459,7 +568,7 @@ impl PyCache {
 impl PyCache {
     fn complete(&self) -> PyResult<&CacheReader> {
         match &self.backing {
-            CacheBacking::Complete(reader) => Ok(reader),
+            CacheBacking::Complete(reader) => Ok(reader.as_ref()),
             CacheBacking::Inspection(report) => Err(PyOSError::new_err(format!(
                 "E_CACHE_NOT_COMPLETE {}: {}",
                 self.path.display(),
@@ -476,6 +585,100 @@ fn compile_project_py(project_json: &str) -> PyResult<PyCompiledProject> {
     let compiled = compile_core_project(&ir)
         .map_err(|diagnostics| PyValueError::new_err(format_diagnostics(&diagnostics)))?;
     Ok(PyCompiledProject {
+        inner: Arc::new(compiled),
+    })
+}
+
+/// Compile a typed authoring graph without entering Blender or the simulator.
+///
+/// Keeping this as a coarse Rust call makes graph validation identical in the
+/// node editor, headless validation, and eventual bake preflight.
+#[pyfunction(name = "compile_behavior_graph")]
+fn compile_behavior_graph_py<'py>(
+    py: Python<'py>,
+    graph_json: &str,
+) -> PyResult<Bound<'py, PyDict>> {
+    let graph: BehaviorGraphV1 = serde_json::from_str(graph_json)
+        .map_err(|error| PyValueError::new_err(format!("E_GRAPH_JSON: {error}")))?;
+    let program = compile_graph(&graph).map_err(|diagnostics| {
+        let message = diagnostics
+            .iter()
+            .map(|diagnostic| {
+                format!(
+                    "E_GRAPH_{:?} {}: {}",
+                    diagnostic.code, diagnostic.node_id, diagnostic.message
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        PyValueError::new_err(message)
+    })?;
+    let out = PyDict::new(py);
+    out.set_item("id", program.id())?;
+    out.set_item("entry_index", program.entry_index())?;
+    out.set_item("node_count", program.node_count())?;
+    Ok(out)
+}
+
+#[pyfunction(name = "migrate_project_v1")]
+fn migrate_project_v1_py(project_json: &str) -> PyResult<String> {
+    let project = serde_json::from_str(project_json)
+        .map_err(|error| PyValueError::new_err(format!("E_PROJECT_JSON: {error}")))?;
+    serde_json::to_string(&migrate_project_v1(project))
+        .map_err(|error| PyValueError::new_err(format!("E_PROJECT_V2_JSON: {error}")))
+}
+
+#[pyfunction(name = "compile_authorable_project")]
+fn compile_authorable_project_py<'py>(
+    py: Python<'py>,
+    project_json: &str,
+) -> PyResult<Bound<'py, PyDict>> {
+    let project: AuthorableProjectV2 = serde_json::from_str(project_json)
+        .map_err(|error| PyValueError::new_err(format!("E_PROJECT_V2_JSON: {error}")))?;
+    let compiled = compile_core_authorable_project(&project).map_err(|diagnostics| {
+        PyValueError::new_err(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    format!(
+                        "E_AUTHORING_{:?} {}: {}",
+                        diagnostic.code, diagnostic.entity_id, diagnostic.message
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    })?;
+    let out = PyDict::new(py);
+    out.set_item("agent_count", compiled.base().agent_spawns().len())?;
+    out.set_item("base_source_hash", compiled.base().source_hash_hex())?;
+    out.set_item("behavior_program_count", compiled.behavior_program_count())?;
+    Ok(out)
+}
+
+/// Build an M2 project that can create a native authorable bake session.
+#[pyfunction(name = "compile_authorable_runtime")]
+fn compile_authorable_runtime_py(project_json: &str) -> PyResult<PyAuthorableProject> {
+    let project: AuthorableProjectV2 = serde_json::from_str(project_json)
+        .map_err(|error| PyValueError::new_err(format!("E_PROJECT_V2_JSON: {error}")))?;
+    let base = compile_core_project(&project.base)
+        .map_err(|diagnostics| PyValueError::new_err(format_diagnostics(&diagnostics)))?;
+    let compiled = compile_core_authorable_project(&project).map_err(|diagnostics| {
+        PyValueError::new_err(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    format!(
+                        "E_AUTHORING_{:?} {}: {}",
+                        diagnostic.code, diagnostic.entity_id, diagnostic.message
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    })?;
+    Ok(PyAuthorableProject {
+        base: Arc::new(base),
         inner: Arc::new(compiled),
     })
 }
@@ -581,6 +784,17 @@ fn cache_status_name(status: CacheStatus) -> &'static str {
         CacheStatus::Incomplete => "incomplete",
         CacheStatus::Canceled => "canceled",
         CacheStatus::Complete => "complete",
+    }
+}
+
+fn behavior_event_kind(kind: crowd_core::BehaviorRuntimeEventKind) -> BehaviorEventKindV1 {
+    match kind {
+        crowd_core::BehaviorRuntimeEventKind::Decision => BehaviorEventKindV1::Decision,
+        crowd_core::BehaviorRuntimeEventKind::QueueRequested => BehaviorEventKindV1::QueueRequested,
+        crowd_core::BehaviorRuntimeEventKind::QueueAdmitted => BehaviorEventKindV1::QueueAdmitted,
+        crowd_core::BehaviorRuntimeEventKind::QueueReleased => BehaviorEventKindV1::QueueReleased,
+        crowd_core::BehaviorRuntimeEventKind::GroupSplit => BehaviorEventKindV1::GroupSplit,
+        crowd_core::BehaviorRuntimeEventKind::GroupRegrouped => BehaviorEventKindV1::GroupRegrouped,
     }
 }
 
@@ -925,6 +1139,7 @@ fn pack(records: &[AgentRecord]) -> PackedChannels {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     fn record_with_id(agent_id: u64) -> AgentRecord {
         AgentRecord {
@@ -943,6 +1158,21 @@ mod tests {
         let lo = u32::from_le_bytes(lo[index * 4..index * 4 + 4].try_into().unwrap());
         let hi = u32::from_le_bytes(hi[index * 4..index * 4 + 4].try_into().unwrap());
         (u64::from(lo)) | (u64::from(hi) << 32)
+    }
+
+    #[test]
+    fn inspection_uses_the_latest_cached_event_at_or_before_the_selected_tick() {
+        let events = vec![
+            BehaviorEventV1::decision(0, 7, "leave", "join_queue", "population:0"),
+            BehaviorEventV1::new(0, 7, BehaviorEventKindV1::QueueRequested, "east_queue"),
+            BehaviorEventV1::decision(3, 7, "leave", "visit_kiosk", "population:0"),
+            BehaviorEventV1::decision(6, 8, "leave", "join_queue", "population:0"),
+        ];
+
+        let selected = inspection_behavior_events(&events, 7, 5);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].tick, 3);
+        assert_eq!(selected[0].decisive_node.as_deref(), Some("visit_kiosk"));
     }
 
     #[test]
@@ -982,6 +1212,31 @@ mod tests {
         let y = f32::from_le_bytes(packed.position[4..8].try_into().unwrap());
         let z = f32::from_le_bytes(packed.position[8..12].try_into().unwrap());
         assert_eq!((x, y, z), (1.5, -2.5, 0.0));
+    }
+
+    #[test]
+    fn authorable_bake_persists_live_graph_evidence_in_the_cache() {
+        let project: AuthorableProjectV2 = serde_json::from_str(include_str!(
+            "../../../addon/blender_crowd/reference/concourse-authoring-v2.json"
+        ))
+        .unwrap();
+        let base = Arc::new(compile_core_project(&project.base).unwrap());
+        let authorable = Arc::new(compile_core_authorable_project(&project).unwrap());
+        let mut session = Session::create_authorable(base, authorable, 1).unwrap();
+        let temp = tempdir().unwrap();
+        let cache_path = temp.path().join("authorable-cache");
+
+        let result = session
+            .bake_native(&cache_path, 2, &crowd_cache::CancelToken::new())
+            .unwrap();
+        assert_eq!(result.status, CacheStatus::Complete);
+        let reader = CacheReader::open_complete(&cache_path).unwrap();
+        assert!(reader.manifest().behavior_events.is_some());
+        assert!(reader
+            .read_behavior_events()
+            .unwrap()
+            .iter()
+            .any(|event| event.kind == BehaviorEventKindV1::Decision));
     }
 
     #[test]
@@ -1207,10 +1462,15 @@ fn blender_crowd_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<Trace>()?;
     m.add_class::<PyCompiledProject>()?;
+    m.add_class::<PyAuthorableProject>()?;
     m.add_class::<Session>()?;
     m.add_class::<PyCancelToken>()?;
     m.add_class::<PyCache>()?;
     m.add_function(wrap_pyfunction!(compile_project_py, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_behavior_graph_py, m)?)?;
+    m.add_function(wrap_pyfunction!(migrate_project_v1_py, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_authorable_project_py, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_authorable_runtime_py, m)?)?;
     m.add_function(wrap_pyfunction!(inspect_cache, m)?)?;
     Ok(())
 }

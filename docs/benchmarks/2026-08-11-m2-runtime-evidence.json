@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "generated_unix_seconds": 1786491439,
+  "agent_count": 1000,
+  "ticks": 10000,
+  "decision_events": 6752500,
+  "queue_requested_events": 1001,
+  "queue_admitted_events": 4,
+  "queue_released_events": 6,
+  "group_split_events": 1,
+  "group_regrouped_events": 0,
+  "group_reported": true,
+  "simulation_duration_ns": 46936834000,
+  "runtime_evidence_accepted": true,
+  "m2_milestone_accepted": false
+}

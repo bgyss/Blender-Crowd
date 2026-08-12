@@ -12,6 +12,7 @@ the entire crowd into ordinary Blender objects.
 - [Industrial roadmap: simulate, direct, and render](../industrial-crowd-capability-roadmap.md#simulate-direct-and-render)
 - [Blender Crowd 1.0 shot overrides and cache](../blender-crowd-1.0.md)
 - [M3 production 1.0](M3-production-1.0.md)
+- [UI/UX roadmap](../ui-ux-roadmap.md)
 
 ## Prerequisites
 
@@ -40,6 +41,27 @@ must migrate real 1.0 fixtures.
    be used when Blender's exporter cannot preserve the contract.
 7. Import/export adapters through public cache/IR APIs so Blender, Houdini,
    Unreal, and other consumers can be evaluated without entering core state.
+
+## UI/UX goals and gate
+
+- Provide a layer editor that makes order, source, priority, mute/solo, affected
+  agents/ranges, provenance, validity, and base-cache relationship visible.
+- Support direct viewport selection and manipulation for per-agent, region, and
+  curve corrections, with numeric controls for precision and explicit preview
+  of affected dependencies before committing work.
+- Show conflicts, stale dependencies, local-resimulation scope, and unsupported
+  interchange features before render or export; no destructive flattening or
+  silent degradation is the default path.
+- Provide before/after comparison, layer isolation, reversible flatten/export,
+  and a clear recovery path for failed physics or interchange operations.
+- Keep large crowds procedural in both the interface and scene structure; the
+  correction workflow must not encourage expanding all agents into objects.
+
+The M4 UI gate passes when an artist corrects seven arbitrarily selected agents,
+resolves an injected layer conflict, reviews invalidation scope, and exports the
+composed result without rebaking or mutating the base cache. Evidence includes
+task timings, before/after captures, layer/conflict states, export warnings, and
+the unchanged base-cache hash.
 
 ## Explicit exclusions
 

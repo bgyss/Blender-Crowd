@@ -5,10 +5,11 @@ use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use crate::agents::decode_agents;
+use crate::behavior_events::BehaviorEventLogV1;
 use crate::writer::safe_join;
 use crate::{
-    decode_chunk, payload_checksum, AgentStatic, CacheError, CacheManifestV1, CacheStatus,
-    ChunkDef, FileDef, Frame,
+    decode_chunk, payload_checksum, AgentStatic, BehaviorEventV1, CacheError, CacheManifestV1,
+    CacheStatus, ChunkDef, FileDef, Frame,
 };
 
 pub struct CacheReader {
@@ -84,6 +85,11 @@ impl CacheReader {
                 found_last_tick: expected_tick.checked_sub(1),
             });
         }
+        if let Some(definition) = &manifest.behavior_events {
+            let path = safe_join(root, &definition.path)?;
+            let bytes = validate_file(&path, definition)?;
+            decode_behavior_events(&path, &bytes, &manifest, &agents)?;
+        }
 
         Ok(Self {
             root: root.to_owned(),
@@ -143,6 +149,40 @@ impl CacheReader {
         }
         Ok(frames)
     }
+
+    /// Read the optional M2 authored-behavior evidence channel. M1 caches
+    /// intentionally return an empty log.
+    pub fn read_behavior_events(&self) -> Result<Vec<BehaviorEventV1>, CacheError> {
+        let Some(definition) = &self.manifest.behavior_events else {
+            return Ok(Vec::new());
+        };
+        let path = safe_join(&self.root, &definition.path)?;
+        let bytes = validate_file(&path, definition)?;
+        Ok(decode_behavior_events(&path, &bytes, &self.manifest, &self.agents)?.events)
+    }
+}
+
+fn decode_behavior_events(
+    path: &Path,
+    bytes: &[u8],
+    manifest: &CacheManifestV1,
+    agents: &[AgentStatic],
+) -> Result<BehaviorEventLogV1, CacheError> {
+    let log: BehaviorEventLogV1 =
+        serde_json::from_slice(bytes).map_err(|error| CacheError::Json {
+            path: path.to_owned(),
+            message: error.to_string(),
+        })?;
+    let ids = agents
+        .iter()
+        .map(|agent| agent.agent_id)
+        .collect::<Vec<_>>();
+    log.validate(manifest.tick_start, manifest.tick_end, &ids)
+        .map_err(|message| CacheError::Json {
+            path: path.to_owned(),
+            message,
+        })?;
+    Ok(log)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

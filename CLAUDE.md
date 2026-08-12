@@ -12,6 +12,8 @@ The Rust workspace is implemented and tested. Use these:
 
 ```sh
 cargo test --workspace                                    # unit, property, determinism
+cargo test -p crowd-core --test behavior_graph            # M2 typed graph schema/compiler
+scripts/m2-foundation-test.sh                             # implemented M2 compiler/data-layer checks
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
 cargo clippy --workspace --all-targets -- -D warnings     # must be clean before commit
 cargo fmt                                                 # before every commit

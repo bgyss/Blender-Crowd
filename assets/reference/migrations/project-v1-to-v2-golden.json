@@ -1,0 +1,11 @@
+{
+  "migration_id": "project-v1-to-v2",
+  "input": "../concourse-project-v1.json",
+  "expected_schema_version": 2,
+  "expected_base_source_hash": "cfeb0ae7bb4ae1c651e7d3f6614453dad6d1d34b808ff42292cba3af5927fb74",
+  "expected_graph_id": "commuter_v1",
+  "expected_graph_entry": "assigned_destination",
+  "expected_population_graphs": {
+    "commuters": "commuter_v1"
+  }
+}

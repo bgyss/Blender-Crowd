@@ -1,6 +1,7 @@
 //! Versioned, recoverable crowd cache.
 
 mod agents;
+mod behavior_events;
 mod checksum;
 mod codec;
 mod defaults;
@@ -11,6 +12,10 @@ mod reader;
 mod writer;
 
 pub use agents::AgentStatic;
+pub use behavior_events::{
+    compact_behavior_events, BehaviorEventCompactor, BehaviorEventKindV1, BehaviorEventV1,
+    BEHAVIOR_EVENTS_SCHEMA_VERSION,
+};
 
 pub use checksum::{content_hash, payload_checksum};
 pub use codec::{
@@ -24,8 +29,10 @@ pub use manifest::{
     CACHE_SCHEMA_VERSION,
 };
 pub use override_layer::{
-    compose_frame, validate_layers, ComposedFrame, ComposedRecord, OverrideError, OverrideLayerV1,
-    OverrideOperation, TransformOverride, OVERRIDE_SCHEMA_VERSION,
+    compose_frame, compose_frame_v2, validate_layers, ComposedFrame, ComposedFrameV2,
+    ComposedRecord, ComposedRecordV2, LocalResimulationRecordV2, OverrideConflictV2,
+    OverrideEditV2, OverrideError, OverrideLayerV1, OverrideLayerV2, OverrideOperation,
+    OverrideV2Error, TransformOverride, OVERRIDE_SCHEMA_VERSION,
 };
 pub use reader::{CacheReader, RecoveryInspector, RecoveryReport};
 pub use writer::{BakeSpec, CacheWriter, CancelToken};

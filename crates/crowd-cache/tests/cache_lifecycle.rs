@@ -94,6 +94,28 @@ fn write_complete_cache(target: &Path, count: u32, tick_end: u64) {
 }
 
 #[test]
+fn writer_accepts_an_empty_user_created_cache_directory_but_rejects_nonempty_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let empty_target = temp.path().join("empty-selected-cache");
+    fs::create_dir(&empty_target).unwrap();
+
+    let writer = CacheWriter::create(&empty_target, spec(1, 0));
+    assert!(
+        writer.is_ok(),
+        "an empty cache directory is safe to initialize"
+    );
+    drop(writer);
+
+    let nonempty_target = temp.path().join("existing-cache");
+    fs::create_dir(&nonempty_target).unwrap();
+    fs::write(nonempty_target.join("keep.txt"), b"do not overwrite").unwrap();
+    assert!(matches!(
+        CacheWriter::create(&nonempty_target, spec(1, 0)),
+        Err(CacheError::AlreadyExists(path)) if path == nonempty_target
+    ));
+}
+
+#[test]
 fn complete_cache_round_trips_in_nonsequential_tick_order() {
     let temp = tempfile::tempdir().unwrap();
     let target = temp.path().join("complete.crowd");

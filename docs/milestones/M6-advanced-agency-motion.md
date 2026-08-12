@@ -12,6 +12,7 @@ characters, while preserving deterministic lower-fidelity tiers.
 - [Blender Crowd 1.0 post-1.0 ordering](../blender-crowd-1.0.md#17-post-10-roadmap-ordering)
 - [Crowd simulation research synthesis](../crowd-simulation-research-2026.md)
 - [M4 layered layout](M4-layout-interchange.md) and [M5 tiers](M5-scale-rendering.md)
+- [UI/UX roadmap](../ui-ux-roadmap.md)
 
 ## Prerequisites
 
@@ -45,6 +46,28 @@ motion/trajectory data and redistribution terms are documented before ingestion.
    Python remains coarse-grained; native extensions use versioned IR or a stable
    C ABI with an optional C++ wrapper only if measured demand justifies its
    compatibility and security cost.
+
+## UI/UX goals and gate
+
+- Evolve the M2 trace view into a scalable brain debugger with a synchronized
+  event timeline, current graph state, decisive node, observations, utility
+  scores, blackboard changes, interrupts, and cross-agent/group context.
+- Navigate bidirectionally between viewport agent, cached event, graph node,
+  action, motion clip, contact, and resulting correction without copied IDs.
+- Support graph search, reusable subgraphs/actions, presets, typed ports, compile
+  diagnostics, large-graph overview, and focused trace highlighting without
+  turning the graph into an unbounded scripting surface.
+- Present motion matching, trajectory fit, foot contact, terrain, interaction,
+  ragdoll, recovery, and solver ownership as readable diagnostics with the
+  responsible layer and failure/recovery action identified.
+- Allow evidence density and debug cost to be reduced by tier while clearly
+  stating which observations or diagnostics are unavailable.
+
+The M6 UI gate passes when independent users author and repair representative
+state-machine, utility, behavior-tree, motion-contact, and interaction failures
+using only the interface and node reference. Evidence must show trace-to-node
+agreement, discovery and repair time, large-graph navigation, debug overhead,
+and clear degraded-evidence states at lower fidelity tiers.
 
 ## Explicit exclusions
 

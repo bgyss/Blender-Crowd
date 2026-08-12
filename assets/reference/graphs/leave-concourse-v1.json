@@ -1,0 +1,12 @@
+{
+  "id": "leave_concourse",
+  "entry_id": "choose_route",
+  "nodes": [
+    { "type": "selector", "id": "choose_route", "children": ["interest_stop", "queue_exit"] },
+    { "type": "probability", "id": "interest_stop", "probability_millionths": 150000, "child": "visit_kiosk" },
+    { "type": "navigate", "id": "visit_kiosk", "destination_id": "central_stop" },
+    { "type": "sequence", "id": "queue_exit", "children": ["join_east_queue", "leave_east"] },
+    { "type": "queue", "id": "join_east_queue", "queue_id": "east_exit_queue" },
+    { "type": "navigate", "id": "leave_east", "destination_id": "east_exit" }
+  ]
+}

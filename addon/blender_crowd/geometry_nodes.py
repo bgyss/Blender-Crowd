@@ -12,6 +12,7 @@ MODIFIER_NAME = "CrowdInstances"
 CACHE_NODE_GROUP_NAME = "CrowdCacheInstancesV1"
 CACHE_MODIFIER_NAME = "CrowdCacheInstancesV1"
 CACHE_PROTOTYPE_COLLECTION = "CrowdCachePrototypesV1"
+TERRAIN_OBJECT_NODE_NAME = "M2 Terrain Object"
 
 
 def ensure_crowd_node_group():
@@ -127,10 +128,11 @@ def _amplitude_switch(nodes, links, index_socket, amplitudes, name, location):
     return node
 
 
-def ensure_cache_node_group(prototypes, clips):
+def ensure_cache_node_group(prototypes, clips, terrain_object=None):
     """Build the versioned cache-only instancing contract."""
     existing = bpy.data.node_groups.get(CACHE_NODE_GROUP_NAME)
     if existing is not None:
+        _configure_cache_terrain(existing, terrain_object)
         return existing
 
     group = bpy.data.node_groups.new(CACHE_NODE_GROUP_NAME, "GeometryNodeTree")
@@ -283,13 +285,77 @@ def ensure_cache_node_group(prototypes, clips):
     links.new(variant_index.outputs[0], instance.inputs["Instance Index"])
     links.new(rotation.outputs["Vector"], instance.inputs["Rotation"])
     links.new(scale.outputs["Vector"], instance.inputs["Scale"])
-    links.new(instance.outputs["Instances"], group_out.inputs[0])
+    # Terrain is a presentation-only projection. The cache point cloud stays
+    # unchanged; instances are vertically translated to the ray hit and the
+    # hit normal is retained as an attribute for downstream rig/foot-lock
+    # presentation. A missing terrain object simply leaves instances untouched.
+    terrain_info = nodes.new("GeometryNodeObjectInfo")
+    terrain_info.name = TERRAIN_OBJECT_NODE_NAME
+    terrain_info.location = (200, -540)
+    terrain_info.transform_space = "ORIGINAL"
+
+    position = nodes.new("GeometryNodeInputPosition")
+    position.location = (220, -700)
+    ray_origin = nodes.new("ShaderNodeVectorMath")
+    ray_origin.operation = "ADD"
+    ray_origin.location = (400, -700)
+    ray_origin.inputs[1].default_value = (0.0, 0.0, 1000.0)
+    links.new(position.outputs["Position"], ray_origin.inputs[0])
+    ray_direction = nodes.new("ShaderNodeCombineXYZ")
+    ray_direction.location = (400, -830)
+    ray_direction.inputs["Z"].default_value = -1.0
+    raycast = nodes.new("GeometryNodeRaycast")
+    raycast.name = "M2 Terrain Projection"
+    raycast.data_type = "FLOAT_VECTOR"
+    raycast.location = (600, -650)
+    raycast.inputs["Ray Length"].default_value = 2000.0
+    links.new(terrain_info.outputs["Geometry"], raycast.inputs["Target Geometry"])
+    links.new(ray_origin.outputs[0], raycast.inputs["Source Position"])
+    links.new(ray_direction.outputs["Vector"], raycast.inputs["Ray Direction"])
+
+    terrain_offset = nodes.new("ShaderNodeVectorMath")
+    terrain_offset.operation = "SUBTRACT"
+    terrain_offset.location = (800, -650)
+    links.new(raycast.outputs["Hit Position"], terrain_offset.inputs[0])
+    links.new(position.outputs["Position"], terrain_offset.inputs[1])
+
+    store_normal = nodes.new("GeometryNodeStoreNamedAttribute")
+    store_normal.name = "M2 Terrain Normal"
+    store_normal.domain = "POINT"
+    store_normal.data_type = "FLOAT_VECTOR"
+    store_normal.location = (760, -340)
+    store_normal.inputs["Name"].default_value = "crowd_terrain_normal"
+    links.new(instance.outputs["Instances"], store_normal.inputs["Geometry"])
+    links.new(raycast.outputs["Hit Normal"], store_normal.inputs["Value"])
+
+    terrain_translate = nodes.new("GeometryNodeTranslateInstances")
+    terrain_translate.name = "M2 Terrain Display Offset"
+    terrain_translate.location = (1030, 80)
+    links.new(store_normal.outputs["Geometry"], terrain_translate.inputs["Instances"])
+    links.new(raycast.outputs["Is Hit"], terrain_translate.inputs["Selection"])
+    links.new(terrain_offset.outputs[0], terrain_translate.inputs["Translation"])
+    links.new(terrain_translate.outputs["Instances"], group_out.inputs[0])
+    _configure_cache_terrain(group, terrain_object)
     return group
 
 
-def attach_cache(obj, prototypes, clips):
+def _configure_cache_terrain(group, terrain_object):
+    node = group.nodes.get(TERRAIN_OBJECT_NODE_NAME)
+    if node is not None:
+        node.inputs["Object"].default_value = terrain_object
+
+
+def set_cache_terrain(obj, terrain_object):
+    """Set display terrain without modifying cache point positions."""
+    modifier = obj.modifiers.get(CACHE_MODIFIER_NAME)
+    if modifier is None or modifier.node_group is None:
+        raise ValueError("attach a crowd cache before setting terrain presentation")
+    _configure_cache_terrain(modifier.node_group, terrain_object)
+
+
+def attach_cache(obj, prototypes, clips, terrain_object=None):
     modifier = obj.modifiers.get(CACHE_MODIFIER_NAME)
     if modifier is None:
         modifier = obj.modifiers.new(CACHE_MODIFIER_NAME, "NODES")
-    modifier.node_group = ensure_cache_node_group(prototypes, clips)
+    modifier.node_group = ensure_cache_node_group(prototypes, clips, terrain_object)
     return modifier
