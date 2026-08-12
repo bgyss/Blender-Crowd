@@ -4,7 +4,7 @@ import json
 import threading
 
 import bpy
-from bpy.props import StringProperty
+from bpy.props import EnumProperty, StringProperty
 from bpy.types import Operator
 
 import blender_crowd_native
@@ -16,6 +16,7 @@ from . import (
     cache_playback,
     debug_overlay,
     geometry_nodes,
+    layout_editor,
     overrides,
     project,
     reference_assets,
@@ -75,7 +76,10 @@ class CROWD_OT_attach_cache(Operator):
             assets = reference_assets.ensure_reference_assets(context.scene)
             playback = cache_playback.CachePlayback(path)
             geometry_nodes.attach_cache(
-                playback.object, assets["prototypes"], assets["manifest"]["clips"]
+                playback.object,
+                assets["prototypes"],
+                assets["manifest"]["clips"],
+                context.scene.crowd_project.terrain_object,
             )
             cache_playback.set_active(playback)
             _ACTIVE["cache_playback"] = playback
@@ -89,6 +93,33 @@ class CROWD_OT_attach_cache(Operator):
         context.scene.crowd_project.cache_path = path
         context.scene.crowd_project.status = "Cache attached: {} agents".format(
             playback.agent_count
+        )
+        self.report({"INFO"}, context.scene.crowd_project.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_apply_terrain_presentation(Operator):
+    bl_idname = "crowd.apply_terrain_presentation"
+    bl_label = "Apply Terrain Presentation"
+    bl_description = "Project cache-only instances onto terrain without changing cache truth"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        terrain = context.scene.crowd_project.terrain_object
+        if terrain is None:
+            self.report({"ERROR"}, "choose a presentation terrain object")
+            return {"CANCELLED"}
+        try:
+            geometry_nodes.set_cache_terrain(playback.object, terrain)
+        except (RuntimeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        context.scene.crowd_project.status = "Terrain presentation: {}".format(
+            terrain.name
         )
         self.report({"INFO"}, context.scene.crowd_project.status)
         return {"FINISHED"}
@@ -185,6 +216,7 @@ class CROWD_OT_create_reference_project(Operator):
     bl_idname = "crowd.create_reference_project"
     bl_label = "Create Reference Concourse"
     bl_description = "Create the self-contained M1 concourse and proxy assets"
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         try:
@@ -252,12 +284,7 @@ class CROWD_OT_validate_authorable_project(Operator):
     def execute(self, context):
         try:
             base_json = _encode_ir(project.extract_ir(context.scene))
-            authorable = json.loads(blender_crowd_native.migrate_project_v1(base_json))
-            graph = json.loads(project.behavior_graph_json())
-            authorable["behavior_graphs"] = [graph]
-            authorable["semantics"] = project.load_reference_authoring_semantics()
-            for assignment in authorable["population_behaviors"]:
-                assignment["graph_id"] = graph["id"]
+            authorable = _authorable_project(context.scene, base_json)
             compiled = blender_crowd_native.compile_authorable_project(
                 _encode_ir(authorable)
             )
@@ -272,14 +299,247 @@ class CROWD_OT_validate_authorable_project(Operator):
         return {"FINISHED"}
 
 
+class CROWD_OT_add_m2_semantic(Operator):
+    bl_idname = "crowd.add_m2_semantic"
+    bl_label = "Add M2 Semantic"
+    bl_options = {"REGISTER", "UNDO"}
+
+    entity_type: EnumProperty(
+        items=(
+            ("queue", "Queue", ""),
+            ("lane", "Lane", ""),
+            ("cost_region", "Cost Region", ""),
+        )
+    )
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        if self.entity_type == "queue":
+            item = props.queues.add()
+            item.logical_id = "new_queue"
+            item.portal_id = "east_gate"
+            item.slots_json = "[[0.0,0.0]]"
+        elif self.entity_type == "lane":
+            item = props.lanes.add()
+            item.logical_id = "new_lane"
+            item.points_json = "[[0.0,0.0],[1.0,0.0]]"
+        else:
+            item = props.cost_regions.add()
+            item.logical_id = "new_region"
+            item.walkable_id = "central_concourse"
+            item.bounds_json = '{"min":[0.0,0.0],"max":[1.0,1.0]}'
+        return {"FINISHED"}
+
+
+class CROWD_OT_remove_m2_semantic(Operator):
+    bl_idname = "crowd.remove_m2_semantic"
+    bl_label = "Remove M2 Semantic"
+    bl_options = {"REGISTER", "UNDO"}
+
+    entity_type: EnumProperty(
+        items=(
+            ("queue", "Queue", ""),
+            ("lane", "Lane", ""),
+            ("cost_region", "Cost Region", ""),
+        )
+    )
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        collection = getattr(props, "{}s".format(self.entity_type))
+        if not collection:
+            self.report({"WARNING"}, "no {} to remove".format(self.entity_type))
+            return {"CANCELLED"}
+        collection.remove(len(collection) - 1)
+        return {"FINISHED"}
+
+
+class CROWD_OT_add_population(Operator):
+    bl_idname = "crowd.add_population"
+    bl_label = "Add Population"
+    bl_description = "Add a population with an explicit, editable M2 contract"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        populations = context.scene.crowd_project.populations
+        population = populations.add()
+        population.logical_id = "new_population_{}".format(len(populations))
+        population.count = 1
+        population.emission_interval_ticks = 1
+        population.spawn_source_ids_json = "[]"
+        population.destinations_json = "[]"
+        population.archetypes_json = "[]"
+        population.appearances_json = "[]"
+        return {"FINISHED"}
+
+
+class CROWD_OT_remove_population(Operator):
+    bl_idname = "crowd.remove_population"
+    bl_label = "Remove Population"
+    bl_description = "Remove the last authored population"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        populations = context.scene.crowd_project.populations
+        if not populations:
+            self.report({"WARNING"}, "no population to remove")
+            return {"CANCELLED"}
+        populations.remove(len(populations) - 1)
+        return {"FINISHED"}
+
+
+class CROWD_OT_add_m2_asset(Operator):
+    bl_idname = "crowd.add_m2_asset"
+    bl_label = "Add M2 Asset Contract"
+    bl_options = {"REGISTER", "UNDO"}
+
+    entity_type: EnumProperty(
+        items=(
+            ("retarget_profile", "Retarget Profile", ""),
+            ("clip", "Clip", ""),
+            ("variation", "Variation", ""),
+        )
+    )
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        if self.entity_type == "retarget_profile":
+            item = props.retarget_profiles.add()
+            item.logical_id = "new_retarget_{}".format(len(props.retarget_profiles))
+            item.source_rig_id = "source_rig"
+            item.root_bone = "root"
+            item.forward_axis = "-Y"
+            item.scale_millimeters = 1000
+            item.bone_map_json = '{"hips":"hips","left_foot":"foot.L","right_foot":"foot.R"}'
+        elif self.entity_type == "clip":
+            item = props.clips.add()
+            item.logical_id = "new_clip_{}".format(len(props.clips))
+            item.retarget_profile_id = ""
+            item.duration_ticks = 30
+            item.loop_start_tick = 0
+            item.loop_end_tick = 29
+            item.average_root_speed_mmps = 1000
+            item.left_foot_contacts_json = "[]"
+            item.right_foot_contacts_json = "[]"
+        else:
+            item = props.variations.add()
+            item.logical_id = "new_variation_{}".format(len(props.variations))
+            item.bodies_json = "[]"
+            item.clothing_json = "[]"
+            item.materials_json = "[]"
+            item.props_json = "[]"
+            item.clips_json = "[]"
+        return {"FINISHED"}
+
+
+class CROWD_OT_remove_m2_asset(Operator):
+    bl_idname = "crowd.remove_m2_asset"
+    bl_label = "Remove M2 Asset Contract"
+    bl_options = {"REGISTER", "UNDO"}
+
+    entity_type: EnumProperty(
+        items=(
+            ("retarget_profile", "Retarget Profile", ""),
+            ("clip", "Clip", ""),
+            ("variation", "Variation", ""),
+        )
+    )
+
+    def execute(self, context):
+        collection_name = {
+            "retarget_profile": "retarget_profiles",
+            "clip": "clips",
+            "variation": "variations",
+        }[self.entity_type]
+        collection = getattr(context.scene.crowd_project, collection_name)
+        if not collection:
+            self.report({"WARNING"}, "no {} to remove".format(self.entity_type))
+            return {"CANCELLED"}
+        collection.remove(len(collection) - 1)
+        return {"FINISHED"}
+
+
+class CROWD_OT_add_layout(Operator):
+    bl_idname = "crowd.add_layout"
+    bl_label = "Add Layout"
+    bl_description = "Add a persisted region, curve, formation, or seating layout"
+    bl_options = {"REGISTER", "UNDO"}
+
+    entity_type: EnumProperty(
+        items=(
+            ("region", "Region", ""),
+            ("curve", "Curve/Lane", ""),
+            ("formation", "Formation", ""),
+            ("seating", "Seating", ""),
+        )
+    )
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        item = props.layouts.add()
+        item.logical_id = "new_{}_layout_{}".format(self.entity_type, len(props.layouts))
+        item.kind = self.entity_type
+        item.population_id = props.populations[0].logical_id if props.populations else ""
+        item.source_id = "eastbound_lane" if self.entity_type == "curve" else ""
+        item.rows = 5 if self.entity_type == "seating" else 1
+        item.columns = 10 if self.entity_type == "seating" else 1
+        item.points_json = "[[0.0,0.0],[1.0,0.0]]" if self.entity_type == "formation" else "[]"
+        return {"FINISHED"}
+
+
+class CROWD_OT_remove_layout(Operator):
+    bl_idname = "crowd.remove_layout"
+    bl_label = "Remove Layout"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        layouts = context.scene.crowd_project.layouts
+        if not layouts:
+            self.report({"WARNING"}, "no layout to remove")
+            return {"CANCELLED"}
+        layouts.remove(len(layouts) - 1)
+        return {"FINISHED"}
+
+
+class CROWD_OT_materialize_layout_guides(Operator):
+    bl_idname = "crowd.materialize_layout_guides"
+    bl_label = "Refresh Layout Guides"
+    bl_description = "Materialize deterministic viewport guides for the authored layouts"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            count = layout_editor.materialize_guides(context.scene)
+        except ValueError as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        context.scene.crowd_project.status = "Layout guides: {}".format(count)
+        return {"FINISHED"}
+
+
 def _encode_ir(ir):
     return json.dumps(ir, sort_keys=True, separators=(",", ":"))
+
+
+def _authorable_project(scene, base_json):
+    """Build the typed M2 payload shared by validation and native baking."""
+    authorable = json.loads(blender_crowd_native.migrate_project_v1(base_json))
+    graph = json.loads(project.behavior_graph_json())
+    authorable["behavior_graphs"] = [graph]
+    authorable["semantics"] = project.extract_authoring_semantics(scene)
+    authorable["assets"] = project.extract_authorable_assets(scene)
+    # Validate layout references here so an invalid editor layout cannot be
+    # silently ignored while the native authorable project is compiled.
+    layout_editor.extract_layouts(scene)
+    for assignment in authorable["population_behaviors"]:
+        assignment["graph_id"] = graph["id"]
+    return authorable
 
 
 def _bake_worker(project_json, cache_path, ticks, token, job):
     """Run native-only work. This function must never access `bpy`."""
     try:
-        compiled = blender_crowd_native.compile_project(project_json)
+        compiled = blender_crowd_native.compile_authorable_runtime(project_json)
         session = compiled.create_session()
         outcome = dict(session.bake(cache_path, ticks, token))
         del session
@@ -369,8 +629,8 @@ class CROWD_OT_bake_cache(Operator):
             return {"CANCELLED"}
         try:
             ir = project.extract_ir(context.scene)
-            project_json = _encode_ir(ir)
-            blender_crowd_native.compile_project(project_json)
+            project_json = _encode_ir(_authorable_project(context.scene, _encode_ir(ir)))
+            blender_crowd_native.compile_authorable_runtime(project_json)
             cache_path = bpy.path.abspath(context.scene.crowd_project.cache_path)
             if not cache_path:
                 raise ValueError("choose a cache path")
@@ -420,6 +680,7 @@ class CROWD_OT_cancel_bake(Operator):
 _CLASSES = (
     CROWD_OT_load_trace,
     CROWD_OT_attach_cache,
+    CROWD_OT_apply_terrain_presentation,
     CROWD_OT_inspect_agent,
     CROWD_OT_pin_selected_agent,
     CROWD_OT_render_reference_frame,
@@ -427,6 +688,15 @@ _CLASSES = (
     CROWD_OT_validate_project,
     CROWD_OT_validate_behavior_graph,
     CROWD_OT_validate_authorable_project,
+    CROWD_OT_add_m2_semantic,
+    CROWD_OT_remove_m2_semantic,
+    CROWD_OT_add_population,
+    CROWD_OT_remove_population,
+    CROWD_OT_add_m2_asset,
+    CROWD_OT_remove_m2_asset,
+    CROWD_OT_add_layout,
+    CROWD_OT_remove_layout,
+    CROWD_OT_materialize_layout_guides,
     CROWD_OT_bake_cache,
     CROWD_OT_cancel_bake,
 )

@@ -1,0 +1,57 @@
+{
+  "retarget_profiles": [
+    {
+      "id": "commuter_humanoid",
+      "source_rig_id": "commuter_canonical_rig",
+      "root_bone": "root",
+      "forward_axis": "-Y",
+      "scale_millimeters": 1000,
+      "bone_map": {
+        "hips": "spine",
+        "left_foot": "leg_l",
+        "right_foot": "leg_r"
+      }
+    }
+  ],
+  "clips": [
+    {
+      "id": "walk",
+      "retarget_profile_id": "commuter_humanoid",
+      "duration_ticks": 30,
+      "loop_start_tick": 0,
+      "loop_end_tick": 29,
+      "average_root_speed_mmps": 1350,
+      "left_foot_contacts": [{"start": 0, "end": 8}],
+      "right_foot_contacts": [{"start": 15, "end": 23}]
+    },
+    {
+      "id": "jog",
+      "retarget_profile_id": "commuter_humanoid",
+      "duration_ticks": 20,
+      "loop_start_tick": 0,
+      "loop_end_tick": 19,
+      "average_root_speed_mmps": 2200,
+      "left_foot_contacts": [{"start": 0, "end": 5}],
+      "right_foot_contacts": [{"start": 10, "end": 15}]
+    }
+  ],
+  "variations": [
+    {
+      "id": "commuters",
+      "bodies": [
+        {"id": "procedural_commuter_a", "weight": 40},
+        {"id": "procedural_commuter_b", "weight": 35},
+        {"id": "procedural_commuter_c", "weight": 25}
+      ],
+      "clothing": [{"id": "commuter_jacket", "weight": 1}],
+      "materials": [
+        {"id": "commuter_blue", "weight": 1},
+        {"id": "commuter_green", "weight": 1},
+        {"id": "commuter_orange", "weight": 1},
+        {"id": "commuter_red", "weight": 1}
+      ],
+      "props": [{"id": "none", "weight": 3}, {"id": "bag", "weight": 1}],
+      "clips": [{"id": "walk", "weight": 4}, {"id": "jog", "weight": 1}]
+    }
+  ]
+}

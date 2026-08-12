@@ -87,6 +87,16 @@ impl QueueRuntime {
         QueueStatus::Absent
     }
 
+    pub fn assigned_slot(&self, agent: AgentId) -> Option<usize> {
+        self.admitted.iter().position(|item| *item == agent)
+    }
+
+    /// The head of the physical line. Releasing this agent shifts each
+    /// following reservation forward by one authored slot.
+    pub fn front_agent(&self) -> Option<AgentId> {
+        self.admitted.first().copied()
+    }
+
     pub fn assignments(&self) -> BTreeMap<AgentId, QueueStatus> {
         self.admitted
             .iter()
@@ -157,6 +167,14 @@ impl GroupConstraint {
 
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    pub fn leader(&self) -> AgentId {
+        self.leader
+    }
+
+    pub fn members(&self) -> &[AgentId] {
+        &self.members
     }
 
     pub fn evaluate(&self, positions: &BTreeMap<AgentId, Vec2>) -> GroupReport {

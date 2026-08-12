@@ -1,6 +1,6 @@
 use crowd_core::authoring::{
     compile_authorable_project, migrate_project_v1, AuthoringDiagnosticCode, CostRegionKindV2,
-    CostRegionV2, GroupKindV2, GroupV2, LaneV2, QueueV2,
+    CostRegionV2, GroupBottleneckPolicyV2, GroupKindV2, GroupV2, LaneV2, QueueV2,
 };
 use crowd_core::behavior::{BehaviorGraphV1, BehaviorNodeV1};
 use crowd_core::project::{compile_project, ProjectIrV1};
@@ -104,6 +104,7 @@ fn group_validation_rejects_unknown_members_and_nonmember_leaders() {
         leader_agent_id: Some(known + 1),
         shared_destination_id: "east_exit".to_string(),
         max_separation_millimeters: 2_500,
+        bottleneck_policy: GroupBottleneckPolicyV2::Individual,
     });
 
     let errors = compile_authorable_project(&project).unwrap_err();

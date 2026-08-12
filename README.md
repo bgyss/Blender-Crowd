@@ -118,6 +118,7 @@ The Blender runners require Blender 5.2 LTS at
 cargo test --workspace                                    # unit, property, determinism
 cargo test -p crowd-core --test behavior_graph            # M2 typed graph schema/compiler
 scripts/m2-foundation-test.sh                             # implemented M2 compiler/data-layer checks
+scripts/m2-blender-authoring-test.sh                      # M2 environment editor undo/save/reload
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
 cargo clippy --workspace --all-targets -- -D warnings
 

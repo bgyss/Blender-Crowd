@@ -1,6 +1,7 @@
 //! Versioned, recoverable crowd cache.
 
 mod agents;
+mod behavior_events;
 mod checksum;
 mod codec;
 mod defaults;
@@ -11,6 +12,7 @@ mod reader;
 mod writer;
 
 pub use agents::AgentStatic;
+pub use behavior_events::{BehaviorEventKindV1, BehaviorEventV1, BEHAVIOR_EVENTS_SCHEMA_VERSION};
 
 pub use checksum::{content_hash, payload_checksum};
 pub use codec::{

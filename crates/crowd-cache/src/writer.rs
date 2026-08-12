@@ -8,9 +8,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::agents::{encode_agents, AgentTableError};
+use crate::behavior_events::BehaviorEventLogV1;
 use crate::{
-    encode_chunk, payload_checksum, AgentStatic, CacheError, CacheManifestV1, CacheReader,
-    CacheStatus, ChannelDef, ChunkDef, FileDef, Frame, PositionEncoding, CACHE_SCHEMA_VERSION,
+    encode_chunk, payload_checksum, AgentStatic, BehaviorEventV1, CacheError, CacheManifestV1,
+    CacheReader, CacheStatus, ChannelDef, ChunkDef, FileDef, Frame, PositionEncoding,
+    CACHE_SCHEMA_VERSION,
 };
 
 #[derive(Clone, Debug)]
@@ -90,6 +92,7 @@ impl CacheWriter {
                 checksum: 0,
                 complete: false,
             },
+            behavior_events: None,
             chunks: Vec::new(),
             status: CacheStatus::Incomplete,
             cancellation_reason: None,
@@ -181,6 +184,33 @@ impl CacheWriter {
             self.flush_pending()?;
         }
         Ok(())
+    }
+
+    /// Persist the complete ordered decision/event log before publishing the cache.
+    pub fn write_behavior_events(&mut self, events: &[BehaviorEventV1]) -> Result<(), CacheError> {
+        let log = BehaviorEventLogV1::new(events.to_vec());
+        // Ordering is checked first so producer errors are deterministic.
+        let ids = self.agent_ids.as_deref().unwrap_or_default();
+        log.validate(self.spec.tick_start, self.spec.tick_end, ids)
+            .map_err(CacheError::BehaviorEvents)?;
+        if self.agent_ids.is_none() {
+            return Err(CacheError::MissingAgentTable);
+        }
+        let relative = "events/behavior-v1.json";
+        let path = safe_join(&self.target, relative)?;
+        let mut bytes = serde_json::to_vec_pretty(&log).map_err(|error| CacheError::Json {
+            path: path.clone(),
+            message: error.to_string(),
+        })?;
+        bytes.push(b'\n');
+        atomic_write(&path, &bytes)?;
+        self.manifest.behavior_events = Some(FileDef {
+            path: relative.to_owned(),
+            byte_len: bytes.len() as u64,
+            checksum: payload_checksum(&bytes),
+            complete: true,
+        });
+        write_manifest_atomic(&self.target, &self.manifest)
     }
 
     pub fn finish(mut self) -> Result<CacheManifestV1, CacheError> {
