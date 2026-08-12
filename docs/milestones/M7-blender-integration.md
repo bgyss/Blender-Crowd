@@ -11,6 +11,7 @@ scoped proposals for generally useful Blender mainline capabilities.
 - [Long-term Blender integration destination](../blender-crowd-1.0.md#19-long-term-industrial-and-blender-integration-destination)
 - [Blender ecosystem and mainline strategy](../industrial-crowd-capability-roadmap.md#blender-ecosystem-and-mainline-strategy)
 - [M3 production 1.0](M3-production-1.0.md)
+- [UI/UX roadmap](../ui-ux-roadmap.md)
 
 ## Prerequisites and authorization
 
@@ -43,6 +44,27 @@ task. Blender maintainer review and acceptance are external gates.
    and authorization are clear.
 7. An extension fallback and support plan for every feature not accepted into
    Blender or not appropriate for mainline.
+
+## UI/UX goals and gate
+
+- Audit the extension against Blender conventions for workspaces, editors,
+  Properties and sidebar panels, operators, selection, undo, keymaps, themes,
+  translations, help links, preferences, asset browsing, and save/load.
+- Separate product-specific Crowd UI from Blender-general host improvements;
+  never propose the entire product interface as a mainline feature.
+- Preserve familiar interaction and terminology on every supported Blender
+  version, with explicit fallbacks when a host API or presentation differs.
+- Ensure extension installation, native-module diagnostics, upgrades,
+  permissions, missing dependencies, and support collection are readable and
+  privacy-preserving.
+- Carry the M3 accessibility criteria through stock themes, display scaling,
+  keyboard customization, and supported operating systems.
+
+The M7 UI gate passes when the complete supported workflow is evaluated on stock
+Blender builds, with no private fork assumptions. The host-version matrix must
+record visual or interaction differences, fallbacks, task success, accessibility
+results, and which gaps remain extension policy versus evidence-backed Blender
+platform candidates.
 
 ## Explicit exclusions
 

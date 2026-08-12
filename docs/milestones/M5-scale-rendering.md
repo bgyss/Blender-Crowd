@@ -11,6 +11,7 @@ first at 10,000 agents and only then at 100,000.
 - [Blender Crowd 1.0 sections 8, 13 Phase 4, and 17](../blender-crowd-1.0.md)
 - [Industrial capability roadmap fidelity model](../industrial-crowd-capability-roadmap.md#fidelity-model)
 - [M4 layered layout and interchange](M4-layout-interchange.md)
+- [UI/UX roadmap](../ui-ux-roadmap.md)
 
 ## Prerequisites
 
@@ -36,6 +37,28 @@ for individually simulated S0/S1 agents.
    and mixed 40-hero/1,000-animated/background populations.
 6. Published quality/performance/memory/cache/playback/render reports at 1K,
    10K, and, after 10K acceptance, 100K.
+
+## UI/UX goals and gate
+
+- Make S0-S3 simulation tiers, R0-R4 render tiers, promotion rules, hysteresis,
+  culling, proxies, and quality limitations inspectable without requiring users
+  to infer them from performance symptoms.
+- Provide preflight estimates for memory, cache size, extraction cost, playback,
+  and render impact, and distinguish measured values from estimates.
+- Keep long scale operations responsive with stage progress, throughput, elapsed
+  time, bounded diagnostics, cancellation, and explicit partial/recoverable
+  states.
+- Provide a scale/profiling view that relates bottlenecks to populations, tiers,
+  cameras, cache ranges, backends, and fallbacks rather than exposing only global
+  frame time.
+- Use aggregation and drill-down for metrics and debug evidence; the UI must not
+  attempt to list or draw every agent at 10K or 100K.
+
+The M5 UI gate is evaluated separately at 10K and 100K. An artist must configure
+the declared tier mix, understand its quality/cost tradeoff, identify an injected
+bottleneck, cancel and resume one long operation, and explain the active fallback
+from the interface. Capture responsiveness, time on task, memory overhead of the
+UI/debug views, and screenshots of estimates versus measured results.
 
 ## Explicit exclusions
 

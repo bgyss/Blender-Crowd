@@ -20,6 +20,10 @@ From the repository root, choose a new empty output directory and run:
 scripts/m2-full-acceptance.sh --out /path/to/blender-crowd-m2-proof
 ```
 
+For the Blender UI workflow, either enter a path that does not exist yet or
+select a directory that exists but is completely empty. A non-empty path is
+rejected deliberately so a previous cache cannot be overwritten.
+
 The runner builds the wheel, removes any prior extension copy, installs the
 extension, creates the 1,000-agent reference concourse, performs a full
 10,000-tick **authorable** bake, attaches only the completed cache, inspects a
@@ -49,9 +53,13 @@ Open a new Blender session and use the installed **Crowd Project** panel:
    1,000 agents.
 4. Set a fresh cache folder, select **Bake Crowd Cache**, then attach it only
    after the status is complete.
-5. Enter an agent ID from `events/behavior-v1.json`, select **Inspect Agent**,
-   and confirm the selected-path/velocity overlays and graph/node evidence are
-   shown.
+5. Copy an `agent_id` from `events/behavior-v1.json`, paste its decimal value
+   into **Selected Agent ID**, then select **Inspect Agent**. Confirm the
+   graph, decisive node, state, and cached-event count appear in the
+   **Selected Agent Debug** box. In the 3D Viewport, enable **Overlays** and
+   frame the agent area: `Crowd Debug selected_path`,
+   `Crowd Debug desired_velocity`, and `Crowd Debug solved_velocity` are
+   in-front scene objects visible in the Outliner and viewport (not renders).
 6. Select a separate Empty as a hero pin, move it slightly, then select
    **Add/Update Pinned Override**. Confirm a new override JSON is written under
    `cache/overrides/` while `manifest.json`, `agents.bin`, and every frame chunk

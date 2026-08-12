@@ -26,8 +26,10 @@ def main():
     addon_utils.enable(EXTENSION, default_set=True)
     from bl_ext.user_default.blender_crowd import (
         behavior_editor,
+        debug_overlay,
         layout_editor,
         operators,
+        overrides,
         project,
     )
 
@@ -53,6 +55,33 @@ def main():
         json.loads(props.groups[0].member_agent_ids_json),
         "reference social group has no stable agent members",
     )
+    selected_agent_id = json.loads(props.groups[0].member_agent_ids_json)[0]
+    props.selected_agent_id = str(selected_agent_id)
+    require(
+        overrides.selected_agent_id(props) == selected_agent_id,
+        "decimal selected-agent field did not populate the stable agent ID",
+    )
+    debug_overlay.record_evidence(
+        props,
+        {
+            "tick": 42,
+            "behavior_state": 3,
+            "decision_reason": 9,
+            "graph_id": "leave_concourse",
+            "decisive_node": "queue_exit",
+            "behavior_events": [{"kind": "decision"}, {"kind": "queue_requested"}],
+        },
+    )
+    require(props.selected_agent_tick == 42, "debug panel did not retain the inspected tick")
+    require(
+        props.selected_agent_graph_id == "leave_concourse",
+        "debug panel did not retain graph evidence",
+    )
+    require(
+        props.selected_agent_decisive_node == "queue_exit",
+        "debug panel did not retain decisive-node evidence",
+    )
+    require(props.selected_agent_event_count == 2, "debug panel did not retain event count")
     graph = behavior_editor.graph_from_tree()
     require(graph["id"] == "leave_concourse", "behavior node tree did not materialize")
     require(
@@ -84,6 +113,21 @@ def main():
         project.extract_authorable_groups(scene)[0]["bottleneck_policy"] == "leader_first",
         "group editor change was not compiled into the M2 project",
     )
+
+    empty_cache_path = os.path.join(tempfile.mkdtemp(prefix="blender-crowd-m2-cache-"), "cache")
+    os.mkdir(empty_cache_path)
+    props.cache_path = empty_cache_path
+    bake_start = bpy.ops.crowd.bake_cache()
+    require(
+        bake_start in ({"FINISHED"}, {"RUNNING_MODAL"}),
+        "an empty cache directory was rejected: {} ({})".format(bake_start, props.status),
+    )
+    require(
+        bpy.ops.crowd.cancel_bake() == {"FINISHED"},
+        "empty-directory bake could not be canceled",
+    )
+    outcome = operators.wait_for_bake(timeout=60.0)
+    require(outcome and outcome["status"] == "canceled", "empty-directory bake did not cancel safely")
 
     require(
         bpy.ops.ed.undo_push(message="Initialize M2 headless undo") == {"FINISHED"},
