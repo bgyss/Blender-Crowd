@@ -59,7 +59,13 @@ pub struct CacheWriter {
 
 impl CacheWriter {
     pub fn create(target: &Path, spec: BakeSpec) -> Result<Self, CacheError> {
-        if target.exists() {
+        if target.exists()
+            && (!target.is_dir()
+                || fs::read_dir(target)
+                    .map_err(|error| CacheError::io(target, error))?
+                    .next()
+                    .is_some())
+        {
             return Err(CacheError::AlreadyExists(target.to_owned()));
         }
         if spec.chunk_ticks == 0 {

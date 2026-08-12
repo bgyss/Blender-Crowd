@@ -139,6 +139,7 @@ class CROWD_OT_inspect_agent(Operator):
         try:
             tick = playback.sync_to_frame(context.scene, context.scene.frame_current)
             evidence = debug_overlay.inspect(playback, agent_id, tick)
+            debug_overlay.record_evidence(context.scene.crowd_project, evidence)
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             context.scene.crowd_project.status = "Inspect failed: {}".format(error)
             self.report({"ERROR"}, str(error))
@@ -690,6 +691,7 @@ class CROWD_OT_bake_cache(Operator):
         if outcome is not None and outcome.get("status") == "error":
             self.report({"ERROR"}, outcome["error"])
             return {"CANCELLED"}
+        self.report({"INFO"}, context.scene.crowd_project.status)
         return {"FINISHED"}
 
 

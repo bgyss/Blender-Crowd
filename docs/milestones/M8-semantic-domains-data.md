@@ -11,6 +11,7 @@ systems or domain shortcuts to weaken deterministic simulation truth.
 - [Industrial capability roadmap strategic conclusions](../industrial-crowd-capability-roadmap.md#strategic-conclusions)
 - [Blender Crowd 1.0 post-1.0 roadmap](../blender-crowd-1.0.md#17-post-10-roadmap-ordering)
 - Accepted M4 interchange and M6 agency/motion contracts consumed by each track
+- [UI/UX roadmap](../ui-ux-roadmap.md)
 
 ## Prerequisites
 
@@ -73,6 +74,49 @@ Track C passes when rendered samples and annotations reproduce from the recorded
 project/cache/environment, geometric labels agree with independent checks, data
 formats load in the declared consumers, licensing permits the published use, and
 a downstream benchmark demonstrates the dataset is usable for its stated task.
+
+## UI/UX goals and gates
+
+### Track A — reviewed semantic authoring
+
+- Present generated work as a bounded proposal and typed diff, never as an
+  already-applied project mutation. Show provenance, model/version, assumptions,
+  validation, affected entities, graph changes, assets, and estimated cost.
+- Support accept/reject by change group, manual edit, revalidation, undo, and a
+  complete non-model path. Unsafe, unsupported, or ambiguous proposals must have
+  clear rejection explanations rather than generic generation failures.
+
+Track A's UI gate passes when independent artists can review adversarial valid
+and invalid proposals, identify every material change, reject unsafe references,
+edit and accept a bounded subset, and reproduce the accepted project without the
+model present.
+
+### Track B — domain packs
+
+- Provide pack discovery, compatibility, provenance/license, dependencies,
+  versioning, limitations, metrics, example scenes, install/update, and removal
+  states without hiding changes to core semantics.
+- Domain-specific warnings and claims must identify their model boundary and
+  intended use; entertainment, engineering, policy, and safety interpretations
+  must not be visually conflated.
+
+Track B's UI gate passes per pack through clean install, example authoring,
+compatibility failure, upgrade, and removal tasks performed without developer
+assistance or silent core forks.
+
+### Track C — synthetic-data crowds
+
+- Provide explicit sensor, camera, annotation, taxonomy, split, license, bias,
+  provenance, output-format, and consumer-validation configuration.
+- Preview labels against rendered samples, surface occlusion/visibility rules,
+  flag missing or safety-sensitive definitions, and distinguish deterministic
+  engine truth from human or model-derived labels.
+- Make dataset generation progress, failures, resumability, storage estimates,
+  manifest contents, and rejected samples inspectable.
+
+Track C's UI gate passes when a user configures, previews, generates, audits,
+reproduces, and loads a sample dataset in the declared consumer while correctly
+explaining every sensitive or non-engine-ground-truth label.
 
 ## Shared exclusions
 

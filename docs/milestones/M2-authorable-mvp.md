@@ -11,6 +11,7 @@ and sparse post-simulation correction.
 - [Blender Crowd 1.0 sections 4, 6.3, 7, 10, and 12](../blender-crowd-1.0.md)
 - [Industrial capability ledger](../industrial-crowd-capability-roadmap.md#industrial-capability-ledger)
 - [M1 vertical slice](M1-vertical-slice.md)
+- [UI/UX roadmap](../ui-ux-roadmap.md)
 
 ## Prerequisites
 
@@ -38,6 +39,32 @@ them.
    avoidance constraints, heatmaps, metrics, and actionable validation errors.
 8. Sparse hide/delete, transform, timing, speed, appearance, animation, goal,
    pin/guide, hero promotion, and bounded local-resimulation overrides.
+
+## UI/UX goals and gate
+
+- Replace the single expanding project form with focused Setup, Author,
+  Validate, Bake, Review/Correct, and Render stages while remaining native to
+  Blender editors and selection.
+- Make one `Validate Shot` action the normal path. Group findings by severity,
+  identify the affected entity, and provide a direct corrective or focus action;
+  keep individual validators under an Advanced section.
+- Replace raw JSON, copied logical IDs, copied agent IDs, and `Remove Last`
+  interactions in required tasks with selected-item lists, searchable pickers,
+  structured editors, presets, or viewport selection.
+- Present bake/cache state explicitly; show measurable progress, reveal Cancel
+  only while active, attach a completed cache automatically, and restore or
+  clearly recover attachment after save/reload.
+- Let the artist select an agent from the viewport or cached-event list. Present
+  human-readable state, decision reason, observations, path, velocity, and a
+  link to the decisive behavior node; raw numeric evidence remains Advanced.
+- Make sparse correction contextual: selecting and pinning an agent creates or
+  selects the required correction control without undocumented object setup.
+
+The M2 UI gate passes only when a non-developer completes the reference shot
+from a clean artifact without source-code knowledge, hand-edited JSON, copied
+64-bit IDs, or implementation-author assistance. Record success, time on task,
+errors, recoveries, assistance, and screenshots of empty, running, complete,
+stale, invalid, canceled, and recovered states.
 
 ## Explicit exclusions
 

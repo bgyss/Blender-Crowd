@@ -383,6 +383,28 @@ struct PyCache {
     override_layers: Vec<OverrideLayerV1>,
 }
 
+/// Select the event bundle that most recently explains an agent's state at a
+/// timeline tick. Decision events are sparse by design, so exact-tick lookup
+/// leaves the debugger blank for almost every frame.
+fn inspection_behavior_events(
+    events: &[BehaviorEventV1],
+    agent_id: u64,
+    tick: u64,
+) -> Vec<BehaviorEventV1> {
+    let latest_tick = events
+        .iter()
+        .filter(|event| event.agent_id == agent_id && event.tick <= tick)
+        .map(|event| event.tick)
+        .max();
+    latest_tick.map_or_else(Vec::new, |selected_tick| {
+        events
+            .iter()
+            .filter(|event| event.agent_id == agent_id && event.tick == selected_tick)
+            .cloned()
+            .collect()
+    })
+}
+
 #[pymethods]
 impl PyCache {
     #[new]
@@ -513,15 +535,10 @@ impl PyCache {
         out.set_item("playback_rate", record.playback_rate)?;
         out.set_item("visible", record.visible)?;
 
-        let cached_trace_json = self
-            .complete()?
-            .read_behavior_events()
-            .map_err(|error| {
-                PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
-            })?
-            .into_iter()
-            .filter(|event| event.agent_id == agent_id && event.tick == tick)
-            .collect::<Vec<_>>();
+        let behavior_events = self.complete()?.read_behavior_events().map_err(|error| {
+            PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
+        })?;
+        let cached_trace_json = inspection_behavior_events(&behavior_events, agent_id, tick);
         let legacy_evidence_path = self.path.join("debug/selected-agent.json");
         let legacy_trace_json = fs::read_to_string(&legacy_evidence_path)
             .ok()
@@ -1141,6 +1158,21 @@ mod tests {
         let lo = u32::from_le_bytes(lo[index * 4..index * 4 + 4].try_into().unwrap());
         let hi = u32::from_le_bytes(hi[index * 4..index * 4 + 4].try_into().unwrap());
         (u64::from(lo)) | (u64::from(hi) << 32)
+    }
+
+    #[test]
+    fn inspection_uses_the_latest_cached_event_at_or_before_the_selected_tick() {
+        let events = vec![
+            BehaviorEventV1::decision(0, 7, "leave", "join_queue", "population:0"),
+            BehaviorEventV1::new(0, 7, BehaviorEventKindV1::QueueRequested, "east_queue"),
+            BehaviorEventV1::decision(3, 7, "leave", "visit_kiosk", "population:0"),
+            BehaviorEventV1::decision(6, 8, "leave", "join_queue", "population:0"),
+        ];
+
+        let selected = inspection_behavior_events(&events, 7, 5);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].tick, 3);
+        assert_eq!(selected[0].decisive_node.as_deref(), Some("visit_kiosk"));
     }
 
     #[test]

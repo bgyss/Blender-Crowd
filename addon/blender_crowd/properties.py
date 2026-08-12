@@ -12,6 +12,29 @@ from bpy.props import (
 from bpy.types import Object, PropertyGroup
 
 
+def _signed_u32(value):
+    return value if value < (1 << 31) else value - (1 << 32)
+
+
+def _update_selected_agent_id(self, _context):
+    """Keep the UI's decimal stable ID synchronized with the native u32 pair."""
+    text = self.selected_agent_id.strip()
+    if not text:
+        self.selected_agent_id_lo = 0
+        self.selected_agent_id_hi = 0
+        return
+    try:
+        value = int(text, 10)
+    except ValueError:
+        self.status = "Selected Agent ID must be an unsigned decimal integer"
+        return
+    if not 0 <= value < (1 << 64):
+        self.status = "Selected Agent ID must fit an unsigned 64-bit integer"
+        return
+    self.selected_agent_id_lo = _signed_u32(value & 0xFFFFFFFF)
+    self.selected_agent_id_hi = _signed_u32((value >> 32) & 0xFFFFFFFF)
+
+
 class CrowdQueueProperties(PropertyGroup):
     logical_id: StringProperty(name="Queue ID")
     portal_id: StringProperty(name="Portal")
@@ -106,6 +129,17 @@ class CrowdProjectProperties(PropertyGroup):
     ticks_per_second: IntProperty(name="Ticks per Second", min=1, default=30)
     cache_path: StringProperty(name="Cache Path", subtype="DIR_PATH")
     status: StringProperty(name="Status", default="Not created")
+    selected_agent_id: StringProperty(
+        name="Selected Agent ID",
+        description="Paste the decimal stable agent ID from behavior-v1.json",
+        update=_update_selected_agent_id,
+    )
+    selected_agent_tick: IntProperty(name="Inspected Tick", default=0, min=0)
+    selected_agent_behavior_state: StringProperty(name="Behavior State")
+    selected_agent_decision_reason: StringProperty(name="Decision Reason")
+    selected_agent_graph_id: StringProperty(name="Behavior Graph")
+    selected_agent_decisive_node: StringProperty(name="Decisive Node")
+    selected_agent_event_count: IntProperty(name="Cached Events at Tick", default=0, min=0)
     selected_agent_id_lo: IntProperty(name="Selected Agent ID Low", default=0)
     selected_agent_id_hi: IntProperty(name="Selected Agent ID High", default=0)
     reference_fixture_version: StringProperty(name="Reference Fixture Version")
