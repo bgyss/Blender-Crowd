@@ -51,11 +51,11 @@ authorable Blender bake and richer semantic-observation acceptance evidence.
 The Blender workspace provides saveable behavior-node, population,
 asset/retarget/variation, environment, and layout editors. The reference
 project includes a checked 50-seat layout; its guides are generated from the
-saved contract and do not become a second simulator. The headless runner
-checks graph/environment, population, clip, and layout edits through undo and
-save/reload once Blender can start on the host.
-The full reference scene, undo/save/reload runner, locomotion/terrain fixtures,
-non-developer reproduction pass, and dated M2 evidence report also remain open.
+saved contract and do not become a second simulator. The automated UI-context
+runner passes graph/environment, population, clip, and layout edits through
+undo, save/reload, and native revalidation on Blender 5.2.
+The full authorable bake/render, independent non-developer reproduction pass,
+and final dated M2 acceptance report remain open.
 
 `scripts/m2-reference-acceptance.sh` emits a dated 10,000-tick runtime-evidence
 report for the 1,000-agent authorable reference. It is intentionally a
@@ -74,10 +74,12 @@ Blender-only install commonly provides the embedded interpreter but not its
 development link library, so the default runner intentionally does not claim
 to execute the PyO3 unit binary.  On a host with that library configured, run
 `CROWD_RUN_EMBEDDED_PYTHON_TESTS=1 scripts/m2-foundation-test.sh` to link and
-execute it too.  The separate headless Blender editor runner remains the
-required integration proof.
+execute it too. The separate Blender editor runner performs its clean-install
+and native-load checks in background mode, then opens an unattended UI context
+for the undo/save/reload proof because Blender disables `ed.undo` under `-b`.
 
-On the current macOS host, that runner builds the extension wheel but Blender
-5.2 exits in `Arch_ValidateAssumptions` while validating the extension, before
-the supplied Python test begins. This is a host integration blocker, not a
-passing editor test.
+When the runner is launched by a sandboxed automation host, Blender must be
+granted host GPU access. Without it, `MTLCreateSystemDefaultDevice()` returns
+`nil` and Blender 5.2 crashes in `supports_barycentric_whitelist()` before
+Python starts. This is a sandbox boundary; the same command passes when run
+with host Metal access.

@@ -47,7 +47,7 @@ class CrowdBehaviorNode(Node):
 
     def init(self, context):
         child = self.inputs.new("NodeSocketFloat", "Children")
-        child.is_multi_input = True
+        child.link_limit = 4095
         self.outputs.new("NodeSocketFloat", "Flow")
 
     def draw_buttons(self, context, layout):
@@ -88,7 +88,11 @@ def ensure_reference_tree(graph):
     for spec in graph["nodes"]:
         parent = nodes[spec["id"]]
         for child_id in spec.get("children", []):
-            tree.links.new(nodes[child_id].outputs["Flow"], parent.inputs["Children"])
+            tree.links.new(
+                nodes[child_id].outputs["Flow"],
+                parent.inputs["Children"],
+                verify_limits=False,
+            )
     return tree
 
 
