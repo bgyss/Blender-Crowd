@@ -7,7 +7,9 @@ Python inside an agent tick.
 ## Try the reference graph
 
 1. In Blender, select **Create Reference Concourse**.
-2. Open the Text Editor and select `CrowdBehaviorGraphV1`.
+2. Open a Geometry Node Editor and choose **Crowd Behavior Graph** from the
+   node-tree selector. Each node has a bounded type, stable ID, and typed JSON
+   fields; links define composite children.
 3. Return to the Crowd Project panel and select **Validate Behavior Graph**.
 
 The bundled `leave_concourse` preset includes a selector, deterministic
@@ -22,8 +24,10 @@ is versioned at [behavior-graph-v1.schema.json](../../schemas/behavior-graph-v1.
 - Blackboard: `blackboard_compare`.
 - Actions: `navigate`, `wait`, `queue`, `follow_lane`, `hold_position`.
 
-Each node needs a unique stable `id`. Composite nodes reference a non-empty
-`children` list; one-child control nodes reference `child`.
+Each node needs a unique stable `id`. Composite nodes derive their non-empty
+`children` list from graph links; one-child control-node fields remain explicit
+typed fields. The optional `CrowdBehaviorGraphV1` text data block remains a
+portable fallback, but the node tree takes precedence at compile time.
 
 ## Errors and corrections
 
@@ -35,7 +39,9 @@ Each node needs a unique stable `id`. Composite nodes reference a non-empty
 | `E_GRAPH_UnreachableNode` | Connect the node from the entry path or remove it. |
 | `E_GRAPH_InvalidNode` | Supply the reported required key, target, or positive duration. |
 
-The current M1 bake continues to execute its frozen `commuter_v1` program.
-The graph compiler is checked in ahead of attaching graph bytecode to the
-simulation hot loop; this avoids claiming authorable runtime behavior before
-the remaining M2 semantic, queue, group, and trace acceptance runners exist.
+The **Bake Crowd Cache** operator compiles this graph and the editable M2
+queue/lane/cost-region properties into an authorable native session. Its graph
+decisions and queue/group evidence are saved in the cache sidecar, so selected
+agent inspection remains available after reload. The remaining M2 acceptance
+runners still cover the full 1,000-agent reference shot and terrain/foot
+presentation.

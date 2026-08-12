@@ -1,0 +1,13 @@
+[
+  {
+    "id": "concourse_reference_seating",
+    "kind": "seating",
+    "population_id": "commuters",
+    "source_id": "",
+    "rows": 5,
+    "columns": 10,
+    "spacing_x_m": 0.6,
+    "spacing_y_m": 0.8,
+    "points": []
+  }
+]

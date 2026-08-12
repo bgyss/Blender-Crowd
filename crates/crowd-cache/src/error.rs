@@ -62,6 +62,7 @@ pub enum CacheError {
         expected_last_tick: u64,
         found_last_tick: Option<u64>,
     },
+    BehaviorEvents(String),
     UnsafeRelativePath(String),
 }
 
@@ -134,6 +135,7 @@ impl fmt::Display for CacheError {
                 f,
                 "bake ended at {found_last_tick:?}; expected tick {expected_last_tick}"
             ),
+            Self::BehaviorEvents(message) => write!(f, "invalid behavior events: {message}"),
             Self::UnsafeRelativePath(path) => write!(f, "unsafe cache-relative path {path}"),
         }
     }

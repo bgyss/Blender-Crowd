@@ -91,3 +91,13 @@ fn weighted_variation_is_stable_and_individually_overrideable() {
         }
     );
 }
+
+#[test]
+fn blender_reference_asset_editor_fixture_passes_the_native_contract() {
+    let library: AssetLibraryV1 = serde_json::from_str(include_str!(
+        "../../../addon/blender_crowd/reference/commuter-authorable-assets-v1.json"
+    ))
+    .unwrap();
+    let compiled = validate_asset_library(&library).unwrap();
+    assert!(compiled.select("commuters", 2026, AgentId(42)).is_some());
+}

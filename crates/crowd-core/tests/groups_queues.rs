@@ -22,6 +22,7 @@ fn queue_capacity_limits_new_admissions_and_advances_in_order() {
     let mut queue = QueueRuntime::new("gate", 3, 1).unwrap();
     queue.request_batch(&[AgentId(30), AgentId(10), AgentId(20)]);
     assert_eq!(queue.status(AgentId(10)), QueueStatus::Admitted { slot: 0 });
+    assert_eq!(queue.front_agent(), Some(AgentId(10)));
     assert_eq!(
         queue.status(AgentId(20)),
         QueueStatus::Waiting { ordinal: 0 }
@@ -31,7 +32,17 @@ fn queue_capacity_limits_new_admissions_and_advances_in_order() {
     assert_eq!(queue.status(AgentId(20)), QueueStatus::Admitted { slot: 1 });
     queue.release(AgentId(10));
     assert_eq!(queue.status(AgentId(20)), QueueStatus::Admitted { slot: 0 });
+    assert_eq!(queue.front_agent(), Some(AgentId(20)));
     assert_eq!(queue.throughput(), 1);
+}
+
+#[test]
+fn queue_exposes_the_reserved_slot_for_live_steering() {
+    let mut queue = QueueRuntime::new("gate", 2, 2).unwrap();
+    queue.request_batch(&[AgentId(2), AgentId(1)]);
+    assert_eq!(queue.assigned_slot(AgentId(1)), Some(0));
+    assert_eq!(queue.assigned_slot(AgentId(2)), Some(1));
+    assert_eq!(queue.assigned_slot(AgentId(99)), None);
 }
 
 #[test]

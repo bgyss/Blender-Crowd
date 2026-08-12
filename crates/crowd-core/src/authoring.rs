@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use crate::assets::{validate_asset_library, AssetLibraryV1, CompiledAssetLibrary};
 use crate::behavior::{compile_graph, BehaviorGraphV1, BehaviorNodeV1, BehaviorProgram};
 use crate::project::{compile_project, Bounds2IrV1, CompiledProject, ProjectIrV1};
-use crate::runtime_behavior::RuntimeBehaviorController;
+use crate::runtime_behavior::{RuntimeBehaviorController, RuntimeGroup, RuntimeQueue};
+use crate::social::{GroupConstraint, QueueRuntime};
+use crate::units::Vec2;
 
 pub const AUTHORABLE_PROJECT_SCHEMA_VERSION: u32 = 2;
 
@@ -86,6 +88,17 @@ pub enum GroupKindV2 {
     LeaderFollower,
 }
 
+/// How a social group traverses a capacity-constrained authored queue.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupBottleneckPolicyV2 {
+    /// Preserve the pre-M2 per-agent queue behavior.
+    #[default]
+    Individual,
+    /// Admit the declared leader, then each remaining member in stable ID order.
+    LeaderFirst,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GroupV2 {
@@ -95,6 +108,8 @@ pub struct GroupV2 {
     pub leader_agent_id: Option<u64>,
     pub shared_destination_id: String,
     pub max_separation_millimeters: u32,
+    #[serde(default)]
+    pub bottleneck_policy: GroupBottleneckPolicyV2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -139,6 +154,8 @@ pub struct CompiledAuthorableProject {
     programs: BTreeMap<String, BehaviorProgram>,
     population_graphs: BTreeMap<String, String>,
     assets: CompiledAssetLibrary,
+    queues: Vec<QueueV2>,
+    groups: Vec<GroupV2>,
 }
 
 impl CompiledAuthorableProject {
@@ -177,6 +194,16 @@ impl CompiledAuthorableProject {
                 ))
             })
             .collect();
+        let graph_ids = self
+            .population_graphs
+            .iter()
+            .filter_map(|(population, graph)| {
+                self.base
+                    .population_index(population)
+                    .and_then(|index| u16::try_from(index).ok())
+                    .map(|index| (index, graph.clone()))
+            })
+            .collect();
         let destination_indices = self
             .base
             .ir()
@@ -190,7 +217,64 @@ impl CompiledAuthorableProject {
                     .map(|index| (item.id.clone(), index))
             })
             .collect();
+        let queues = self
+            .queues
+            .iter()
+            .filter_map(|queue| {
+                QueueRuntime::new(
+                    queue.id.clone(),
+                    queue.slots.len(),
+                    queue.admission_capacity as usize,
+                )
+                .ok()
+                .map(|runtime| {
+                    (
+                        queue.id.clone(),
+                        RuntimeQueue {
+                            runtime,
+                            slots: queue
+                                .slots
+                                .iter()
+                                .map(|point| Vec2::new(point[0], point[1]))
+                                .collect(),
+                        },
+                    )
+                })
+            })
+            .collect();
+        let groups = self
+            .groups
+            .iter()
+            .filter_map(|group| {
+                let leader = group
+                    .leader_agent_id
+                    .or_else(|| group.member_agent_ids.iter().copied().min())?;
+                GroupConstraint::new(
+                    group.id.clone(),
+                    group
+                        .member_agent_ids
+                        .iter()
+                        .copied()
+                        .map(crate::ids::AgentId)
+                        .collect(),
+                    crate::ids::AgentId(leader),
+                    group.max_separation_millimeters as f32 / 1000.0,
+                    1.0,
+                )
+                .ok()
+                .map(|constraint| RuntimeGroup {
+                    constraint,
+                    bottleneck_policy: group.bottleneck_policy,
+                    shared_destination: self
+                        .base
+                        .destination_index(&group.shared_destination_id)
+                        .and_then(|index| u16::try_from(index).ok()),
+                })
+            })
+            .collect();
         RuntimeBehaviorController::new(by_population, destination_indices)
+            .with_graph_ids(graph_ids)
+            .with_social(queues, groups)
     }
 }
 
@@ -327,6 +411,8 @@ pub fn compile_authorable_project(
             programs,
             population_graphs,
             assets,
+            queues: project.semantics.queues.clone(),
+            groups: project.groups.clone(),
         })
     } else {
         Err(diagnostics)
