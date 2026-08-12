@@ -1,0 +1,22 @@
+{
+  "acceptance_subgate_passed": true,
+  "agent_count": 1000,
+  "authorable_bake_seconds": 54.3191884579137,
+  "behavior_event_count": 1724156,
+  "behavior_event_kinds": [
+    "decision",
+    "group_split",
+    "queue_admitted",
+    "queue_released",
+    "queue_requested"
+  ],
+  "cache_only_render": true,
+  "cache_status": "complete",
+  "m2_milestone_accepted": false,
+  "render_metrics_path": "external-host-output/render/m1-render-metrics.json",
+  "schema_version": 1,
+  "selected_agent_id": 2506968674689638394,
+  "selected_agent_tick": 0,
+  "sparse_override_base_cache_unchanged": true,
+  "ticks": 10000
+}

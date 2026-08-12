@@ -136,7 +136,12 @@ def main():
     require(evidence["agent_id"] == selected_id, "inspector selected the wrong agent")
     require(evidence["corridor_points"], "inspector has no navigation corridor")
     require(evidence["decision_reason"], "inspector has no decision reason")
-    for logical_id in ("selected_path", "desired_velocity", "solved_velocity"):
+    for logical_id in (
+        "selected_agent_marker",
+        "selected_path",
+        "desired_velocity",
+        "solved_velocity",
+    ):
         require(
             any(obj.get("crowd_debug_id") == logical_id for obj in bpy.data.objects),
             "missing {} overlay".format(logical_id),

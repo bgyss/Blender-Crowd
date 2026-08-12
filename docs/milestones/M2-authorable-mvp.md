@@ -6,11 +6,23 @@ Turn the vertical slice into an artist-authored crowd product with typed agency,
 semantic environments, first-class groups, production variation, deep debugging,
 and sparse post-simulation correction.
 
+## Status
+
+**Accepted on 2026-08-12.** The engineering acceptance runner passed and a
+project operator who did not implement M2 completed the six-step Blender UI
+spot check. See the [dated acceptance record](../benchmarks/2026-08-12-m2-acceptance.md).
+
+The spot check also exposed substantial usability debt. That work is tracked in
+the [UI/UX roadmap](../ui-ux-roadmap.md) and is explicitly deferred; it does not
+reopen the accepted M2 simulation, authoring, cache, debug, correction, or render
+gate.
+
 ## Sources of truth
 
 - [Blender Crowd 1.0 sections 4, 6.3, 7, 10, and 12](../blender-crowd-1.0.md)
 - [Industrial capability ledger](../industrial-crowd-capability-roadmap.md#industrial-capability-ledger)
 - [M1 vertical slice](M1-vertical-slice.md)
+- [UI/UX roadmap](../ui-ux-roadmap.md)
 
 ## Prerequisites
 
@@ -38,6 +50,31 @@ them.
    avoidance constraints, heatmaps, metrics, and actionable validation errors.
 8. Sparse hide/delete, transform, timing, speed, appearance, animation, goal,
    pin/guide, hero promotion, and bounded local-resimulation overrides.
+
+## Deferred UI/UX follow-up
+
+- Replace the single expanding project form with focused Setup, Author,
+  Validate, Bake, Review/Correct, and Render stages while remaining native to
+  Blender editors and selection.
+- Make one `Validate Shot` action the normal path. Group findings by severity,
+  identify the affected entity, and provide a direct corrective or focus action;
+  keep individual validators under an Advanced section.
+- Replace raw JSON, copied logical IDs, copied agent IDs, and `Remove Last`
+  interactions in required tasks with selected-item lists, searchable pickers,
+  structured editors, presets, or viewport selection.
+- Present bake/cache state explicitly; show measurable progress, reveal Cancel
+  only while active, attach a completed cache automatically, and restore or
+  clearly recover attachment after save/reload.
+- Let the artist select an agent from the viewport or cached-event list. Present
+  human-readable state, decision reason, observations, path, velocity, and a
+  link to the decisive behavior node; raw numeric evidence remains Advanced.
+- Make sparse correction contextual: selecting and pinning an agent creates or
+  selects the required correction control without undocumented object setup.
+
+These goals are retained as the first tranche of the cross-milestone UI backlog,
+not as a retroactive condition on M2 acceptance. M3 owns production workflow,
+recovery, accessibility, and support-matrix hardening; later milestones own the
+specialized layer, scale, graph-debugging, host-integration, and semantic UI.
 
 ## Explicit exclusions
 

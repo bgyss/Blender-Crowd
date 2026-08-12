@@ -10,6 +10,7 @@ on a declared Blender/OS support matrix.
 - [Definition of Blender Crowd 1.0](../blender-crowd-1.0.md#18-definition-of-blender-crowd-10)
 - [Verification and risk sections](../blender-crowd-1.0.md#15-verification-strategy)
 - [M2 authorable MVP](M2-authorable-mvp.md)
+- [UI/UX roadmap](../ui-ux-roadmap.md)
 
 ## Prerequisites
 
@@ -29,6 +30,30 @@ checked-in baselines; no threshold is invented after seeing a release result.
 - Crash diagnostics that exclude private scene content by default.
 - Signed/reproducible release artifacts where supported, license/SBOM review,
   documentation, examples, upgrade notes, and support triage policy.
+
+## UI/UX goals and gate
+
+- Provide a dedicated Crowd workspace or equally discoverable native layout
+  with persistent project health, current stage, selection context, and next
+  action visible without returning to the top of a long panel.
+- Make cache, asset, migration, dependency, and recovery states survive
+  save/reload and moved-project scenarios. Never show saved crowd geometry as
+  usable while silently lacking the reader or authoritative backing state.
+- Add actionable diagnostic history with links to affected objects, graphs,
+  files, and documentation; transient status text is supplementary only.
+- Add templates and presets for supported shot types while keeping generated
+  content inspectable and undo-safe.
+- Complete keyboard order, focus visibility, target-size, contrast, truncation,
+  readable-label, theme, scaling, and assistive-technology review on the support
+  matrix. Expert-only raw data must be clearly separated and labeled.
+- Expose operation estimates, progress, cancellation, recovery, and resulting
+  artifact locations for long-running work.
+
+The M3 UI gate passes from clean release archives on every claimed platform. At
+least two evaluators who did not implement the feature must install, create or
+open, validate, bake, reload, recover one injected failure, and render the
+acceptance shot using the documented interface. Record task success, time,
+errors, recovery, accessibility findings, and remaining support limitations.
 
 ## Explicit exclusions
 

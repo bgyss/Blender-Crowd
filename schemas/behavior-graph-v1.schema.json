@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/behavior-graph-v1.schema.json",
+  "title": "Blender Crowd Typed Behavior Graph v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "entry_id", "nodes"],
+  "properties": {
+    "id": { "$ref": "#/$defs/id" },
+    "entry_id": { "$ref": "#/$defs/id" },
+    "nodes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/node" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 },
+    "child_list": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+    "node": {
+      "oneOf": [
+        { "$ref": "#/$defs/composite" },
+        { "$ref": "#/$defs/utility_selector" },
+        { "$ref": "#/$defs/state_switch" },
+        { "$ref": "#/$defs/one_child" },
+        { "$ref": "#/$defs/navigate" },
+        { "$ref": "#/$defs/wait" },
+        { "$ref": "#/$defs/queue" },
+        { "$ref": "#/$defs/follow_lane" },
+        { "$ref": "#/$defs/hold_position" }
+      ]
+    },
+    "composite": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "id", "children"],
+      "properties": {
+        "type": { "enum": ["selector", "sequence", "fallback"] },
+        "id": { "$ref": "#/$defs/id" }, "children": { "$ref": "#/$defs/child_list" }
+      }
+    },
+    "utility_selector": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "id", "options"],
+      "properties": {
+        "type": { "const": "utility_selector" }, "id": { "$ref": "#/$defs/id" },
+        "options": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["child", "score_key"], "properties": { "child": { "$ref": "#/$defs/id" }, "score_key": { "$ref": "#/$defs/id" } } } }
+      }
+    },
+    "state_switch": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "id", "state_key", "branches", "fallback"],
+      "properties": {
+        "type": { "const": "state_switch" }, "id": { "$ref": "#/$defs/id" }, "state_key": { "$ref": "#/$defs/id" }, "fallback": { "$ref": "#/$defs/id" },
+        "branches": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["value", "child"], "properties": { "value": { "type": "integer" }, "child": { "$ref": "#/$defs/id" } } } }
+      }
+    },
+    "one_child": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["type", "id", "child", "condition_key"], "properties": { "type": { "const": "interrupt" }, "id": { "$ref": "#/$defs/id" }, "child": { "$ref": "#/$defs/id" }, "condition_key": { "$ref": "#/$defs/id" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "id", "child", "ticks"], "properties": { "type": { "const": "timer" }, "id": { "$ref": "#/$defs/id" }, "child": { "$ref": "#/$defs/id" }, "ticks": { "type": "integer", "minimum": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "id", "child", "probability_millionths"], "properties": { "type": { "const": "probability" }, "id": { "$ref": "#/$defs/id" }, "child": { "$ref": "#/$defs/id" }, "probability_millionths": { "type": "integer", "minimum": 0, "maximum": 1000000 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "id", "child", "event_type"], "properties": { "type": { "const": "event" }, "id": { "$ref": "#/$defs/id" }, "child": { "$ref": "#/$defs/id" }, "event_type": { "$ref": "#/$defs/id" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "id", "child", "key"], "properties": { "type": { "const": "blackboard_compare" }, "id": { "$ref": "#/$defs/id" }, "child": { "$ref": "#/$defs/id" }, "key": { "$ref": "#/$defs/id" } } }
+      ]
+    },
+    "navigate": { "type": "object", "additionalProperties": false, "required": ["type", "id", "destination_id"], "properties": { "type": { "const": "navigate" }, "id": { "$ref": "#/$defs/id" }, "destination_id": { "$ref": "#/$defs/id" } } },
+    "wait": { "type": "object", "additionalProperties": false, "required": ["type", "id", "ticks"], "properties": { "type": { "const": "wait" }, "id": { "$ref": "#/$defs/id" }, "ticks": { "type": "integer", "minimum": 1 } } },
+    "queue": { "type": "object", "additionalProperties": false, "required": ["type", "id", "queue_id"], "properties": { "type": { "const": "queue" }, "id": { "$ref": "#/$defs/id" }, "queue_id": { "$ref": "#/$defs/id" } } },
+    "follow_lane": { "type": "object", "additionalProperties": false, "required": ["type", "id", "lane_id"], "properties": { "type": { "const": "follow_lane" }, "id": { "$ref": "#/$defs/id" }, "lane_id": { "$ref": "#/$defs/id" } } },
+    "hold_position": { "type": "object", "additionalProperties": false, "required": ["type", "id"], "properties": { "type": { "const": "hold_position" }, "id": { "$ref": "#/$defs/id" } } }
+  }
+}

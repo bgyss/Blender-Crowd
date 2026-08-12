@@ -105,6 +105,21 @@
         }
       }
     },
+    "behavior_events": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["path", "byte_len", "checksum", "complete"],
+      "properties": {
+        "path": { "const": "events/behavior-v1.json" },
+        "byte_len": { "type": "integer", "minimum": 0 },
+        "checksum": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "complete": { "type": "boolean" }
+      }
+    },
     "chunks": {
       "type": "array",
       "items": {

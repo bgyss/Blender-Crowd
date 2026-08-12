@@ -51,13 +51,17 @@ production evaluation. M8 consumes stable outputs from M4 through M6.
 
 ## Current baseline
 
-As of 2026-08-11, **M0 and M1 are accepted, and M2 is unblocked**. The complete
+As of 2026-08-12, **M0, M1, and M2 are accepted, and M3 is unblocked**. The complete
 M0 ordered runner and criterion-by-criterion result are in the
 [M0 consolidated acceptance report](../benchmarks/2026-08-10-m0-consolidated.md),
 with its [machine-readable summary](../benchmarks/2026-08-10-m0-acceptance.json).
 The strict rebake, cache-only Blender workflow, sparse override, and separated
 render evidence are in the
 [M1 vertical-slice acceptance report](../benchmarks/2026-08-10-m1-vertical-slice.md).
+M2 engineering and operator evidence is consolidated in the
+[M2 acceptance record](../benchmarks/2026-08-12-m2-acceptance.md). The remaining
+UI/UX and Figma work is deliberately deferred and tracked in the
+[UI/UX roadmap](../ui-ux-roadmap.md#deferred-uiux-todo); it does not reopen M2.
 
 Implemented: a Rust workspace of five crates (`crowd-core`, `crowd-cache`,
 `crowd-trace`, `crowd-blender`, and `crowd-bench`); versioned project/cache
@@ -107,6 +111,17 @@ render the complete cache without a live session; the selected-agent overlay
 and one-agent reversible override pass; and every required cost is reported
 separately. The [clean-file walkthrough](../user/m1-reference-walkthrough.md)
 requires no code or JSON edits.
+
+### M2 acceptance criteria
+
+All eight criteria are accepted. The full authorable Blender runner baked the
+1,000-agent, 10,000-tick reference, persisted graph/queue/group evidence,
+replayed and rendered without a live session, and proved sparse override
+isolation. A project operator who did not implement M2 completed the six-step
+Blender UI spot check through selected-agent inspection, overlays, and a pinned
+override. The operator also identified substantial usability debt; the accepted
+functional gate and the deferred redesign are recorded separately rather than
+mistaking one for the other.
 
 ### Checks
 

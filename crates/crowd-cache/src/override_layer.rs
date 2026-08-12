@@ -274,3 +274,365 @@ fn sample_translation(layer: &OverrideLayerV1, tick: u64) -> [f32; 3] {
         before.translation[axis] + (after.translation[axis] - before.translation[axis]) * fraction
     })
 }
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OverrideEditV2 {
+    Visibility {
+        tick_start: u64,
+        tick_end: u64,
+        visible: bool,
+    },
+    Transform {
+        tick_start: u64,
+        tick_end: u64,
+        operation: OverrideOperation,
+        samples: Vec<TransformOverride>,
+    },
+    Timing {
+        tick_start: u64,
+        tick_end: u64,
+        offset_ticks: i64,
+    },
+    Speed {
+        tick_start: u64,
+        tick_end: u64,
+        multiplier_millionths: u32,
+    },
+    Appearance {
+        tick_start: u64,
+        tick_end: u64,
+        variant_id: u32,
+    },
+    Animation {
+        tick_start: u64,
+        tick_end: u64,
+        clip_id: u16,
+        phase_millionths: u32,
+    },
+    Goal {
+        tick_start: u64,
+        tick_end: u64,
+        destination_id: u32,
+    },
+    Hero {
+        tick_start: u64,
+        tick_end: u64,
+        render_tier: u8,
+    },
+}
+
+impl OverrideEditV2 {
+    fn range(&self) -> (u64, u64) {
+        match self {
+            Self::Visibility {
+                tick_start,
+                tick_end,
+                ..
+            }
+            | Self::Transform {
+                tick_start,
+                tick_end,
+                ..
+            }
+            | Self::Timing {
+                tick_start,
+                tick_end,
+                ..
+            }
+            | Self::Speed {
+                tick_start,
+                tick_end,
+                ..
+            }
+            | Self::Appearance {
+                tick_start,
+                tick_end,
+                ..
+            }
+            | Self::Animation {
+                tick_start,
+                tick_end,
+                ..
+            }
+            | Self::Goal {
+                tick_start,
+                tick_end,
+                ..
+            }
+            | Self::Hero {
+                tick_start,
+                tick_end,
+                ..
+            } => (*tick_start, *tick_end),
+        }
+    }
+    fn channel(&self) -> &'static str {
+        match self {
+            Self::Visibility { .. } => "visibility",
+            Self::Transform { .. } => "transform",
+            Self::Timing { .. } => "timing",
+            Self::Speed { .. } => "speed",
+            Self::Appearance { .. } => "appearance",
+            Self::Animation { .. } => "animation",
+            Self::Goal { .. } => "goal",
+            Self::Hero { .. } => "hero",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalResimulationRecordV2 {
+    pub affected_agent_ids: Vec<u64>,
+    pub tick_start: u64,
+    pub tick_end: u64,
+    pub source_base_hash: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverrideLayerV2 {
+    pub schema_version: u32,
+    pub layer_id: String,
+    pub author: String,
+    pub created_at: String,
+    pub priority: i32,
+    pub enabled: bool,
+    pub target_agent_id: u64,
+    pub edits: Vec<OverrideEditV2>,
+    pub local_resimulation: Option<LocalResimulationRecordV2>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComposedRecordV2 {
+    pub agent_id: u64,
+    pub position: [f32; 3],
+    pub playback_rate: f32,
+    pub variant_id: u32,
+    pub clip_id: u16,
+    pub phase: f32,
+    pub destination_id: u32,
+    pub visible: bool,
+    pub render_tier: u8,
+    pub time_offset_ticks: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OverrideConflictV2 {
+    pub target_agent_id: u64,
+    pub channel: String,
+    pub earlier_layer_id: String,
+    pub later_layer_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComposedFrameV2 {
+    pub records: Vec<ComposedRecordV2>,
+    pub conflicts: Vec<OverrideConflictV2>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OverrideV2Error(pub String);
+impl fmt::Display for OverrideV2Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl Error for OverrideV2Error {}
+
+pub fn compose_frame_v2(
+    frame: &Frame,
+    tick: u64,
+    layers: &[OverrideLayerV2],
+) -> Result<ComposedFrameV2, OverrideV2Error> {
+    let mut index_by_id = BTreeMap::new();
+    let mut records: Vec<_> = frame
+        .records
+        .iter()
+        .enumerate()
+        .map(|(index, record)| {
+            if index_by_id.insert(record.agent_id, index).is_some() {
+                return Err(OverrideV2Error(format!(
+                    "duplicate base agent {}",
+                    record.agent_id
+                )));
+            }
+            Ok(ComposedRecordV2 {
+                agent_id: record.agent_id,
+                position: [record.position[0], record.position[1], 0.0],
+                playback_rate: record.playback_rate,
+                variant_id: record.variant_id,
+                clip_id: record.clip_id,
+                phase: record.phase,
+                destination_id: record.destination_id,
+                visible: record.visible,
+                render_tier: record.render_tier,
+                time_offset_ticks: 0,
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    let mut ordered: Vec<_> = layers.iter().filter(|layer| layer.enabled).collect();
+    ordered
+        .sort_by(|a, b| (a.priority, a.layer_id.as_str()).cmp(&(b.priority, b.layer_id.as_str())));
+    let mut channels: BTreeMap<(u64, &'static str), &str> = BTreeMap::new();
+    let mut conflicts = Vec::new();
+    for layer in ordered {
+        validate_layer_v2(layer, &index_by_id)?;
+        let record = &mut records[index_by_id[&layer.target_agent_id]];
+        for edit in &layer.edits {
+            let (start, end) = edit.range();
+            if !(start..=end).contains(&tick) {
+                continue;
+            }
+            let key = (layer.target_agent_id, edit.channel());
+            if let Some(previous) = channels.insert(key, &layer.layer_id) {
+                conflicts.push(OverrideConflictV2 {
+                    target_agent_id: layer.target_agent_id,
+                    channel: edit.channel().to_string(),
+                    earlier_layer_id: previous.to_string(),
+                    later_layer_id: layer.layer_id.clone(),
+                });
+            }
+            match edit {
+                OverrideEditV2::Visibility { visible, .. } => record.visible = *visible,
+                OverrideEditV2::Transform {
+                    operation, samples, ..
+                } => {
+                    let value = sample_v2(samples, tick);
+                    match operation {
+                        OverrideOperation::Additive => {
+                            for (v, d) in record.position.iter_mut().zip(value) {
+                                *v += d;
+                            }
+                        }
+                        OverrideOperation::Absolute => record.position = value,
+                    }
+                }
+                OverrideEditV2::Timing { offset_ticks, .. } => {
+                    record.time_offset_ticks = *offset_ticks
+                }
+                OverrideEditV2::Speed {
+                    multiplier_millionths,
+                    ..
+                } => record.playback_rate *= *multiplier_millionths as f32 / 1_000_000.0,
+                OverrideEditV2::Appearance { variant_id, .. } => record.variant_id = *variant_id,
+                OverrideEditV2::Animation {
+                    clip_id,
+                    phase_millionths,
+                    ..
+                } => {
+                    record.clip_id = *clip_id;
+                    record.phase = *phase_millionths as f32 / 1_000_000.0;
+                }
+                OverrideEditV2::Goal { destination_id, .. } => {
+                    record.destination_id = *destination_id
+                }
+                OverrideEditV2::Hero { render_tier, .. } => record.render_tier = *render_tier,
+            }
+        }
+    }
+    Ok(ComposedFrameV2 { records, conflicts })
+}
+
+fn validate_layer_v2(
+    layer: &OverrideLayerV2,
+    ids: &BTreeMap<u64, usize>,
+) -> Result<(), OverrideV2Error> {
+    if layer.schema_version != 2
+        || layer.layer_id.trim().is_empty()
+        || layer.author.trim().is_empty()
+        || layer.created_at.trim().is_empty()
+        || layer.edits.is_empty()
+    {
+        return Err(OverrideV2Error(format!(
+            "override layer {} is invalid",
+            layer.layer_id
+        )));
+    }
+    if !ids.contains_key(&layer.target_agent_id) {
+        return Err(OverrideV2Error(format!(
+            "override layer {} targets absent agent {}",
+            layer.layer_id, layer.target_agent_id
+        )));
+    }
+    for edit in &layer.edits {
+        let (start, end) = edit.range();
+        if start > end {
+            return Err(OverrideV2Error(format!(
+                "override layer {} has invalid edit range",
+                layer.layer_id
+            )));
+        }
+        if let OverrideEditV2::Transform { samples, .. } = edit {
+            if samples.is_empty()
+                || samples.iter().any(|sample| {
+                    sample.tick < start
+                        || sample.tick > end
+                        || !sample.translation.iter().all(|v| v.is_finite())
+                })
+            {
+                return Err(OverrideV2Error(format!(
+                    "override layer {} has invalid transform samples",
+                    layer.layer_id
+                )));
+            }
+        }
+        if let OverrideEditV2::Speed {
+            multiplier_millionths: 0,
+            ..
+        } = edit
+        {
+            return Err(OverrideV2Error(format!(
+                "override layer {} has zero speed",
+                layer.layer_id
+            )));
+        }
+        if let OverrideEditV2::Animation {
+            phase_millionths, ..
+        } = edit
+        {
+            if *phase_millionths > 1_000_000 {
+                return Err(OverrideV2Error(format!(
+                    "override layer {} has invalid phase",
+                    layer.layer_id
+                )));
+            }
+        }
+    }
+    if let Some(local) = &layer.local_resimulation {
+        if local.affected_agent_ids.is_empty()
+            || local.tick_start > local.tick_end
+            || local.source_base_hash.len() != 64
+            || !local
+                .source_base_hash
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit())
+        {
+            return Err(OverrideV2Error(format!(
+                "override layer {} has invalid local resimulation provenance",
+                layer.layer_id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn sample_v2(samples: &[TransformOverride], tick: u64) -> [f32; 3] {
+    let upper = samples.partition_point(|sample| sample.tick < tick);
+    if upper == 0 {
+        return samples[0].translation;
+    }
+    if upper == samples.len() {
+        return samples[samples.len() - 1].translation;
+    }
+    if samples[upper].tick == tick {
+        return samples[upper].translation;
+    }
+    let before = &samples[upper - 1];
+    let after = &samples[upper];
+    let fraction = (tick - before.tick) as f32 / (after.tick - before.tick) as f32;
+    std::array::from_fn(|axis| {
+        before.translation[axis] + (after.translation[axis] - before.translation[axis]) * fraction
+    })
+}

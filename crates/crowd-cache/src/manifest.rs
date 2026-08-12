@@ -64,6 +64,8 @@ pub struct CacheManifestV1 {
     pub agent_count: u32,
     pub channels: Vec<ChannelDef>,
     pub agents: FileDef,
+    #[serde(default)]
+    pub behavior_events: Option<FileDef>,
     pub chunks: Vec<ChunkDef>,
     pub status: CacheStatus,
     pub cancellation_reason: Option<String>,
@@ -79,6 +81,13 @@ impl CacheManifestV1 {
         if self.status == CacheStatus::Complete {
             if !self.agents.complete {
                 return Err(ManifestError::IncompleteAgentTable);
+            }
+            if self
+                .behavior_events
+                .as_ref()
+                .is_some_and(|events| !events.complete)
+            {
+                return Err(ManifestError::IncompleteBehaviorEvents);
             }
             if let Some((index, _)) = self
                 .chunks
@@ -113,6 +122,7 @@ impl CacheManifestV1 {
 pub enum ManifestError {
     UnsupportedVersion(u32),
     IncompleteAgentTable,
+    IncompleteBehaviorEvents,
     IncompleteChunk { index: usize },
     MissingLastCompleteTick,
     MissingCancellationReason,
@@ -125,6 +135,9 @@ impl fmt::Display for ManifestError {
                 write!(f, "unsupported cache manifest version {version}")
             }
             Self::IncompleteAgentTable => write!(f, "complete cache has no complete agent table"),
+            Self::IncompleteBehaviorEvents => {
+                write!(f, "complete cache has incomplete behavior events")
+            }
             Self::IncompleteChunk { index } => {
                 write!(f, "complete cache contains incomplete chunk {index}")
             }

@@ -1,0 +1,15 @@
+{
+  "accepted_date": "2026-08-12",
+  "engineering_subgate": "passed",
+  "engineering_subgate_report": "docs/benchmarks/2026-08-11-m2-acceptance.md",
+  "figma_work_complete": false,
+  "m2_milestone_accepted": true,
+  "operator_reproduction": {
+    "attestation": "project_operator",
+    "spot_check_steps_completed": 6,
+    "status": "passed"
+  },
+  "schema_version": 1,
+  "ui_ux_deferred": true,
+  "ui_ux_roadmap": "docs/ui-ux-roadmap.md"
+}

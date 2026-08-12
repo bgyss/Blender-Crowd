@@ -20,6 +20,7 @@ fn manifest(status: CacheStatus) -> CacheManifestV1 {
             checksum: 0x1234_5678,
             complete: true,
         },
+        behavior_events: None,
         chunks: vec![ChunkDef {
             path: "frames/000000-000059.chunk".to_owned(),
             tick_start: 0,
@@ -122,6 +123,7 @@ fn emitted_manifest_validates_against_the_checked_schema() {
         BTreeSet::from([
             "agent_count",
             "agents",
+            "behavior_events",
             "channels",
             "chunks",
             "cancellation_reason",
