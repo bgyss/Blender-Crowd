@@ -20,6 +20,7 @@ def write_archive(
     contributor_path=False,
     source_dirty=False,
     source_date_epoch=1_786_497_600,
+    platforms='["macos-arm64"]',
 ):
     manifest = '''schema_version = "1.0.0"
 id = "blender_crowd"
@@ -28,8 +29,9 @@ name = "Blender Crowd"
 type = "add-on"
 license = ["SPDX:GPL-3.0-or-later"]
 blender_version_min = "5.2.0"
+platforms = {platforms}
 wheels = ["./wheels/blender_crowd_native-1.0.0-cp311-abi3-macosx_11_0_arm64.whl"]
-'''
+'''.format(platforms=platforms)
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("blender_manifest.toml", manifest)
         for name in (
@@ -101,3 +103,11 @@ class M3ReleaseAuditTests(unittest.TestCase):
             report = AUDIT.audit(archive)
             self.assertFalse(report["passed"])
             self.assertTrue(any("source date epoch" in error for error in report["errors"]))
+
+    def test_rejects_a_wider_1_0_platform_claim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "release.zip"
+            write_archive(archive, platforms='["macos-arm64", "linux-x64"]')
+            report = AUDIT.audit(archive)
+            self.assertFalse(report["passed"])
+            self.assertTrue(any("exactly macos-arm64" in error for error in report["errors"]))

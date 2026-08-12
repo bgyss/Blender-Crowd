@@ -8,7 +8,7 @@ announcement.
 
 | M3 criterion | Current evidence | Decision |
 | --- | --- | --- |
-| Clean install enables, authors, bakes, reloads, and renders on every supported platform | A clean macOS archive builds, installs, bakes 10,000 ticks, replays, and renders through both engines with host Metal access; Windows/Linux archives are not built | partially proven |
+| Clean install enables, authors, bakes, reloads, and renders on every supported platform | Blender Crowd 1.0 now claims only Blender 5.2 LTS on macOS 11+ Apple Silicon; the post-scope-change clean archive rerun is pending | unproven |
 | Complete cache plays without simulator; incomplete/corrupt/stale/older/newer behavior is documented | macOS archive drills pass complete, canceled, corrupt, stale, moved-project, save/reload, and newer-schema cases; incomplete is covered natively, but the older-cache drill is absent | partially proven |
 | Undo/save/reload/dependency graph have no hidden state | Existing M2 tests cover authoring undo/save/reload and M3 recovery survives save/reload; linked/library-override, clean-preference, and explicit dependency-graph stress evidence is absent | partially proven |
 | Resource, quality, package-size budgets pass | The macOS archive run records bake, memory, cache, playback/render, and package measurements, but M3 fixed thresholds and an enforcing budget report do not exist | unproven |
@@ -76,8 +76,8 @@ The release remains stopped on:
 
 - a clean commit, rebuild, and complete archive-first rerun containing the
   harness, reproducibility, and relative-path fixes;
-- a support-matrix decision: build and test the currently declared Windows and
-  Linux rows, or explicitly narrow 1.0 to the manifest's macOS-arm64 platform;
+- a clean macOS-arm64 archive build and complete archive-first rerun after the
+  1.0 support contract was narrowed to its sole manifest platform;
 - fixed, predeclared thresholds plus an enforcing report for quality,
   performance, peak memory, cache/playback/render, debug overhead, and package
   size (the macOS diagnostic run measured about 3.97 GB peak Blender RSS, an

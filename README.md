@@ -178,8 +178,10 @@ and [compatibility policy](docs/release/1.0-compatibility.md). Generate the
 release SPDX inventory with `scripts/m3_sbom.py --out addon/blender_crowd/sbom.spdx.json`;
 the wheel builder does this automatically before packaging.
 The current dated [M3 candidate audit](docs/benchmarks/2026-08-12-m3-acceptance.md)
-is intentionally **not accepted**; it names the remaining archive, platform,
-budget, signing, and evaluator gates.
+is intentionally **not accepted**; it names the remaining macOS-arm64 archive,
+budget, signing-applicability, license-review, and evaluator gates. Windows,
+Linux, and Intel macOS are explicitly outside the Blender Crowd 1.0 support
+contract.
 
 `--svg` and `--frames` sample the simulation every tick, so a run recorded with
 either reports a `ticks_per_second` that is not a performance measurement.

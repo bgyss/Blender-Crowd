@@ -50,6 +50,11 @@ def toml_value(text, key):
     return match.group(1) if match else None
 
 
+def toml_array_values(text, key):
+    match = re.search(r"^{}\s*=\s*\[([^]]*)\]\s*$".format(re.escape(key)), text, re.M)
+    return re.findall(r'\"([^\"]+)\"', match.group(1)) if match else []
+
+
 def audit(archive):
     archive = Path(archive)
     errors = []
@@ -71,6 +76,7 @@ def audit(archive):
                 manifest["id"] = toml_value(manifest_text, "id")
                 manifest["version"] = toml_value(manifest_text, "version")
                 manifest["blender_version_min"] = toml_value(manifest_text, "blender_version_min")
+                manifest["platforms"] = toml_array_values(manifest_text, "platforms")
                 manifest["license"] = re.findall(r"SPDX:([A-Za-z0-9.+-]+)", manifest_text)
                 if manifest["id"] != "blender_crowd":
                     fail(errors, "manifest id must be blender_crowd")
@@ -78,6 +84,8 @@ def audit(archive):
                     fail(errors, "manifest version must be 1.0.0")
                 if manifest["blender_version_min"] != "5.2.0":
                     fail(errors, "manifest must declare Blender 5.2.0 minimum")
+                if manifest["platforms"] != ["macos-arm64"]:
+                    fail(errors, "Blender Crowd 1.0 must claim exactly macos-arm64")
                 if "GPL-3.0-or-later" not in manifest["license"]:
                     fail(errors, "manifest must declare GPL-3.0-or-later")
                 wheels = re.findall(r"\.\/wheels\/([^\"]+\.whl)", manifest_text)

@@ -1,7 +1,7 @@
 # M3 production workflow and cache recovery
 
 This document describes the implemented M3 hardening slice. It does not claim
-that Blender Crowd 1.0 is released or that the full M3 support matrix has
+that Blender Crowd 1.0 is released or that its macOS-arm64 M3 support row has
 passed.
 
 ## Normal workflow
@@ -51,6 +51,6 @@ and diagnostic history survive save/reload.
 ## Current boundary
 
 This slice closes a cache-trust and recoverability gap. It does not replace the
-remaining M3 release work: support-matrix archives, migration fixtures,
+remaining M3 release work: the macOS-arm64 release archive, migration fixtures,
 performance/package budgets, SBOM/license review, signed provenance, and the
 two independent evaluator studies required by the milestone contract.

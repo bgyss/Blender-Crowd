@@ -19,8 +19,9 @@ checked-in baselines; no threshold is invented after seeing a release result.
 
 ## In scope
 
-- Cross-platform native packaging for the declared Blender LTS-compatible
-  versions and OS/architecture matrix.
+- Native packaging for the declared Blender 5.2 LTS / macOS Apple Silicon 1.0
+  support row. Other operating systems and architectures require a later
+  support-contract expansion backed by their own evidence.
 - Cache atomicity, cancellation, recovery, invalidation explanations, migration,
   partial corruption handling, optional channels, and compatibility policy.
 - Blender undo/redo, save/reload, dependency-graph, linked/overridden data,

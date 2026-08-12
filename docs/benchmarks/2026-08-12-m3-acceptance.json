@@ -5,7 +5,7 @@
   "decision": "not_accepted",
   "release_version": "1.0.0",
   "criteria": {
-    "clean_install_matrix": "partially_proven",
+    "clean_install_matrix": "unproven",
     "cache_compatibility_recovery": "partially_proven",
     "blender_lifecycle": "partially_proven",
     "resource_budgets": "unproven",
@@ -15,7 +15,7 @@
   },
   "blocking_conditions": [
     "Post-debug fixes require a clean commit, rebuilt archive, and complete archive-first rerun",
-    "The declared Windows and Linux rows are unbuilt; otherwise the 1.0 support matrix must be narrowed explicitly to macOS arm64",
+    "The narrowed macOS-arm64 support row requires a clean archive build and complete archive-first rerun",
     "Fixed enforcing support-matrix budgets are absent",
     "Older-cache, missing-asset, linked/library-override, clean-preference, and explicit dependency-graph stress drills are absent",
     "Signing applicability, human license review, accessibility review, and independent evaluator records are unresolved"
