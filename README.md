@@ -119,6 +119,7 @@ cargo test --workspace                                    # unit, property, dete
 cargo test -p crowd-core --test behavior_graph            # M2 typed graph schema/compiler
 scripts/m2-foundation-test.sh                             # implemented M2 compiler/data-layer checks
 scripts/m2-blender-authoring-test.sh                      # M2 clean-install + UI-context undo/save/reload
+scripts/m2-full-acceptance.sh --out /path/to/blender-crowd-m2-proof      # 1K full bake/replay/debug/render subgate
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
 cargo clippy --workspace --all-targets -- -D warnings
 

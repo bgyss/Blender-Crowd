@@ -48,6 +48,11 @@ def main():
         "reference asset editor did not materialize the typed asset library",
     )
     require(len(props.layouts) == 1, "reference seating layout did not materialize")
+    require(len(props.groups) == 1, "reference social group did not materialize")
+    require(
+        json.loads(props.groups[0].member_agent_ids_json),
+        "reference social group has no stable agent members",
+    )
     graph = behavior_editor.graph_from_tree()
     require(graph["id"] == "leave_concourse", "behavior node tree did not materialize")
     require(
@@ -74,6 +79,10 @@ def main():
     require(
         project.extract_authorable_assets(scene)["clips"][0]["average_root_speed_mmps"] == 1400,
         "clip editor change was not compiled into the M2 asset library",
+    )
+    require(
+        project.extract_authorable_groups(scene)[0]["bottleneck_policy"] == "leader_first",
+        "group editor change was not compiled into the M2 project",
     )
 
     require(
@@ -163,6 +172,7 @@ def main():
     require(len(props.lanes) == 1, "lane editor data was lost after reload")
     require(len(props.cost_regions) == 1, "region editor data was lost after reload")
     require(len(props.layouts) == 2, "layout editor data was lost after reload")
+    require(len(props.groups) == 1, "group editor data was lost after reload")
     require(
         len(bpy.data.collections[layout_editor.LAYOUT_COLLECTION_NAME].objects) == 100,
         "layout guide objects were lost after reload",

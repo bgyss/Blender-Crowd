@@ -149,6 +149,21 @@ def _set_layouts(scene, layouts):
         layout.points_json = json.dumps(item["points"], separators=(",", ":"))
 
 
+def set_reference_groups(scene, agent_ids):
+    """Assign the reference pair after the base IR has produced stable IDs."""
+    if len(agent_ids) < 2:
+        raise ValueError("reference project needs two stable agents for its group")
+    props = scene.crowd_project
+    props.groups.clear()
+    group = props.groups.add()
+    group.logical_id = "reference_pair"
+    group.kind = "couple"
+    group.member_agent_ids_json = json.dumps(list(agent_ids[:2]), separators=(",", ":"))
+    group.shared_destination_id = "east_exit"
+    group.max_separation_millimeters = 2000
+    group.bottleneck_policy = "leader_first"
+
+
 def extract_authoring_semantics(scene):
     """Return UI-authored M2 semantics; malformed fields fail before a bake."""
     props = scene.crowd_project
@@ -183,6 +198,27 @@ def extract_authoring_semantics(scene):
     except json.JSONDecodeError as error:
         raise ValueError("M2 semantic JSON field is invalid: {}".format(error)) from error
     return {"queues": queues, "lanes": lanes, "cost_regions": cost_regions}
+
+
+def extract_authorable_groups(scene):
+    """Return persisted social constraints with explicit stable agent IDs."""
+    try:
+        return [
+            {
+                "id": item.logical_id,
+                "kind": item.kind,
+                "member_agent_ids": json.loads(item.member_agent_ids_json),
+                "leader_agent_id": int(item.leader_agent_id)
+                if item.leader_agent_id.strip()
+                else None,
+                "shared_destination_id": item.shared_destination_id,
+                "max_separation_millimeters": item.max_separation_millimeters,
+                "bottleneck_policy": item.bottleneck_policy,
+            }
+            for item in scene.crowd_project.groups
+        ]
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError("M2 group editor contains invalid stable agent IDs: {}".format(error)) from error
 
 
 def extract_authorable_assets(scene):

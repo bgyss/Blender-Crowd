@@ -12,7 +12,10 @@ mod reader;
 mod writer;
 
 pub use agents::AgentStatic;
-pub use behavior_events::{BehaviorEventKindV1, BehaviorEventV1, BEHAVIOR_EVENTS_SCHEMA_VERSION};
+pub use behavior_events::{
+    compact_behavior_events, BehaviorEventCompactor, BehaviorEventKindV1, BehaviorEventV1,
+    BEHAVIOR_EVENTS_SCHEMA_VERSION,
+};
 
 pub use checksum::{content_hash, payload_checksum};
 pub use codec::{

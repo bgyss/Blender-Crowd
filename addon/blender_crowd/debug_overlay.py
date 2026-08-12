@@ -61,7 +61,15 @@ def inspect(playback, agent_id, tick):
     evidence = playback.inspect_agent(agent_id, tick)
     trace_json = evidence.pop("decision_trace_json", None)
     if trace_json:
-        evidence.update(json.loads(trace_json))
+        trace = json.loads(trace_json)
+        if isinstance(trace, list):
+            evidence["behavior_events"] = trace
+            if trace:
+                latest = trace[-1]
+                evidence["graph_id"] = latest.get("graph_id")
+                evidence["decisive_node"] = latest.get("decisive_node")
+        elif isinstance(trace, dict):
+            evidence.update(trace)
     position = _point3(evidence["position"])
     corridor = evidence.get("corridor_points") or [position]
     _ensure_line("selected_path", corridor)

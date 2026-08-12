@@ -1,5 +1,7 @@
 //! Ordered, versioned explanations for authored behavior decisions.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 pub const BEHAVIOR_EVENTS_SCHEMA_VERSION: u32 = 1;
@@ -27,6 +29,40 @@ pub struct BehaviorEventV1 {
     pub graph_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decisive_node: Option<String>,
+}
+
+/// Incrementally retains the cache-side event evidence for a bake.
+///
+/// The runtime may emit a decision for every agent on every tick. Keeping
+/// unchanged decisions out of the accumulator bounds its memory use by state
+/// transitions while retaining every queue and group lifecycle event.
+#[derive(Default)]
+pub struct BehaviorEventCompactor {
+    events: Vec<BehaviorEventV1>,
+    last_decisions: BTreeMap<u64, (String, Option<String>, Option<String>)>,
+}
+
+impl BehaviorEventCompactor {
+    pub fn push(&mut self, event: BehaviorEventV1) {
+        if event.kind == BehaviorEventKindV1::Decision {
+            let signature = (
+                event.detail.clone(),
+                event.graph_id.clone(),
+                event.decisive_node.clone(),
+            );
+            let prior = self
+                .last_decisions
+                .insert(event.agent_id, signature.clone());
+            if prior.as_ref() == Some(&signature) {
+                return;
+            }
+        }
+        self.events.push(event);
+    }
+
+    pub fn into_events(self) -> Vec<BehaviorEventV1> {
+        self.events
+    }
 }
 
 impl BehaviorEventV1 {
@@ -62,6 +98,17 @@ impl BehaviorEventV1 {
             decisive_node: Some(decisive_node.into()),
         }
     }
+}
+
+/// Keep the first and every changed decision for each agent while preserving
+/// all lifecycle events. This makes a long bake's cache-side explanation
+/// proportional to authored state transitions instead of simulation ticks.
+pub fn compact_behavior_events(events: Vec<BehaviorEventV1>) -> Vec<BehaviorEventV1> {
+    let mut compactor = BehaviorEventCompactor::default();
+    for event in events {
+        compactor.push(event);
+    }
+    compactor.into_events()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

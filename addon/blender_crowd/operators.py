@@ -224,6 +224,7 @@ class CROWD_OT_create_reference_project(Operator):
             reference_assets.ensure_reference_assets(context.scene)
             ir = project.extract_ir(context.scene)
             compiled = blender_crowd_native.compile_project(_encode_ir(ir))
+            project.set_reference_groups(context.scene, compiled.agent_ids())
         except (OSError, RuntimeError, ValueError) as error:
             context.scene.crowd_project.status = "Create failed: {}".format(error)
             self.report({"ERROR"}, str(error))
@@ -351,6 +352,36 @@ class CROWD_OT_remove_m2_semantic(Operator):
             self.report({"WARNING"}, "no {} to remove".format(self.entity_type))
             return {"CANCELLED"}
         collection.remove(len(collection) - 1)
+        return {"FINISHED"}
+
+
+class CROWD_OT_add_group(Operator):
+    bl_idname = "crowd.add_group"
+    bl_label = "Add M2 Social Group"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        group = context.scene.crowd_project.groups.add()
+        group.logical_id = "new_group_{}".format(len(context.scene.crowd_project.groups))
+        group.kind = "couple"
+        group.member_agent_ids_json = "[]"
+        group.shared_destination_id = ""
+        group.max_separation_millimeters = 2000
+        group.bottleneck_policy = "individual"
+        return {"FINISHED"}
+
+
+class CROWD_OT_remove_group(Operator):
+    bl_idname = "crowd.remove_group"
+    bl_label = "Remove Last M2 Social Group"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        groups = context.scene.crowd_project.groups
+        if not groups:
+            self.report({"WARNING"}, "no social group to remove")
+            return {"CANCELLED"}
+        groups.remove(len(groups) - 1)
         return {"FINISHED"}
 
 
@@ -527,6 +558,7 @@ def _authorable_project(scene, base_json):
     graph = json.loads(project.behavior_graph_json())
     authorable["behavior_graphs"] = [graph]
     authorable["semantics"] = project.extract_authoring_semantics(scene)
+    authorable["groups"] = project.extract_authorable_groups(scene)
     authorable["assets"] = project.extract_authorable_assets(scene)
     # Validate layout references here so an invalid editor layout cannot be
     # silently ignored while the native authorable project is compiled.
@@ -690,6 +722,8 @@ _CLASSES = (
     CROWD_OT_validate_authorable_project,
     CROWD_OT_add_m2_semantic,
     CROWD_OT_remove_m2_semantic,
+    CROWD_OT_add_group,
+    CROWD_OT_remove_group,
     CROWD_OT_add_population,
     CROWD_OT_remove_population,
     CROWD_OT_add_m2_asset,
