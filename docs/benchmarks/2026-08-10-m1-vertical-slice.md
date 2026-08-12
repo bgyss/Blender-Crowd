@@ -1,6 +1,6 @@
 # M1 1,000-agent vertical-slice acceptance
 
-Date: 2026-08-10
+Date: 2026-08-10; refreshed after the standstill correction on 2026-08-11
 
 Milestone: [M1 — 1,000-agent vertical slice](../milestones/M1-vertical-slice.md)
 
@@ -33,8 +33,8 @@ the [M0 consolidated report](2026-08-10-m0-consolidated.md).
 | Reference project ID | `6b5ad627-360b-4c58-9df5-52e306cf20d6` |
 | Compiled source hash | `cfeb0ae7bb4ae1c651e7d3f6614453dad6d1d34b808ff42292cba3af5927fb74` |
 | Static-agent digest | `4076b0e828eaf990e502abd020751cca5c7938cd1c989b306a653061874f8988` |
-| Dynamic discrete digest | `80737b41bc70d8cbe3b70c3dd23721ec72ad0359bdcbbc0d4832ef7e21fd247a` |
-| Render cache-manifest hash | `619eecf7925fc7423ff9d708804dc4eb65261790a82cf35d14ef4c5058028e4a` |
+| Dynamic discrete digest | `a5ad482ad49e68356bf03d5e4c799a83eebd7a6a1ca1de2afe69bb04adde0a4a` |
+| Render cache-manifest hash | `2154cb9dad60eaa7df494d8bb080cb1830c7d0f87f04e133392c8fe2a5f2b73d` |
 | Render scene hash | `554b6cb1b767cf174d9619f9a9b402e1bb3de0bd92ab175289165b58d67edc8a` |
 
 The reference assets are redistributable procedural fixtures bundled with the
@@ -44,8 +44,9 @@ consume the same versioned project identity and source hash.
 
 ## Exact acceptance commands
 
-Every command below exited zero in the final verification pass. Blender was run
-with normal host graphics access; the render output directory is replaceable.
+Every command below exited zero in the original 2026-08-10 verification pass.
+Blender was run with normal host graphics access; the render output directory
+is replaceable.
 
 ```sh
 scripts/m0-acceptance.sh
@@ -53,6 +54,21 @@ cargo test --release -p crowd-core --test m1_strict -- --ignored --nocapture
 scripts/m1-bake-test.sh
 scripts/m1-blender-test.sh
 scripts/m1-render-test.sh --out /private/tmp/blender-crowd-m1-final-render
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+git diff --check
+```
+
+The 2026-08-11 standstill refresh reran the impacted solver and complete M1
+gates on the current commit:
+
+```sh
+cargo run --release -p crowd-bench -- check --agents 1000 --seed 2026
+cargo test --release -p crowd-core --test fuzz_density
+cargo test --release -p crowd-core --test m1_strict -- --ignored --nocapture
+scripts/m1-bake-test.sh
+scripts/m1-blender-test.sh
+scripts/m1-render-test.sh --out /private/tmp/blender-crowd-m1-2026-08-11-final-render
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 git diff --check
@@ -69,11 +85,11 @@ formatting, lint, runner tests, and documentation checks.
 |---|---:|---:|---:|
 | Compiled agents / unique stable IDs | exactly 1,000 / 1,000 | 1,000 / 1,000 | PASS |
 | Strict bake range | ticks 0–9,999 | ticks 0–9,999 | PASS |
-| Destination completion | at least 95% | 960/1,000, 96% | PASS |
+| Destination completion | at least 95% | 964/1,000, 96.4% | PASS |
 | Static-boundary escapes | 0 | 0 | PASS |
 | Strict discrete/static rebake | exact | exact; matching digests | PASS |
-| Strict continuous rebake | position delta within declared bound | 0.0 m observed; 0.000469699 m declared bound | PASS |
-| Portal close/reopen | affected routes replan; unrelated routes unchanged | 65 affected, 55 unrelated, all recovered by tick 913 | PASS |
+| Strict continuous rebake | position delta within declared bound | 0.0 m observed; 0.000469828 m declared bound | PASS |
+| Portal close/reopen | affected routes replan; unrelated routes unchanged | 65 affected, 55 unrelated, all recovered by tick 907 | PASS |
 | Canceled cache | recoverable but rejected as complete | 2 valid chunks through tick 136; complete reader rejected | PASS |
 | Cache-only Blender playback | no live `Session` | fresh-process reader and GN playback, no `Session` | PASS |
 | Sparse override | one target only; reversible; immutable base | one stable ID, inclusive ticks 30–60, base hash unchanged | PASS |
@@ -86,11 +102,11 @@ as eventual recovery.
 
 ## Cache and channel proof
 
-Each completed strict cache is 560,057,053 bytes for 10,000 ticks and 1,000
+Each completed strict cache is 560,057,061 bytes for 10,000 ticks and 1,000
 static agent slots. Two independent runs agree on every static and discrete
 channel. All continuous channels other than quantized position agree exactly;
 positions also had 0.0 m cross-cache delta, inside the declared per-cache
-0.000469699 m reconstruction bound.
+0.000469828 m reconstruction bound.
 
 Fresh-process Blender playback sampled ticks `0`, `913`, `4999`, `9999`, and
 the cancellation boundary `137`. It reconstructed the full v1 presentation
@@ -115,7 +131,7 @@ and desired/solved velocity overlay from that record.
 
 The pin test adds `[1.0, -2.0, 0.5]` to only that stable ID from ticks 30 through
 60. Disabling the layer restores base playback, and the base cache retains
-BLAKE2b-256 `04bff650460a593300950f234ca1e93e55f9a10571497d561e417f26f8301823`.
+BLAKE2b-256 `3cc7d2bce95989b5887f1becea4291a2bb657df6fba59ef39de0bde46b0fbb63`.
 Layer ordering is deterministic by priority and logical ID; override data lives
 beside the cache and never rewrites its manifest, agent table, or frame chunks.
 
@@ -126,30 +142,56 @@ sequential cache read separately:
 
 | Measurement | First bake | Second bake |
 |---|---:|---:|
-| Native simulation, 10,000 ticks | 13.429 s | 13.492 s |
-| Cache write | 2.837 s | 3.059 s |
-| Sequential full-cache read | 0.803 s | 0.802 s |
-| Cache size | 560,057,053 bytes | 560,057,053 bytes |
+| Native simulation, 10,000 ticks | 12.201 s | 13.297 s |
+| Cache write | 2.550 s | 2.749 s |
+| Sequential full-cache read | 0.905 s | 0.860 s |
+| Cache size | 560,057,061 bytes | 560,057,061 bytes |
 
 The final standalone render run used reference tick 4,999, when 700 staggered
 commuters were visible. It measured presentation costs independently:
 
 | Measurement | Result |
 |---|---:|
-| Cache decode plus point upload | 0.00485 s |
-| Canonical single-armature evaluation loop | 0.00144 s |
-| Eevee, GPU, 16 samples | 0.50545 s |
-| Cycles, CPU, 4 samples | 0.05709 s |
-| Peak Blender resident memory | 425,394,176 bytes |
+| Cache decode plus point upload | 0.00459 s |
+| Canonical single-armature evaluation loop | 0.00130 s |
+| Eevee, GPU, 16 samples | 0.56064 s |
+| Cycles, CPU, 4 samples | 0.05261 s |
+| Peak Blender resident memory | 423,772,160 bytes |
 
-These five figures were remeasured on 2026-08-10, after the original run was
+These five figures were remeasured on 2026-08-11, after the original run was
 found to be wrong and after the reference camera was reframed; see
-[Corrections](#corrections-2026-08-10). The cache manifest hash is unchanged.
+[Corrections](#corrections-2026-08-11). The cache manifest hash is stated in
+the environment table above.
 The render scene hash changed with the camera and is stated above.
 
 The tiny smoke renders use different engines and sample counts; their wall
 times are not a quality-normalized renderer comparison. None of these values is
 added to, or presented as, isolated simulation throughput.
+
+## Corrections (2026-08-11)
+
+The sampled-velocity standstill fix changed the authoritative M1 trajectory,
+so the 2026-08-10 cache evidence could not remain the current acceptance
+record. The [standstill correction note](2026-08-11-standstill-correction.md)
+documents the disproven historical deadlock claim, the tightened 20%-moving
+liveness guard, and the stopped-core recovery scope.
+
+An initial recovery trigger at eight stationary blockers was rejected during
+this refresh: it changed `dense_flow`, reduced completion from 77.5% to 75.9%,
+and increased stall-agent-ticks from 1,820,022 to 2,363,471. The accepted
+trigger requires twelve blockers, matching the diagnosed 15-of-16 stopped core
+more closely. All six checked-in 1,000-agent baselines then passed without
+regeneration, and the four release density tests passed in 582.99 seconds.
+
+The complete M1 runners were repeated. The current strict bake reaches
+964/1,000 destinations, recovers the 65 invalidated routes by tick 907, and
+changes the dynamic digest, manifest hash, cache size, base-cache hash, and
+timings to the values above. Both independent strict caches still agree on all
+static/discrete channels and have 0.0 m observed position delta. Clean Blender
+project, cache-only playback, selected-agent override, Eevee, and Cycles gates
+all pass under normal host access. The 500-frame README recording and sidecar
+were also regenerated from manifest
+`2154cb9dad60eaa7df494d8bb080cb1830c7d0f87f04e133392c8fe2a5f2b73d`.
 
 ## Corrections (2026-08-10)
 
@@ -219,7 +261,7 @@ the retracted ones, and the remeasured armature figure is faster.
 |---:|---|---|
 | 1 | `scripts/m1-blender-test.sh` repeatedly builds the abi3 wheel and archive, removes any prior extension, clean-installs/enables it, validates bundled assets, and creates the same typed concourse twice with stable data-block counts. | PASS |
 | 2 | `m1_strict` and `m1-bake-test.sh` compile exactly 1,000 unique IDs and compare two complete 10,000-tick caches: exact static/discrete digests and 0.0 m observed position delta. | PASS |
-| 3 | The concourse reaches 96% completion with zero boundary escapes; portal closure affects exactly the routes using it, preserves unrelated routes, and fully recovers after reopen. | PASS |
+| 3 | The concourse reaches 96.4% completion with zero boundary escapes; portal closure affects exactly the routes using it, preserves unrelated routes, and fully recovers after reopen. | PASS |
 | 4 | Cancellation publishes two valid chunks and a canceled manifest that recovery can inspect but the complete reader rejects. Fresh Blender processes play and render the completed cache with no live simulation session. | PASS |
 | 5 | Cache-only Blender tests verify all transform, identity, animation, behavior, visibility, and tier channels at representative and boundary ticks. | PASS |
 | 6 | The selected-agent record and Blender overlay expose path, portal, state, decision, target, desired/solved velocity, clip, phase, and playback evidence. | PASS |
@@ -240,7 +282,7 @@ complete post-change M0 runner then passed all ten gates.
 - The reference crowd uses procedural proxy variants. The 700 visible instances
   at the mid-shot frame are not 700 or 1,000 independently evaluated production
   armatures; the single canonical armature timing is intentionally separate.
-- Forty agents have not completed by tick 9,999. The measured 96% result clears
+- Thirty-six agents have not completed by tick 9,999. The measured 96.4% result clears
   the fixed 95% M1 gate but is not represented as perfect flow quality.
 - Evidence covers one Apple M1 Max, macOS arm64, Blender 5.2 LTS, and the bundled
   fixtures. Linux, Windows, other Blender versions, arbitrary rigs, and studio

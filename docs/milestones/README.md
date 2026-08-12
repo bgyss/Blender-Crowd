@@ -104,7 +104,7 @@ Evidence to date, each with its own environment and unsupported-claims section:
 
 All eight criteria are met. The checked project compiles exactly 1,000 unique
 stable IDs; two 10,000-tick strict bakes agree on exact static/discrete state
-and have 0.0 m observed position delta; 96% of agents arrive with zero static
+and have 0.0 m observed position delta; 96.4% of agents arrive with zero static
 boundary escapes; the timed portal event isolates affected routes; canceled
 caches remain recoverable but incomplete; fresh Blender processes play and
 render the complete cache without a live session; the selected-agent overlay
