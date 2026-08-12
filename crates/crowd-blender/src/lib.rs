@@ -459,6 +459,11 @@ impl PyCache {
         Ok(self.complete()?.manifest().ticks_per_second)
     }
 
+    #[getter]
+    fn source_hash(&self) -> PyResult<&str> {
+        Ok(&self.complete()?.manifest().source_hash)
+    }
+
     fn read_tick<'py>(&self, py: Python<'py>, tick: u64) -> PyResult<Bound<'py, PyDict>> {
         let frame = self.complete()?.read_tick(tick).map_err(|error| {
             PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
@@ -688,8 +693,26 @@ fn inspect_cache<'py>(py: Python<'py>, path: PathBuf) -> PyResult<Bound<'py, PyD
     let report = RecoveryInspector::open(&path).map_err(|error| {
         PyOSError::new_err(format!("E_CACHE_INSPECT {}: {error}", path.display()))
     })?;
+    // Recovery inspection intentionally stops at a readable prefix. A cache
+    // that claims completion needs the stricter reader pass as well, otherwise
+    // a corrupt final chunk or optional event file could be presented as safe.
+    let integrity_error = if report.status == CacheStatus::Complete {
+        CacheReader::open_complete(&path)
+            .err()
+            .map(|error| error.to_string())
+    } else {
+        None
+    };
     let out = PyDict::new(py);
-    out.set_item("status", cache_status_name(report.status))?;
+    out.set_item(
+        "status",
+        if integrity_error.is_some() {
+            "corrupt"
+        } else {
+            cache_status_name(report.status)
+        },
+    )?;
+    out.set_item("integrity_error", integrity_error)?;
     out.set_item("cancellation_reason", report.cancellation_reason)?;
     out.set_item("last_complete_tick", report.last_complete_tick)?;
     out.set_item("valid_chunk_count", report.valid_chunk_count)?;
@@ -1216,10 +1239,22 @@ mod tests {
 
     #[test]
     fn authorable_bake_persists_live_graph_evidence_in_the_cache() {
-        let project: AuthorableProjectV2 = serde_json::from_str(include_str!(
+        let base = serde_json::from_str(include_str!(
+            "../../../assets/reference/concourse-project-v1.json"
+        ))
+        .unwrap();
+        let mut project = migrate_project_v1(base);
+        project.behavior_graphs = vec![serde_json::from_str(include_str!(
+            "../../../addon/blender_crowd/reference/leave-concourse-v1.json"
+        ))
+        .unwrap()];
+        project.semantics = serde_json::from_str(include_str!(
             "../../../addon/blender_crowd/reference/concourse-authoring-v2.json"
         ))
         .unwrap();
+        for assignment in &mut project.population_behaviors {
+            assignment.graph_id = "leave_concourse".to_string();
+        }
         let base = Arc::new(compile_core_project(&project.base).unwrap());
         let authorable = Arc::new(compile_core_authorable_project(&project).unwrap());
         let mut session = Session::create_authorable(base, authorable, 1).unwrap();

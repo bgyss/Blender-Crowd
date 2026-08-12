@@ -127,6 +127,8 @@ cargo test --workspace                                    # unit, property, dete
 cargo test -p crowd-core --test behavior_graph            # M2 typed graph schema/compiler
 scripts/m2-foundation-test.sh                             # implemented M2 compiler/data-layer checks
 scripts/m2-blender-authoring-test.sh                      # M2 clean-install + UI-context undo/save/reload
+scripts/blender-install-test.sh --python tests/blender/test_m3_production.py # M3 cache recovery/save-reload proof
+scripts/m3-acceptance.sh --archive /path/to/blender_crowd-1.0.0.zip --out /tmp/blender-crowd-m3-proof # archive-first M3 gate
 scripts/m2-full-acceptance.sh --out /path/to/blender-crowd-m2-proof      # 1K full bake/replay/debug/render subgate
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
 cargo clippy --workspace --all-targets -- -D warnings
@@ -170,6 +172,14 @@ where the nix `cc` on `PATH` is the linker and cannot resolve libSystem.
 Built wheels are not committed. The wheel is `abi3` on purpose: Blender 5.2
 treats an `abi3` tag as "any CPython 3", so a single wheel survives Blender
 moving to a newer CPython.
+
+The M3 candidate release contract is documented in the [support matrix](docs/release/1.0-support-matrix.md)
+and [compatibility policy](docs/release/1.0-compatibility.md). Generate the
+release SPDX inventory with `scripts/m3_sbom.py --out addon/blender_crowd/sbom.spdx.json`;
+the wheel builder does this automatically before packaging.
+The current dated [M3 candidate audit](docs/benchmarks/2026-08-12-m3-acceptance.md)
+is intentionally **not accepted**; it names the remaining archive, platform,
+budget, signing, and evaluator gates.
 
 `--svg` and `--frames` sample the simulation every tick, so a run recorded with
 either reports a `ticks_per_second` that is not a performance measurement.

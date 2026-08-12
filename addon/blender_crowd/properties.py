@@ -123,12 +123,40 @@ class CrowdGroupProperties(PropertyGroup):
     bottleneck_policy: StringProperty(name="Bottleneck Policy", default="individual")
 
 
+class CrowdDiagnosticProperties(PropertyGroup):
+    sequence: IntProperty(name="Sequence", default=0, min=0)
+    severity: StringProperty(name="Severity", default="INFO")
+    summary: StringProperty(name="Summary")
+    detail: StringProperty(name="Detail")
+    filepath: StringProperty(name="Affected File", subtype="FILE_PATH")
+    object_name: StringProperty(name="Affected Object")
+    documentation: StringProperty(name="Recovery Documentation")
+
+
 class CrowdProjectProperties(PropertyGroup):
     project_uuid: StringProperty(name="Project UUID")
     seed: IntProperty(name="Seed", min=0, default=2026)
     ticks_per_second: IntProperty(name="Ticks per Second", min=1, default=30)
     cache_path: StringProperty(name="Cache Path", subtype="DIR_PATH")
     status: StringProperty(name="Status", default="Not created")
+    current_stage: StringProperty(name="Workflow Stage", default="Create or open a Crowd project")
+    selection_context: StringProperty(name="Selection Context", default="No Crowd selection")
+    next_action: StringProperty(name="Next Action", default="Create Reference Concourse")
+    operation_estimate: StringProperty(name="Operation Estimate")
+    playback_buffer_estimate: StringProperty(name="Minimum Playback Buffer")
+    operation_progress: FloatProperty(name="Operation Progress", min=0.0, max=1.0, default=0.0)
+    cache_status: StringProperty(name="Cache Health", default="not_inspected")
+    cache_source_hash: StringProperty(name="Cache Source Hash")
+    cache_resolved_path: StringProperty(name="Resolved Cache Path", subtype="DIR_PATH")
+    cache_readable_range: StringProperty(name="Readable Tick Range", default="none")
+    cache_last_complete_tick: IntProperty(name="Last Complete Tick", min=0, default=0)
+    cache_valid_chunk_count: IntProperty(name="Valid Cache Chunks", min=0, default=0)
+    cache_recovery_hint: StringProperty(name="Cache Recovery", default="Choose a cache to inspect.")
+    cache_disk_size: StringProperty(name="Measured Cache Size")
+    cache_attached: BoolProperty(name="Authoritative Cache Attached", default=False)
+    diagnostics: CollectionProperty(type=CrowdDiagnosticProperties)
+    active_diagnostic_index: IntProperty(default=0, min=0)
+    diagnostic_sequence: IntProperty(default=0, min=0)
     selected_agent_id: StringProperty(
         name="Selected Agent ID",
         description="Paste the decimal stable agent ID from behavior-v1.json",
@@ -174,6 +202,7 @@ _CLASSES = (
     CrowdVariationProperties,
     CrowdLayoutProperties,
     CrowdGroupProperties,
+    CrowdDiagnosticProperties,
     CrowdProjectProperties,
 )
 

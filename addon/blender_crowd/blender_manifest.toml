@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "blender_crowd"
-version = "0.1.0"
+version = "1.0.0"
 name = "Blender Crowd"
 tagline = "Deterministic crowd simulation playback from a baked trace"
 maintainer = "Blender Crowd contributors"
@@ -11,4 +11,4 @@ license = ["SPDX:GPL-3.0-or-later"]
 blender_version_min = "5.2.0"
 
 platforms = ["macos-arm64"]
-wheels = ["./wheels/blender_crowd_native-0.1.0-cp311-abi3-macosx_11_0_arm64.whl"]
+wheels = ["./wheels/blender_crowd_native-1.0.0-cp311-abi3-macosx_11_0_arm64.whl"]

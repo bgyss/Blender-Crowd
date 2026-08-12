@@ -1,15 +1,78 @@
 """The deliberately narrow M1 project panel."""
 
 import bpy
-from bpy.types import Panel
+from bpy.types import Panel, UIList
+
+
+class CROWD_UL_diagnostics(UIList):
+    """Short, keyboard-navigable diagnostic history."""
+
+    def draw_item(self, _context, layout, _data, item, _icon, _active_data, _active_propname, _index):
+        icon = {"ERROR": "ERROR", "WARNING": "ERROR", "INFO": "INFO"}.get(item.severity, "QUESTION")
+        layout.label(text="{}: {}".format(item.severity.title(), item.summary), icon=icon)
+
+
+class CROWD_PT_workflow(Panel):
+    bl_label = "Crowd Workflow"
+    bl_idname = "CROWD_PT_workflow"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "scene"
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.crowd_project
+        layout.label(text="Stage: {}".format(props.current_stage), icon="WORKSPACE")
+        layout.label(text="Selection: {}".format(props.selection_context), icon="RESTRICT_SELECT_OFF")
+        layout.label(text="Next: {}".format(props.next_action), icon="FORWARD")
+        if props.operation_estimate:
+            layout.label(text=props.operation_estimate, icon="TIME")
+            layout.prop(props, "operation_progress", slider=True, text="Progress")
+        layout.separator()
+        row = layout.row(align=True)
+        row.operator("crowd.create_reference_project", text="Create")
+        row.operator("crowd.validate_project", text="Validate")
+        row.operator("crowd.bake_cache", text="Bake")
+        row.operator("crowd.cancel_bake", text="Cancel")
+        layout.separator()
+        layout.prop(props, "cache_path")
+        row = layout.row(align=True)
+        row.operator("crowd.inspect_cache_health", text="Inspect Health")
+        row.operator("crowd.attach_cache", text="Attach Complete Cache")
+        box = layout.box()
+        box.label(text="Cache: {}".format(props.cache_status))
+        if props.cache_source_hash:
+            box.label(text="Source: {}".format(props.cache_source_hash[:12]))
+        box.label(text="Readable ticks: {}".format(props.cache_readable_range))
+        if props.cache_disk_size:
+            box.label(text="Measured size: {}".format(props.cache_disk_size))
+        box.label(text=props.cache_recovery_hint)
+        if props.cache_resolved_path:
+            box.label(text="Artifact: {}".format(props.cache_resolved_path))
+        layout.separator()
+        layout.label(text="Diagnostic History", icon="CONSOLE")
+        layout.template_list(
+            "CROWD_UL_diagnostics", "", props, "diagnostics", props, "active_diagnostic_index", rows=4
+        )
+        if props.diagnostics and props.active_diagnostic_index < len(props.diagnostics):
+            item = props.diagnostics[props.active_diagnostic_index]
+            detail = layout.box()
+            detail.label(text=item.detail or "No further detail")
+            if item.filepath:
+                detail.label(text="File: {}".format(item.filepath))
+            if item.object_name:
+                detail.label(text="Object: {}".format(item.object_name))
+            detail.label(text="Help: {}".format(item.documentation))
+        layout.operator("crowd.write_support_bundle", text="Write Safe Support Bundle", icon="FILE_TEXT")
 
 
 class CROWD_PT_project(Panel):
-    bl_label = "Crowd Project"
+    bl_label = "Crowd Authoring (Advanced)"
     bl_idname = "CROWD_PT_project"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
     bl_context = "scene"
+    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         layout = self.layout
@@ -171,7 +234,7 @@ class CROWD_PT_project(Panel):
         layout.operator("crowd.render_reference_frame")
 
 
-_CLASSES = (CROWD_PT_project,)
+_CLASSES = (CROWD_UL_diagnostics, CROWD_PT_workflow, CROWD_PT_project)
 
 
 def register():

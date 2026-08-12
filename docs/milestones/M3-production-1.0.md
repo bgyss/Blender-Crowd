@@ -97,3 +97,10 @@ M3 is done only when all Blender Crowd 1.0 criteria pass from clean release
 archives. Stop the release on data loss, cache misidentification, unsupported
 binary linkage, nondeterministic discrete decisions, or an unbounded crash. Do
 not reclassify a failing criterion as post-1.0 to ship on schedule.
+
+## Current candidate audit
+
+The dated [M3 candidate acceptance audit](../benchmarks/2026-08-12-m3-acceptance.md)
+tracks this milestone criterion by criterion. It is deliberately marked **not
+accepted** until clean release archives pass on every claimed platform and the
+independent evaluator requirement is satisfied.

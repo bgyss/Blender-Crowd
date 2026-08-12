@@ -10,12 +10,18 @@ BLENDER="${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}"
 DIST_DIR="$REPO_ROOT/dist"
 PKG="user_default.blender_crowd"
 EXTRA_TEST=""
+ARCHIVE=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --python)
             [ "$#" -ge 2 ] || { echo "--python requires a path" >&2; exit 2; }
             EXTRA_TEST="$2"
+            shift 2
+            ;;
+        --archive)
+            [ "$#" -ge 2 ] || { echo "--archive requires a path" >&2; exit 2; }
+            ARCHIVE="$2"
             shift 2
             ;;
         *)
@@ -30,11 +36,12 @@ command -v "$BLENDER" >/dev/null 2>&1 || [ -x "$BLENDER" ] || {
     exit 1
 }
 
-"$REPO_ROOT/scripts/build-wheel.sh"
+if [ -z "$ARCHIVE" ]; then
+    "$REPO_ROOT/scripts/build-wheel.sh"
 
-WHEEL_NAME="$(basename "$(ls "$REPO_ROOT/addon/blender_crowd/wheels/"*.whl)")"
-# Keep the manifest's wheel entry in step with what was just built.
-python3 - "$REPO_ROOT/addon/blender_crowd/blender_manifest.toml" "$WHEEL_NAME" <<'PY'
+    WHEEL_NAME="$(basename "$(ls "$REPO_ROOT/addon/blender_crowd/wheels/"*.whl)")"
+    # Keep the manifest's wheel entry in step with what was just built.
+    python3 - "$REPO_ROOT/addon/blender_crowd/blender_manifest.toml" "$WHEEL_NAME" <<'PY'
 import re
 import sys
 
@@ -48,16 +55,23 @@ with open(path, "w") as handle:
 print("manifest wheel entry: {}".format(wheel))
 PY
 
-# `extension build` fails with a bare Errno 2 rather than creating this.
-mkdir -p "$DIST_DIR"
-rm -f "$DIST_DIR"/blender_crowd-*.zip
+    # `extension build` fails with a bare Errno 2 rather than creating this.
+    mkdir -p "$DIST_DIR"
+    rm -f "$DIST_DIR"/blender_crowd-*.zip
 
-"$BLENDER" --command extension validate "$REPO_ROOT/addon/blender_crowd"
-"$BLENDER" --command extension build \
-    --source-dir "$REPO_ROOT/addon/blender_crowd" \
-    --output-dir "$DIST_DIR"
+    STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/blender-crowd-release.XXXXXX")"
+    trap 'rm -rf "$STAGE_DIR"' EXIT
+    python3 "$REPO_ROOT/scripts/m3_stage_release.py" --out "$STAGE_DIR"
+    "$BLENDER" --command extension validate "$STAGE_DIR"
+    "$BLENDER" --command extension build \
+        --source-dir "$STAGE_DIR" \
+        --output-dir "$DIST_DIR"
 
-ZIP="$(ls "$DIST_DIR"/blender_crowd-*.zip)"
+    ZIP="$(ls "$DIST_DIR"/blender_crowd-*.zip)"
+else
+    [ -f "$ARCHIVE" ] || { echo "archive not found: $ARCHIVE" >&2; exit 2; }
+    ZIP="$ARCHIVE"
+fi
 
 # Remove any prior install so this is genuinely a clean-install test.
 # `extension remove` takes repo.pkg_id as ONE positional, not a --repo flag.

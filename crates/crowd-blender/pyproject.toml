@@ -4,9 +4,11 @@ build-backend = "maturin"
 
 [project]
 name = "blender-crowd-native"
+dynamic = ["version"]
 requires-python = ">=3.11"
 classifiers = ["Programming Language :: Rust"]
 
 [tool.maturin]
 module-name = "blender_crowd_native"
 manifest-path = "Cargo.toml"
+features = ["extension-module"]

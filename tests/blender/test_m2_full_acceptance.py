@@ -102,6 +102,20 @@ def main():
         bpy.ops.crowd.attach_cache(filepath=cache_path) == {"FINISHED"},
         "cache-only playback attachment failed",
     )
+    # A complete file is still stale when its authoritative scene input has
+    # changed. M3 must reject it rather than displaying old crowd geometry.
+    original_seed = props.seed
+    props.seed = original_seed + 1
+    require(
+        bpy.ops.crowd.attach_cache(filepath=cache_path) == {"CANCELLED"},
+        "stale cache attached after project input changed",
+    )
+    require(not props.cache_attached, "stale cache remained marked authoritative")
+    props.seed = original_seed
+    require(
+        bpy.ops.crowd.attach_cache(filepath=cache_path) == {"FINISHED"},
+        "cache did not attach after the original project input was restored",
+    )
     playback = operators.active_cache_playback()
     require(playback.agent_count == EXPECTED_AGENTS, "cache playback agent count is wrong")
     require(not hasattr(playback, "session"), "cache playback retained a simulation session")
@@ -151,6 +165,21 @@ def main():
     for renderer in render_metrics["renders"].values():
         require(os.path.getsize(renderer["output_path"]) > 1024, "render output is too small")
 
+    corrupt_chunk = next(Path(cache_path, "frames").glob("*.chunk"))
+    with corrupt_chunk.open("r+b") as handle:
+        first = handle.read(1)
+        handle.seek(0)
+        handle.write(bytes([first[0] ^ 0x01]))
+    require(
+        bpy.ops.crowd.inspect_cache_health() == {"FINISHED"},
+        "corrupt cache could not be inspected",
+    )
+    require(props.cache_status == "corrupt", "corrupt cache was not labeled corrupt")
+    require(
+        bpy.ops.crowd.attach_cache(filepath=cache_path) == {"CANCELLED"},
+        "corrupt cache attached as authoritative playback",
+    )
+
     report = {
         "schema_version": 1,
         "agent_count": EXPECTED_AGENTS,
@@ -163,6 +192,8 @@ def main():
         "selected_agent_tick": decision["tick"],
         "cache_only_render": render_metrics["cache_only"],
         "sparse_override_base_cache_unchanged": True,
+        "stale_cache_rejected": True,
+        "corrupt_cache_rejected": True,
         "render_metrics_path": metrics_path,
         "acceptance_subgate_passed": True,
         "m2_milestone_accepted": False,

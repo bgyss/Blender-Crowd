@@ -6,6 +6,7 @@ import json
 import numpy as np
 
 import bpy
+from bpy.app.handlers import persistent
 
 import blender_crowd_native
 
@@ -67,6 +68,8 @@ def ensure_cache_point_cloud(agent_count):
         bpy.context.scene.collection.objects.link(obj)
     elif obj.data is not data:
         obj.data = data
+    obj.hide_viewport = False
+    obj.hide_render = False
     return obj
 
 
@@ -97,6 +100,10 @@ class CachePlayback:
     @property
     def tick_end(self):
         return self._cache.tick_end
+
+    @property
+    def source_hash(self):
+        return self._cache.source_hash
 
     @property
     def object(self):
@@ -197,6 +204,15 @@ def active_playback():
     return _ACTIVE
 
 
+def detach_active_playback():
+    """Hide any old point cloud before a cache ceases to be authoritative."""
+    global _ACTIVE
+    if _ACTIVE is not None:
+        _ACTIVE.object.hide_viewport = True
+        _ACTIVE.object.hide_render = True
+    _ACTIVE = None
+
+
 @contextlib.contextmanager
 def suspended_frame_sync():
     """Detach the frame handler so scene frame changes do not touch the cache.
@@ -221,13 +237,43 @@ def _frame_change_handler(scene, _depsgraph=None):
         playback.sync_to_frame(scene, scene.frame_current)
 
 
+@persistent
+def _restore_cache_on_load(_dummy):
+    """Restore only an inspected complete cache after opening a saved project."""
+    scene = bpy.context.scene
+    if scene is None or not hasattr(scene, "crowd_project"):
+        return
+    props = scene.crowd_project
+    if not props.cache_path:
+        return
+    global _ACTIVE
+    _ACTIVE = None
+    try:
+        # Deferred import avoids the operators -> cache_playback import cycle.
+        from . import operators
+
+        operators.attach_cache_path(scene, props.cache_path)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        # inspect_cache_path records a persistent recovery diagnostic.  A failed
+        # restore must never leave stale saved geometry appearing authoritative.
+        stale = bpy.data.objects.get(POINT_CLOUD_NAME)
+        if stale is not None:
+            stale.hide_viewport = True
+            stale.hide_render = True
+        return
+
+
 def register():
     if _frame_change_handler not in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.append(_frame_change_handler)
+    if _restore_cache_on_load not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_restore_cache_on_load)
 
 
 def unregister():
     global _ACTIVE
     while _frame_change_handler in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.remove(_frame_change_handler)
+    while _restore_cache_on_load in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_restore_cache_on_load)
     _ACTIVE = None

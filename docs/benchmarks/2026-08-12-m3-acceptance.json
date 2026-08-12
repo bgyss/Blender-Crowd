@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-12",
+  "milestone": "M3",
+  "decision": "not_accepted",
+  "release_version": "1.0.0",
+  "criteria": {
+    "clean_install_matrix": "unproven",
+    "cache_compatibility_recovery": "partially_proven",
+    "blender_lifecycle": "unproven",
+    "resource_budgets": "unproven",
+    "binary_provenance": "partially_proven",
+    "documentation": "partially_proven",
+    "limitations_and_recovery": "partially_proven"
+  },
+  "blocking_conditions": [
+    "Blender 5.2.0 LTS extension validate crashes before archive creation on local macOS arm64",
+    "Windows and Linux release archives are not built",
+    "Signing, support-matrix budget evidence, and two independent evaluator records are absent"
+  ]
+}

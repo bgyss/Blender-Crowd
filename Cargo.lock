@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "crowd-bench"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "crowd-cache",
  "crowd-core",
@@ -156,7 +156,7 @@ dependencies = [
 
 [[package]]
 name = "crowd-blender"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "crowd-cache",
  "crowd-core",
@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "crowd-cache"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "crc32c",
@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "crowd-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "crowd-cache",
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "crowd-trace"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "crowd-core",
 ]
