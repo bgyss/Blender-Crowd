@@ -59,8 +59,9 @@ PY
     mkdir -p "$DIST_DIR"
     rm -f "$DIST_DIR"/blender_crowd-*.zip
 
-    STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/blender-crowd-release.XXXXXX")"
-    trap 'rm -rf "$STAGE_DIR"' EXIT
+    STAGE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/blender-crowd-release.XXXXXX")"
+    STAGE_DIR="$STAGE_ROOT/extension-source"
+    trap 'rm -rf "$STAGE_ROOT"' EXIT
     python3 "$REPO_ROOT/scripts/m3_stage_release.py" --out "$STAGE_DIR"
     "$BLENDER" --command extension validate "$STAGE_DIR"
     "$BLENDER" --command extension build \
