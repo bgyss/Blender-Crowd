@@ -1,4 +1,4 @@
-"""Headless M2 editor persistence, undo, and native-validation coverage."""
+"""Automated M2 editor persistence, undo, and native-validation coverage."""
 
 import json
 import os
@@ -76,11 +76,21 @@ def main():
         "clip editor change was not compiled into the M2 asset library",
     )
 
+    require(
+        bpy.ops.ed.undo_push(message="Initialize M2 headless undo") == {"FINISHED"},
+        "headless undo system did not initialize",
+    )
     before = len(props.queues)
     add = bpy.ops.crowd.add_m2_semantic(entity_type="queue")
     require(add == {"FINISHED"}, "queue add operator failed")
     require(len(props.queues) == before + 1, "queue add did not mutate scene")
+    require(
+        bpy.ops.ed.undo_push(message="Add M2 queue") == {"FINISHED"},
+        "queue add undo checkpoint failed",
+    )
     require(bpy.ops.ed.undo() == {"FINISHED"}, "queue add is not undoable")
+    scene = bpy.context.scene
+    props = scene.crowd_project
     require(len(props.queues) == before, "undo did not revert queue add")
 
     population_before = len(props.populations)
@@ -94,7 +104,13 @@ def main():
         props.populations[len(props.populations) - 1].logical_id == "new_population_2",
         "population add did not assign a stable editable ID",
     )
+    require(
+        bpy.ops.ed.undo_push(message="Add M2 population") == {"FINISHED"},
+        "population add undo checkpoint failed",
+    )
     require(bpy.ops.ed.undo() == {"FINISHED"}, "population add is not undoable")
+    scene = bpy.context.scene
+    props = scene.crowd_project
     require(
         len(props.populations) == population_before,
         "undo did not revert population add",
@@ -106,7 +122,13 @@ def main():
         "clip add operator failed",
     )
     require(len(props.clips) == clips_before + 1, "clip add did not mutate scene")
+    require(
+        bpy.ops.ed.undo_push(message="Add M2 clip") == {"FINISHED"},
+        "clip add undo checkpoint failed",
+    )
     require(bpy.ops.ed.undo() == {"FINISHED"}, "clip add is not undoable")
+    scene = bpy.context.scene
+    props = scene.crowd_project
     require(len(props.clips) == clips_before, "undo did not revert clip add")
 
     layouts_before = len(props.layouts)
@@ -150,6 +172,7 @@ def main():
         "reloaded authorable project did not validate",
     )
     print("M2 authoring save/reload: PASS {}".format(json.dumps(project.extract_authoring_semantics(scene), sort_keys=True)))
+    bpy.ops.wm.quit_blender()
 
 
 try:
