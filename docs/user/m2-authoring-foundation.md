@@ -1,7 +1,7 @@
 # M2 authoring foundation
 
-This document covers the implemented M2 foundation. It is not the final M2
-acceptance guide.
+This document covers the implemented M2 foundation. M2 was accepted on
+2026-08-12; see the [final acceptance record](../benchmarks/2026-08-12-m2-acceptance.md).
 
 ## Implemented contracts
 
@@ -50,24 +50,25 @@ as well as individual queue admission. The Blender workspace now persists
 social groups with stable agent IDs and exposes their authorable contract in
 the Crowd Project panel. The full authorable Blender bake, cache-only replay,
 debug evidence, and Eevee/Cycles render subgate passed on 2026-08-11; see the
-[dated acceptance report](../benchmarks/2026-08-11-m2-acceptance.md).
+[engineering subgate report](../benchmarks/2026-08-11-m2-acceptance.md).
 The Blender workspace provides saveable behavior-node, population,
 asset/retarget/variation, environment, and layout editors. The reference
 project includes a checked 50-seat layout; its guides are generated from the
 saved contract and do not become a second simulator. The automated UI-context
 runner passes graph/environment, population, clip, and layout edits through
 undo, save/reload, and native revalidation on Blender 5.2.
-The remaining M2 exit gate is the independent non-developer reproduction pass.
-Use the copy-ready [reference reproduction procedure](m2-reference-reproduction.md).
+The project operator subsequently completed all six steps of the copy-ready
+[reference reproduction procedure](m2-reference-reproduction.md), closing M2.
 
 `scripts/m2-reference-acceptance.sh` emits a dated 10,000-tick runtime-evidence
-report for the 1,000-agent authorable reference. It is intentionally a
-subgate: `m2_milestone_accepted` stays false until Blender artist-reproduction
-and visual presentation evidence are independently proven.
+report for the 1,000-agent authorable reference. Its historical output remains
+an engineering subgate; the later operator completion and milestone decision are
+recorded separately in the final acceptance record.
 The completed runtime-evidence artifact is
 [2026-08-11-m2-runtime-evidence](../benchmarks/2026-08-11-m2-runtime-evidence.md).
 
-Until that independent pass is recorded, M2 is not accepted and M3 remains blocked.
+The broader UI/UX redesign discovered during the operator pass is deferred to
+the [UI/UX roadmap](../ui-ux-roadmap.md#deferred-uiux-todo); M3 is unblocked.
 
 ## Running the implemented gate runner
 

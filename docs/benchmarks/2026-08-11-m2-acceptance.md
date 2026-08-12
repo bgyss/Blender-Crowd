@@ -1,8 +1,12 @@
 # M2 acceptance status — 2026-08-11
 
+> Historical status: this report recorded the open gate on 2026-08-11. It was
+> superseded by the [accepted 2026-08-12 M2 record](2026-08-12-m2-acceptance.md)
+> after the project operator completed the six-step Blender UI spot check.
+
 ## Decision
 
-M2 is **not accepted yet**. The complete engineering subgate now passes, but
+At the time of this report, M2 was **not accepted yet**. The complete engineering subgate passed, but
 the contract still requires an independent, non-developer Blender crowd-TD
 reproduction. This report records the boundary rather than converting a
 developer-run automation result into independent evidence.

@@ -9,6 +9,17 @@ workflow, not its internal schema. Stable IDs, raw cache data, JSON, individual
 validators, and implementation diagnostics remain available for advanced use,
 but they are not the default authoring path.
 
+## Status
+
+- **M2:** accepted on 2026-08-12. Its functional authoring, bake, cache,
+  selected-agent debug, sparse correction, and render gates are closed.
+- **UI/UX redesign:** deferred and incomplete. It is scheduled work for M3 and
+  the specialized later milestones; it does not reopen M2.
+- **Figma:** the editable file exists with Blender-dark foundations, typography,
+  a three-page structure, and screen placeholders. Screenshot upload, annotation,
+  component construction, screen composition, and final review remain open
+  because the Figma Starter-plan MCP quota was exhausted.
+
 ## Current-state diagnosis
 
 The M2 implementation has broad capability, but the current Scene Properties
@@ -84,3 +95,92 @@ Every milestone with UI scope must include:
 
 An automated operator pass proves that controls execute; it does not prove that
 an artist can discover, understand, or recover the workflow.
+
+## Deferred UI/UX TODO
+
+This is the authoritative backlog for the work deferred when M2 was accepted.
+Unchecked items are intentionally incomplete.
+
+### Figma audit and design artifact
+
+- [ ] Resume automated Figma work when the MCP quota resets or the team is
+  upgraded to a paid plan with a Full or Dev seat.
+- [ ] Upload the eight captured Blender audit screenshots to the `00 — Audit &
+  Roadmap` page.
+- [ ] Add numbered annotations covering entry/setup, asset authoring, layouts,
+  environment/groups, bake/debug, detached-cache failure, successful debug, and
+  the disconnected behavior graph editor.
+- [ ] Complete the simplified Setup → Author → Validate → Bake → Review/Correct
+  → Render workflow map.
+- [ ] Finish reusable Blender-style Button, Status Badge, and Workflow Step
+  components using the existing variables and Inter styles.
+- [ ] Compose the Shot Dashboard, Authoring Workspace, Bake & Cache, and Review
+  & Correct screens on the `01 — Proposed UI` page.
+- [ ] Add the M2–M8 roadmap board with milestone ownership, UI gates, evidence,
+  and dependency notes.
+- [ ] Validate every major frame at readable and full-board scales for clipped
+  text, overlap, contrast, hierarchy, font family, and incomplete placeholders.
+- [ ] Remove all Figma placeholder shimmer states and capture final screenshots.
+
+Figma file:
+[Blender Crowd UI/UX Roadmap M2-M8](https://www.figma.com/design/snabkLqO8N7uHJUm6UnrTE)
+
+### M3 — production workflow and recovery
+
+- [ ] Replace the monolithic project form with a dedicated Crowd workspace or
+  focused native Blender panels organized by workflow stage.
+- [ ] Add persistent project health, current stage, selection context, and one
+  primary next action.
+- [ ] Replace required raw JSON and copied-ID tasks with `UIList` collections,
+  selected-item editors, searchable pickers, presets, and viewport selection.
+- [ ] Consolidate normal validation into one actionable report and move granular
+  validators to Advanced.
+- [ ] Make bake/cache lifecycle stateful: measurable progress, contextual
+  cancellation, automatic attachment, save/reload restoration, stale-state
+  explanation, and direct artifact/report actions.
+- [ ] Add diagnostic history and readable states/reasons rather than relying on
+  one transient status string or numeric codes.
+- [ ] Complete keyboard, focus, target-size, contrast, truncation, theme,
+  scaling, and assistive-technology checks across the support matrix.
+
+### M4 — layered correction and interchange
+
+- [ ] Build the layer editor with order, source, priority, mute/solo, affected
+  IDs/ranges, provenance, validity, and base-cache relationship.
+- [ ] Add viewport-first per-agent, region, and curve correction tools.
+- [ ] Add conflict, invalidation, local-resimulation, before/after, layer
+  isolation, reversible flatten/export, and failed-operation recovery views.
+
+### M5 — scale and profiling
+
+- [ ] Expose simulation/render tiers, promotion, culling, proxies, quality
+  limits, preflight estimates, measured results, and backend fallbacks.
+- [ ] Add responsive progress, throughput, cancellation/resume, aggregation,
+  drill-down, and population/tier/camera/cache bottleneck attribution.
+
+### M6 — advanced graph and motion debugging
+
+- [ ] Build a synchronized event timeline and brain debugger for graph state,
+  decisive nodes, observations, scores, blackboard changes, and interrupts.
+- [ ] Link viewport agents, cached events, graph nodes, actions, clips, contacts,
+  solver/layer ownership, failures, recoveries, and corrections bidirectionally.
+- [ ] Add large-graph search, overview, reusable subgraphs/actions, presets,
+  typed-port diagnostics, and explicit reduced-evidence states by tier.
+
+### M7 — native Blender integration
+
+- [ ] Audit workspaces, editors, panels, operators, selection, undo, keymaps,
+  themes, translation, help, preferences, assets, installation, and save/load
+  against stock Blender conventions and supported versions.
+- [ ] Separate Crowd-product UI from evidence-backed Blender-general host gaps
+  and document fallbacks for every version-specific difference.
+
+### M8 — reviewed semantic and dataset workflows
+
+- [ ] Build bounded semantic proposal/diff review with provenance, validation,
+  grouped accept/reject, manual edit, revalidation, undo, and a non-model path.
+- [ ] Build domain-pack discovery, compatibility, licensing, limitations,
+  examples, install/update/removal, and claim-boundary UI.
+- [ ] Build synthetic-data sensor, annotation, taxonomy, split, license, bias,
+  preview, progress, resume, manifest, rejected-sample, and consumer-validation
+  workflows.

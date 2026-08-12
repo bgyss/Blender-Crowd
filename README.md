@@ -33,10 +33,17 @@ integration proposal backed by production evidence.
 
 ## Status
 
-M0 and M1 are accepted, and M2 is unblocked. The implemented system includes a
+M0, M1, and M2 are accepted, and M3 is unblocked. The implemented system includes a
 headless deterministic Rust kernel, selected navigation and avoidance, a
 recoverable versioned cache, an abi3 native facade, a clean-install Blender
 extension, and cache-only Geometry Nodes presentation.
+
+M2 adds typed behavior, semantic environments, groups and queues, production
+variation, cached selected-agent evidence, terrain presentation, and sparse
+corrections. Its [acceptance record](docs/benchmarks/2026-08-12-m2-acceptance.md)
+separates the passing functional gate from the substantial UI/UX work that the
+operator spot check exposed. That deferred work, including the incomplete Figma
+artifact, is tracked in the [UI/UX roadmap](docs/ui-ux-roadmap.md#deferred-uiux-todo).
 
 The M1 reference concourse compiles exactly 1,000 stable agents, performs a
 strict 10,000-tick rebake, isolates a timed portal change, preserves all v1
@@ -149,11 +156,11 @@ scripts/make-m1-recording.sh                              # M1 cache-only concou
 cargo run --release -p crowd-bench -- run --scene crossing --agents 1000 --trace
 ```
 
-The first M2 behavior-graph authoring slice is documented in
+The M2 behavior-graph authoring foundation is documented in
 [M2 behavior graph authoring](docs/user/m2-behavior-graph.md). It compiles
 typed, bounded graph data in Rust and exposes the same validation through
-Blender; the M1 commuter runtime remains deliberately isolated until the
-remaining M2 runtime acceptance suite exists.
+Blender; the completed M2 runtime and operator evidence is linked from the
+[M2 acceptance record](docs/benchmarks/2026-08-12-m2-acceptance.md).
 
 The wheel build needs `maturin`, pinned in `mise.toml` and installed by
 `mise install`. It is pinned through the `pipx:` backend (uv) rather than
