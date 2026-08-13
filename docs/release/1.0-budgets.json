@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "platform": "macos-arm64",
+  "reference_workload": {
+    "agents": 1000,
+    "ticks": 10000,
+    "render_resolution": [320, 180]
+  },
+  "maximum": {
+    "archive_bytes": 2097152,
+    "authorable_bake_seconds": 120.0,
+    "cache_bytes": 1342177280,
+    "debug_inspection_seconds_per_query": 0.1,
+    "peak_resident_bytes": 6442450944,
+    "point_upload_seconds": 0.05,
+    "armature_evaluation_seconds": 0.1,
+    "eevee_render_seconds": 5.0,
+    "cycles_cpu_render_seconds": 5.0
+  },
+  "minimum": {
+    "sequential_cache_ticks_per_second": 100.0
+  }
+}

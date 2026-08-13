@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "addon" / "blender_crowd"
 RELEASE_DOCS = (
+    (ROOT / "Cargo.lock", Path("Cargo.lock")),
     (ROOT / "docs" / "blender-crowd-1.0.md", Path("docs/blender-crowd-1.0.md")),
     (ROOT / "docs" / "cache-format-v1.md", Path("docs/cache-format-v1.md")),
     (ROOT / "docs" / "dependencies" / "cache-v1.md", Path("docs/dependencies/cache-v1.md")),
@@ -24,6 +25,11 @@ RELEASE_DOCS = (
     (ROOT / "docs" / "release" / "1.0-support-matrix.md", Path("docs/release/1.0-support-matrix.md")),
     (ROOT / "docs" / "release" / "1.0-release-checklist.md", Path("docs/release/1.0-release-checklist.md")),
     (ROOT / "docs" / "release" / "1.0-known-limitations.md", Path("docs/release/1.0-known-limitations.md")),
+    (ROOT / "docs" / "release" / "1.0-budgets.json", Path("docs/release/1.0-budgets.json")),
+    (ROOT / "docs" / "release" / "1.0-budgets.md", Path("docs/release/1.0-budgets.md")),
+    (ROOT / "docs" / "release" / "1.0-release-review.json", Path("docs/release/1.0-release-review.json")),
+    (ROOT / "docs" / "release" / "1.0-release-review.md", Path("docs/release/1.0-release-review.md")),
+    (ROOT / "docs" / "release" / "1.0-accessibility-review.md", Path("docs/release/1.0-accessibility-review.md")),
 )
 
 

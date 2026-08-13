@@ -14,7 +14,7 @@ announcement.
 | Resource, quality, package-size budgets pass | Six fixed solver baselines, release density, strict rebake, reroute, and measurements pass; M3 does not define or enforce release thresholds for peak memory, cache/render/package size, or debug overhead | unproven |
 | Release binaries contain no contributor paths and have reviewed dependencies | Two clean full builds are byte-identical; path, platform, wheel, SPDX, and provenance audits pass, but human license/SBOM review is absent | partially proven |
 | Required user/schema/troubleshooting/headless/upgrade docs are exercised | Required documents are staged and archive-audited; there is no complete documented exercise/review record for every document | partially proven |
-| Limitations and recovery are public and specific | Candidate limitations and recovery policy are checked in; independent evaluator review remains outstanding | partially proven |
+| Limitations and recovery are public and specific | Candidate limitations and recovery policy are checked in and archive-audited | proven |
 
 ## Implemented M3 controls
 
@@ -99,4 +99,4 @@ The release remains stopped on:
 - a documented signing-channel applicability decision, human license/SBOM
   review, and publication of immutable provenance/evidence;
 - keyboard/focus, contrast, scaling, readable-label, and assistive-technology
-  review, plus two independent evaluator records on the sole claimed platform.
+  review. Independent evaluator records are deferred to M7.

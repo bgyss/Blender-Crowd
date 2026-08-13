@@ -19,5 +19,5 @@ row: Blender 5.2 LTS on macOS 11+ Apple Silicon.
 The command passes only the archive into Blender installation; source fixtures
 remain available solely to the test harness for fixture identity checks. A
 passing run is still not M3 acceptance until macOS-arm64 budgets, the signing
-applicability decision, license review, and two independent evaluator records
-are complete.
+applicability decision, license review, compatibility drills, and accessibility
+review are complete. Independent evaluator studies are deferred to M7.

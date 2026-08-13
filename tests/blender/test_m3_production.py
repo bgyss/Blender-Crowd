@@ -45,6 +45,9 @@ def main():
         from bl_ext.user_default.blender_crowd import operators
 
     scene = bpy.context.scene
+    defaults = scene.crowd_project
+    require(defaults.cache_status == "not_inspected", "clean install retained cache preference state")
+    require(not defaults.project_uuid, "clean install retained a project identity")
     require(bpy.ops.crowd.create_reference_project() == {"FINISHED"}, "reference project creation failed")
     props = scene.crowd_project
     require(props.current_stage == "Author project", "workflow stage was not persisted")
@@ -81,6 +84,28 @@ def main():
     require(not support_bundle["privacy"]["scene_contents_included"], "support bundle includes scene content")
     require(cache_path not in json.dumps(support_bundle), "support bundle leaked an absolute cache path")
 
+    library_source = os.path.join(project_dir, "linked-source.blend")
+    linked_mesh = bpy.data.meshes.new("M3 Linked Source Mesh")
+    linked_object = bpy.data.objects.new("M3 Linked Source", linked_mesh)
+    bpy.data.libraries.write(library_source, {linked_mesh, linked_object})
+    bpy.data.objects.remove(linked_object)
+    bpy.data.meshes.remove(linked_mesh)
+    with bpy.data.libraries.load(library_source, link=True) as (available, requested):
+        requested.objects = ["M3 Linked Source"]
+    linked_object = requested.objects[0]
+    require(linked_object is not None and linked_object.library is not None, "linked test data was not loaded")
+    scene.collection.objects.link(linked_object)
+    override_object = linked_object.override_create(remap_local_usages=False)
+    require(override_object is not None and override_object.override_library is not None, "library override was not created")
+    linked_identity = (linked_object.name, linked_object.library.filepath)
+    for _index in range(25):
+        bpy.context.view_layer.update()
+        tuple(bpy.context.evaluated_depsgraph_get().updates)
+    require(
+        (linked_object.name, linked_object.library.filepath) == linked_identity,
+        "Crowd dependency updates mutated linked source data",
+    )
+
     bpy.ops.wm.save_as_mainfile(filepath=blend_path, check_existing=False)
     moved_parent = tempfile.mkdtemp(prefix="blender-crowd-m3-moved-")
     moved_project = os.path.join(moved_parent, "project")
@@ -110,6 +135,22 @@ def main():
     )
     require(props.cache_status == "unsupported", "newer cache schema was not labeled unsupported")
     require(not props.cache_attached, "unsupported cache was marked authoritative")
+    older_cache = os.path.join(moved_project, "older-cache")
+    shutil.copytree(os.path.join(moved_project, "cache"), older_cache)
+    older_manifest_path = os.path.join(older_cache, "manifest.json")
+    with open(older_manifest_path, encoding="utf-8") as handle:
+        older_manifest = json.load(handle)
+    older_manifest["schema_version"] = 0
+    with open(older_manifest_path, "w", encoding="utf-8") as handle:
+        json.dump(older_manifest, handle)
+    props.cache_path = older_cache
+    require_rejected(
+        bpy.ops.crowd.inspect_cache_health,
+        "older cache schema was treated as supported",
+        "unsupported",
+    )
+    require(props.cache_status == "unsupported", "older cache schema was not labeled unsupported")
+    require(not props.cache_attached, "older cache was marked authoritative")
     print("M3 cache recovery: PASS {} diagnostics".format(len(props.diagnostics)))
     bpy.ops.wm.quit_blender()
 

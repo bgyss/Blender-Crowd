@@ -136,6 +136,11 @@ def main():
     playback.sync_to_tick(midpoint)
     require(playback.current_tick == midpoint, "cache did not replay midpoint tick")
     require(native_cache.read_tick(midpoint)["position"], "native cache replay has no positions")
+    playback_started = time.perf_counter()
+    scanned_ticks = native_cache.scan_ticks()
+    playback_seconds = time.perf_counter() - playback_started
+    require(scanned_ticks == ticks, "sequential cache scan did not cover every tick")
+    sequential_cache_ticks_per_second = scanned_ticks / playback_seconds
 
     decision = next(event for event in events if event["kind"] == "decision")
     agent_id = decision["agent_id"]
@@ -146,6 +151,16 @@ def main():
     require(evidence and evidence["agent_id"] == agent_id, "debug overlay did not expose cached agent evidence")
     trace = evidence.get("behavior_events")
     require(trace and trace[0]["graph_id"], "debug overlay did not expose durable graph evidence")
+    debug_query_count = 25
+    debug_started = time.perf_counter()
+    for _index in range(debug_query_count):
+        require(
+            debug_overlay.inspect(playback, agent_id, decision["tick"]),
+            "cached debug inspection returned no evidence",
+        )
+    debug_inspection_seconds_per_query = (
+        time.perf_counter() - debug_started
+    ) / debug_query_count
 
     before_override = base_cache_hashes(cache_path)
     pin = bpy.data.objects.new("M2 Acceptance Hero Pin", None)
@@ -177,6 +192,32 @@ def main():
     for renderer in render_metrics["renders"].values():
         require(os.path.getsize(renderer["output_path"]) > 1024, "render output is too small")
 
+    depsgraph_base_hashes = base_cache_hashes(cache_path)
+    depsgraph_tick = playback.current_tick
+    for _index in range(50):
+        bpy.context.view_layer.update()
+        tuple(bpy.context.evaluated_depsgraph_get().updates)
+    require(
+        base_cache_hashes(cache_path) == depsgraph_base_hashes,
+        "dependency-graph evaluation mutated authoritative cache data",
+    )
+    require(
+        playback.current_tick == depsgraph_tick,
+        "dependency-graph evaluation advanced authoritative playback state",
+    )
+
+    missing_prototypes = [
+        item for item in bpy.data.objects if item.get("crowd_asset_kind") == "prototype"
+    ]
+    require(missing_prototypes, "reference render has no prototype assets to remove")
+    for missing_prototype in missing_prototypes:
+        bpy.data.objects.remove(missing_prototype, do_unlink=True)
+    require_rejected(
+        lambda: bpy.ops.crowd.render_reference_frame(output_dir=output_dir),
+        "missing presentation asset did not stop the render",
+        "instances",
+    )
+
     corrupt_chunk = next(Path(cache_path, "frames").glob("*.chunk"))
     with corrupt_chunk.open("r+b") as handle:
         first = handle.read(1)
@@ -198,6 +239,8 @@ def main():
         "agent_count": EXPECTED_AGENTS,
         "ticks": ticks,
         "authorable_bake_seconds": bake_seconds,
+        "sequential_cache_ticks_per_second": sequential_cache_ticks_per_second,
+        "debug_inspection_seconds_per_query": debug_inspection_seconds_per_query,
         "cache_status": manifest["status"],
         "behavior_event_count": len(events),
         "behavior_event_kinds": sorted(kinds),
@@ -207,6 +250,8 @@ def main():
         "sparse_override_base_cache_unchanged": True,
         "stale_cache_rejected": True,
         "corrupt_cache_rejected": True,
+        "dependency_graph_stress_passed": True,
+        "missing_asset_rejected": True,
         "render_metrics_path": metrics_path,
         "acceptance_subgate_passed": True,
         "m2_milestone_accepted": False,

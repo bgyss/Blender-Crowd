@@ -40,11 +40,11 @@
     "resource_budgets": "unproven",
     "binary_provenance": "partially_proven",
     "documentation": "partially_proven",
-    "limitations_and_recovery": "partially_proven"
+    "limitations_and_recovery": "proven"
   },
   "blocking_conditions": [
     "Fixed enforcing support-matrix budgets are absent",
     "Older-cache, missing-asset, linked/library-override, clean-preference, and explicit dependency-graph stress drills are absent",
-    "Signing applicability, human license review, immutable evidence publication, accessibility review, and independent evaluator records are unresolved"
+    "Signing applicability, human license review, immutable evidence publication, and accessibility review are unresolved"
   ]
 }

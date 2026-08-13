@@ -21,4 +21,12 @@ mkdir -p "$OUT"
 python3 "$REPO_ROOT/scripts/m3_release_audit.py" "$ARCHIVE" --out "$OUT/archive-audit.json"
 "$REPO_ROOT/scripts/m2-full-acceptance.sh" --archive "$ARCHIVE" --out "$OUT/reference-shot" | tee "$OUT/reference-shot.log"
 "$REPO_ROOT/scripts/blender-install-test.sh" --archive "$ARCHIVE" --python tests/blender/test_m3_production.py | tee "$OUT/recovery-drill.log"
+"$REPO_ROOT/scripts/blender-install-test.sh" --archive "$ARCHIVE" --python tests/blender/test_m3_accessibility.py | tee "$OUT/accessibility.log"
+python3 "$REPO_ROOT/scripts/m3_budget_audit.py" \
+    --archive "$ARCHIVE" \
+    --reference-root "$OUT/reference-shot" \
+    --out "$OUT/budget-audit.json"
+python3 "$REPO_ROOT/scripts/m3_policy_audit.py" \
+    --archive "$ARCHIVE" \
+    --out "$OUT/release-policy-audit.json"
 echo "M3 archive acceptance runner: PASS $OUT"

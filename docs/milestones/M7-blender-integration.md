@@ -22,6 +22,13 @@ maintainers, publishing proposals, filing issues, opening pull requests, or
 representing the project externally requires explicit authorization in that
 task. Blender maintainer review and acceptance are external gates.
 
+Before M7 acceptance, at least two evaluators who did not implement the feature
+must independently install a release archive, create or open a project,
+validate, bake, reload, recover one injected failure, and render the acceptance
+shot using the documented interface. Record task success, time, errors,
+recovery, accessibility findings, and remaining support limitations with the
+[evaluator study template](../release/1.0-evaluator-study-template.md).
+
 ## In scope
 
 1. Extension adoption and maintenance evidence: supported versions, install and

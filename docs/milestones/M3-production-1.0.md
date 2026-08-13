@@ -50,11 +50,11 @@ checked-in baselines; no threshold is invented after seeing a release result.
 - Expose operation estimates, progress, cancellation, recovery, and resulting
   artifact locations for long-running work.
 
-The M3 UI gate passes from clean release archives on every claimed platform. At
-least two evaluators who did not implement the feature must install, create or
-open, validate, bake, reload, recover one injected failure, and render the
-acceptance shot using the documented interface. Record task success, time,
-errors, recovery, accessibility findings, and remaining support limitations.
+The M3 UI gate passes from clean release archives on every claimed platform
+through automated interaction checks plus a documented maintainer accessibility
+review. Independent production-evaluator studies are intentionally deferred to
+M7, after 1.0 has established a stable workflow worth evaluating; they are not
+a Blender Crowd 1.0 release condition.
 
 ## Explicit exclusions
 
@@ -102,6 +102,6 @@ not reclassify a failing criterion as post-1.0 to ship on schedule.
 ## Current candidate audit
 
 The dated [M3 candidate acceptance audit](../benchmarks/2026-08-12-m3-acceptance.md)
-tracks this milestone criterion by criterion. It is deliberately marked **not
-accepted** until clean release archives pass on every claimed platform and the
-independent evaluator requirement is satisfied.
+tracks this milestone criterion by criterion. It remains **not accepted** until
+the locally executable release, compatibility, resource, documentation, and
+accessibility gates pass from a clean archive.

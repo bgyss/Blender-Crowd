@@ -41,6 +41,7 @@ wheels = ["./wheels/blender_crowd_native-1.0.0-cp311-abi3-macosx_11_0_arm64.whl"
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("blender_manifest.toml", manifest)
         for name in (
+            "Cargo.lock",
             "docs/blender-crowd-1.0.md",
             "docs/cache-format-v1.md",
             "docs/dependencies/cache-v1.md",
@@ -53,6 +54,11 @@ wheels = ["./wheels/blender_crowd_native-1.0.0-cp311-abi3-macosx_11_0_arm64.whl"
             "docs/release/1.0-support-matrix.md",
             "docs/release/1.0-release-checklist.md",
             "docs/release/1.0-known-limitations.md",
+            "docs/release/1.0-budgets.json",
+            "docs/release/1.0-budgets.md",
+            "docs/release/1.0-release-review.json",
+            "docs/release/1.0-release-review.md",
+            "docs/release/1.0-accessibility-review.md",
         ):
             archive.writestr(name, "clean text" if not contributor_path else "/Users/example/private")
         archive.writestr("sbom.spdx.json", json.dumps({"spdxVersion": "SPDX-2.3", "packages": [{"name": "crowd-core"}]}))

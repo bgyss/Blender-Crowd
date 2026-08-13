@@ -381,6 +381,7 @@ struct PyCache {
     path: PathBuf,
     backing: CacheBacking,
     override_layers: Vec<OverrideLayerV1>,
+    cached_behavior_query: Option<(u64, u64, Option<String>)>,
 }
 
 /// Select the event bundle that most recently explains an agent's state at a
@@ -428,6 +429,7 @@ impl PyCache {
             path,
             backing,
             override_layers: Vec::new(),
+            cached_behavior_query: None,
         })
     }
 
@@ -490,6 +492,15 @@ impl PyCache {
         packed_agent_static_dict(py, &pack_agent_static(self.complete()?.agents()))
     }
 
+    fn scan_ticks(&self) -> PyResult<usize> {
+        self.complete()?
+            .read_all_frames()
+            .map(|frames| frames.len())
+            .map_err(|error| {
+                PyOSError::new_err(format!("E_CACHE_SCAN {}: {error}", self.path.display()))
+            })
+    }
+
     fn set_override_layers(&mut self, layers_json: &str) -> PyResult<()> {
         self.override_layers = serde_json::from_str(layers_json)
             .map_err(|error| PyValueError::new_err(format!("E_OVERRIDE_JSON: {error}")))?;
@@ -501,7 +512,7 @@ impl PyCache {
     }
 
     fn inspect_agent<'py>(
-        &self,
+        &mut self,
         py: Python<'py>,
         agent_id: u64,
         tick: u64,
@@ -540,10 +551,28 @@ impl PyCache {
         out.set_item("playback_rate", record.playback_rate)?;
         out.set_item("visible", record.visible)?;
 
-        let behavior_events = self.complete()?.read_behavior_events().map_err(|error| {
-            PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
-        })?;
-        let cached_trace_json = inspection_behavior_events(&behavior_events, agent_id, tick);
+        let cache_hit = self.cached_behavior_query.as_ref().is_some_and(
+            |(cached_agent, cached_tick, _trace)| *cached_agent == agent_id && *cached_tick == tick,
+        );
+        let cached_trace_json = if cache_hit {
+            self.cached_behavior_query
+                .as_ref()
+                .and_then(|(_agent, _tick, trace)| trace.clone())
+        } else {
+            let behavior_events = self.complete()?.read_behavior_events().map_err(|error| {
+                PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
+            })?;
+            let selected = inspection_behavior_events(&behavior_events, agent_id, tick);
+            let trace = if selected.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_string(&selected).map_err(|error| {
+                    PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
+                })?)
+            };
+            self.cached_behavior_query = Some((agent_id, tick, trace.clone()));
+            trace
+        };
         let legacy_evidence_path = self.path.join("debug/selected-agent.json");
         let legacy_trace_json = fs::read_to_string(&legacy_evidence_path)
             .ok()
@@ -558,12 +587,10 @@ impl PyCache {
                     })
                     == Some((agent_id, tick))
             });
-        let decision_trace_json = if cached_trace_json.is_empty() {
+        let decision_trace_json = if cached_trace_json.is_none() {
             legacy_trace_json
         } else {
-            Some(serde_json::to_string(&cached_trace_json).map_err(|error| {
-                PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
-            })?)
+            cached_trace_json
         };
         out.set_item("decision_trace_json", decision_trace_json)?;
         Ok(out)

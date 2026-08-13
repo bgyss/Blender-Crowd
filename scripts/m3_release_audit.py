@@ -18,6 +18,7 @@ from pathlib import Path, PurePosixPath
 TEXT_SUFFIXES = {".md", ".py", ".toml", ".json", ".txt", ".rst", ".yml", ".yaml"}
 FORBIDDEN_PATHS = (b"/Users/", b"/home/", b"C:\\\\Users\\")
 REQUIRED_FILES = {
+    "Cargo.lock",
     "blender_manifest.toml",
     "docs/blender-crowd-1.0.md",
     "docs/cache-format-v1.md",
@@ -31,6 +32,11 @@ REQUIRED_FILES = {
     "docs/release/1.0-support-matrix.md",
     "docs/release/1.0-release-checklist.md",
     "docs/release/1.0-known-limitations.md",
+    "docs/release/1.0-budgets.json",
+    "docs/release/1.0-budgets.md",
+    "docs/release/1.0-release-review.json",
+    "docs/release/1.0-release-review.md",
+    "docs/release/1.0-accessibility-review.md",
     "sbom.spdx.json",
     "release-provenance.json",
 }

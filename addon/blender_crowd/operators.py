@@ -410,6 +410,7 @@ class CROWD_OT_validate_authorable_project(Operator):
 class CROWD_OT_add_m2_semantic(Operator):
     bl_idname = "crowd.add_m2_semantic"
     bl_label = "Add M2 Semantic"
+    bl_description = "Add an editable queue, lane, or cost-region contract"
     bl_options = {"REGISTER", "UNDO"}
 
     entity_type: EnumProperty(
@@ -442,6 +443,7 @@ class CROWD_OT_add_m2_semantic(Operator):
 class CROWD_OT_remove_m2_semantic(Operator):
     bl_idname = "crowd.remove_m2_semantic"
     bl_label = "Remove M2 Semantic"
+    bl_description = "Remove the last semantic contract of the selected kind"
     bl_options = {"REGISTER", "UNDO"}
 
     entity_type: EnumProperty(
@@ -465,6 +467,7 @@ class CROWD_OT_remove_m2_semantic(Operator):
 class CROWD_OT_add_group(Operator):
     bl_idname = "crowd.add_group"
     bl_label = "Add M2 Social Group"
+    bl_description = "Add an editable social-group contract"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -481,6 +484,7 @@ class CROWD_OT_add_group(Operator):
 class CROWD_OT_remove_group(Operator):
     bl_idname = "crowd.remove_group"
     bl_label = "Remove Last M2 Social Group"
+    bl_description = "Remove the last authored social-group contract"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -529,6 +533,7 @@ class CROWD_OT_remove_population(Operator):
 class CROWD_OT_add_m2_asset(Operator):
     bl_idname = "crowd.add_m2_asset"
     bl_label = "Add M2 Asset Contract"
+    bl_description = "Add an editable retarget, clip, or variation contract"
     bl_options = {"REGISTER", "UNDO"}
 
     entity_type: EnumProperty(
@@ -573,6 +578,7 @@ class CROWD_OT_add_m2_asset(Operator):
 class CROWD_OT_remove_m2_asset(Operator):
     bl_idname = "crowd.remove_m2_asset"
     bl_label = "Remove M2 Asset Contract"
+    bl_description = "Remove the last asset contract of the selected kind"
     bl_options = {"REGISTER", "UNDO"}
 
     entity_type: EnumProperty(
@@ -628,6 +634,7 @@ class CROWD_OT_add_layout(Operator):
 class CROWD_OT_remove_layout(Operator):
     bl_idname = "crowd.remove_layout"
     bl_label = "Remove Layout"
+    bl_description = "Remove the last authored layout contract"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
