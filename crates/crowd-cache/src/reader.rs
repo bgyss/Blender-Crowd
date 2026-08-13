@@ -106,6 +106,34 @@ impl CacheReader {
         &self.agents
     }
 
+    /// Stable identity of the complete immutable cache payload.  Unlike
+    /// `source_hash`, which identifies the compiled project input, this binds
+    /// a layout layer to the exact cache manifest, agent table, chunks, and
+    /// optional behavior evidence it was authored against.
+    pub fn base_cache_hash_hex(&self) -> Result<String, CacheError> {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"Blender Crowd Cache v1 base identity\0");
+        let manifest = serde_json::to_vec(&self.manifest).map_err(|error| CacheError::Json {
+            path: self.root.join("manifest.json"),
+            message: error.to_string(),
+        })?;
+        hasher.update(&manifest);
+        let agent_path = safe_join(&self.root, &self.manifest.agents.path)?;
+        hasher.update(&fs::read(&agent_path).map_err(|source| CacheError::Io {
+            path: agent_path,
+            source,
+        })?);
+        for chunk in &self.manifest.chunks {
+            let path = safe_join(&self.root, &chunk.path)?;
+            hasher.update(&fs::read(&path).map_err(|source| CacheError::Io { path, source })?);
+        }
+        if let Some(events) = &self.manifest.behavior_events {
+            let path = safe_join(&self.root, &events.path)?;
+            hasher.update(&fs::read(&path).map_err(|source| CacheError::Io { path, source })?);
+        }
+        Ok(hasher.finalize().to_hex().to_string())
+    }
+
     pub fn read_tick(&self, tick: u64) -> Result<Frame, CacheError> {
         if tick < self.manifest.tick_start || tick > self.manifest.tick_end {
             return Err(CacheError::TickOutOfRange {

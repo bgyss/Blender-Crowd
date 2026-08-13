@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "layer_id": "hero-pin-m4",
+  "kind": "hero",
+  "order": 30,
+  "priority": 100,
+  "muted": false,
+  "solo": false,
+  "author": "migration fixture",
+  "created_at": "2026-08-12T00:00:00Z",
+  "base_cache_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "provenance": "migrated from override-layer-v1:hero-pin",
+  "dependencies": [],
+  "stale": false,
+  "local_resimulation": null,
+  "target": {"agent_ids": [7], "tick_start": 10, "tick_end": 20},
+  "edits": [{"type": "transform", "operation": "additive", "samples": [{"tick": 10, "translation": [1.0, 2.0, 3.0]}]}]
+}

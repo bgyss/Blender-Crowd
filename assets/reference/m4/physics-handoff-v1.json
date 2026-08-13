@@ -1,0 +1,12 @@
+{
+  "description": "Selected hero leaves authored motion for cached physics then recovers.",
+  "base_cache_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "target_agent_id": 7,
+  "tick_start": 10,
+  "tick_end": 20,
+  "collision_masks": ["crowd", "hero_props"],
+  "incoming_position": [1.0, 2.0, 0.0],
+  "incoming_velocity": [1.0, 0.0, 0.0],
+  "cached_samples": [{"tick": 10, "position": [1.0, 2.0, 0.0], "velocity": [1.0, 0.0, 0.0]}],
+  "recovery_tick": 15
+}

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/layout-layer-v1.schema.json",
+  "title": "Blender Crowd M4 Layer v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "layer_id", "kind", "order", "priority", "muted", "solo", "author", "created_at", "base_cache_hash", "provenance", "dependencies", "stale", "local_resimulation", "target", "edits"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "layer_id": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["base_simulation", "layout", "animation_fix", "hero", "physics", "shot"] },
+    "order": { "type": "integer", "minimum": 0 },
+    "priority": { "type": "integer" },
+    "muted": { "type": "boolean" },
+    "solo": { "type": "boolean" },
+    "author": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "minLength": 1 },
+    "base_cache_hash": { "$ref": "#/$defs/hash" },
+    "provenance": { "type": "string", "minLength": 1 },
+    "dependencies": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "stale": { "type": "boolean" },
+    "local_resimulation": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/local_resimulation" }] },
+    "target": { "$ref": "#/$defs/target" },
+    "edits": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/edit" } }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "vec3": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+    "target": { "type": "object", "additionalProperties": false, "required": ["agent_ids", "tick_start", "tick_end"], "properties": { "agent_ids": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 0 } }, "tick_start": { "type": "integer", "minimum": 0 }, "tick_end": { "type": "integer", "minimum": 0 } } },
+    "sample": { "type": "object", "additionalProperties": false, "required": ["tick", "translation"], "properties": { "tick": { "type": "integer", "minimum": 0 }, "translation": { "$ref": "#/$defs/vec3" } } },
+    "physics_sample": { "type": "object", "additionalProperties": false, "required": ["tick", "position", "velocity"], "properties": { "tick": { "type": "integer", "minimum": 0 }, "position": { "$ref": "#/$defs/vec3" }, "velocity": { "$ref": "#/$defs/vec3" } } },
+    "local_resimulation": { "type": "object", "additionalProperties": false, "required": ["affected_agent_ids", "tick_start", "tick_end", "source_base_hash", "reason"], "properties": { "affected_agent_ids": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 0 } }, "tick_start": { "type": "integer", "minimum": 0 }, "tick_end": { "type": "integer", "minimum": 0 }, "source_base_hash": { "$ref": "#/$defs/hash" }, "reason": { "type": "string", "minLength": 1 } } },
+    "edit": { "oneOf": [
+      { "type": "object", "additionalProperties": false, "required": ["type", "operation", "samples"], "properties": { "type": { "const": "transform" }, "operation": { "enum": ["additive", "absolute"] }, "samples": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/sample" } } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "visible"], "properties": { "type": { "const": "visibility" }, "visible": { "type": "boolean" } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "position"], "properties": { "type": { "const": "freeze" }, "position": { "$ref": "#/$defs/vec3" } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "offset_ticks"], "properties": { "type": { "const": "timing" }, "offset_ticks": { "type": "integer" } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "multiplier_millionths"], "properties": { "type": { "const": "speed" }, "multiplier_millionths": { "type": "integer", "minimum": 1 } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "guide_id"], "properties": { "type": { "const": "path_guide" }, "guide_id": { "type": "string", "minLength": 1 } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "region_id", "density_millionths"], "properties": { "type": { "const": "region_density" }, "region_id": { "type": "string", "minLength": 1 }, "density_millionths": { "type": "integer", "minimum": 0, "maximum": 1000000 } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "curve_id", "offset_ticks"], "properties": { "type": { "const": "curve_retiming" }, "curve_id": { "type": "string", "minLength": 1 }, "offset_ticks": { "type": "integer" } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "destination_id"], "properties": { "type": { "const": "goal" }, "destination_id": { "type": "integer", "minimum": 0 } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "variant_id"], "properties": { "type": { "const": "appearance" }, "variant_id": { "type": "integer", "minimum": 0 } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "clip_id", "phase_millionths"], "properties": { "type": { "const": "animation" }, "clip_id": { "type": "integer", "minimum": 0, "maximum": 65535 }, "phase_millionths": { "type": "integer", "minimum": 0, "maximum": 1000000 } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "tier"], "properties": { "type": { "const": "render_tier" }, "tier": { "type": "integer", "minimum": 0, "maximum": 255 } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "group_id"], "properties": { "type": { "const": "group" }, "group_id": { "type": "string", "minLength": 1 } } },
+      { "type": "object", "additionalProperties": false, "required": ["type", "collision_masks", "incoming_position", "incoming_velocity", "cached_samples", "recovery_tick"], "properties": { "type": { "const": "physics_handoff" }, "collision_masks": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }, "incoming_position": { "$ref": "#/$defs/vec3" }, "incoming_velocity": { "$ref": "#/$defs/vec3" }, "cached_samples": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/physics_sample" } }, "recovery_tick": { "type": "integer", "minimum": 0 } } }
+    ] }
+  }
+}

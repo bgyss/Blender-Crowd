@@ -51,7 +51,10 @@ production evaluation. M8 consumes stable outputs from M4 through M6.
 
 ## Current baseline
 
-As of 2026-08-12, **M0, M1, and M2 are accepted, and M3 is unblocked**. The complete
+As of 2026-08-12, **M0 through M4 are accepted**. M4's layer, physics-handoff,
+procedural-render, migration, and narrow OpenUSD profile evidence is recorded
+in the [M4 acceptance evidence](../benchmarks/2026-08-12-m4-foundation.md).
+The complete
 M0 ordered runner and criterion-by-criterion result are in the
 [M0 consolidated acceptance report](../benchmarks/2026-08-10-m0-consolidated.md),
 with its [machine-readable summary](../benchmarks/2026-08-10-m0-acceptance.json).

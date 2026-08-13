@@ -137,6 +137,19 @@ class CrowdDiagnosticProperties(PropertyGroup):
     documentation: StringProperty(name="Recovery Documentation")
 
 
+class CrowdM4LayerProperties(PropertyGroup):
+    layer_id: StringProperty(name="Layer")
+    kind: StringProperty(name="Kind")
+    order: IntProperty(name="Order", min=0)
+    priority: IntProperty(name="Priority")
+    muted: BoolProperty(name="Muted")
+    solo: BoolProperty(name="Solo")
+    stale: BoolProperty(name="Stale")
+    target_summary: StringProperty(name="Targets")
+    provenance: StringProperty(name="Provenance")
+    validity: StringProperty(name="Validity", default="not checked")
+
+
 class CrowdProjectProperties(PropertyGroup):
     project_uuid: StringProperty(name="Project UUID")
     seed: IntProperty(name="Seed", min=0, default=2026)
@@ -182,6 +195,49 @@ class CrowdProjectProperties(PropertyGroup):
     override_tick_start: IntProperty(name="Override Start", min=0, default=30)
     override_tick_end: IntProperty(name="Override End", min=0, default=60)
     override_enabled: BoolProperty(name="Override Enabled", default=True)
+    layout_layers_path: StringProperty(
+        name="M4 Layer Stack",
+        subtype="FILE_PATH",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
+    )
+    layout_export_path: StringProperty(
+        name="M4 USD Export",
+        subtype="FILE_PATH",
+        default="//crowd-layout.usda",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
+    )
+    layout_flatten_path: StringProperty(
+        name="M4 Flattened Preview",
+        subtype="FILE_PATH",
+        default="//crowd-layout-flattened.json",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
+    )
+    m4_layer_id: StringProperty(name="Layer ID", default="layout-correction")
+    m4_layer_kind: StringProperty(name="Layer Kind", default="layout")
+    m4_order: IntProperty(name="Order", min=0, default=10)
+    m4_priority: IntProperty(name="Priority", default=0)
+    m4_tick_start: IntProperty(name="Start", min=0, default=30)
+    m4_tick_end: IntProperty(name="End", min=0, default=60)
+    m4_target_agent_ids: StringProperty(
+        name="Agent IDs",
+        description="Comma-separated stable IDs; leave empty to correct the selected agent",
+    )
+    m4_offset_x: FloatProperty(name="Move X", default=0.0)
+    m4_offset_y: FloatProperty(name="Move Y", default=0.0)
+    m4_offset_z: FloatProperty(name="Move Z", default=0.0)
+    m4_region_id: StringProperty(name="Region", default="crowd_region")
+    m4_density_millionths: IntProperty(name="Density (millionths)", min=0, max=1_000_000, default=1_000_000)
+    m4_curve_id: StringProperty(name="Curve", default="crowd_curve")
+    m4_curve_offset_ticks: IntProperty(name="Curve Offset", default=0)
+    m4_physics_masks: StringProperty(name="Collision Masks", default="crowd")
+    m4_physics_restitution_millionths: IntProperty(name="Restitution (millionths)", min=0, max=1_000_000, default=250_000)
+    m4_resim_target_x: FloatProperty(name="Resim Target X", default=0.0)
+    m4_resim_target_y: FloatProperty(name="Resim Target Y", default=0.0)
+    m4_resim_target_z: FloatProperty(name="Resim Target Z", default=0.0)
+    m4_resim_max_speed_mps: FloatProperty(name="Resim Max Speed", min=0.01, default=1.5)
+    m4_layout_status: StringProperty(name="M4 Status", default="No M4 layer stack attached")
+    m4_layers: CollectionProperty(type=CrowdM4LayerProperties)
+    active_m4_layer_index: IntProperty(default=0, min=0)
     terrain_object: PointerProperty(name="Presentation Terrain", type=Object)
     terrain_max_slope_degrees: FloatProperty(
         name="Maximum Terrain Slope", min=0.0, max=89.9, default=30.0
@@ -211,6 +267,7 @@ _CLASSES = (
     CrowdLayoutProperties,
     CrowdGroupProperties,
     CrowdDiagnosticProperties,
+    CrowdM4LayerProperties,
     CrowdProjectProperties,
 )
 
