@@ -1,6 +1,7 @@
 """Contract tests for the archive-only M3 release verifier."""
 
 import importlib.util
+import hashlib
 import json
 import tempfile
 import unittest
@@ -12,6 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("m3_release_audit", ROOT / "scripts/m3_release_audit.py")
 AUDIT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(AUDIT)
+NORMALIZE_SPEC = importlib.util.spec_from_file_location(
+    "m3_normalize_wheel", ROOT / "scripts/m3_normalize_wheel.py"
+)
+NORMALIZE = importlib.util.module_from_spec(NORMALIZE_SPEC)
+NORMALIZE_SPEC.loader.exec_module(NORMALIZE)
 
 
 def write_archive(
@@ -66,6 +72,18 @@ wheels = ["./wheels/blender_crowd_native-1.0.0-cp311-abi3-macosx_11_0_arm64.whl"
 
 
 class M3ReleaseAuditTests(unittest.TestCase):
+    def test_wheel_normalization_removes_zip_timestamp_variation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "first.whl"
+            second = Path(directory) / "second.whl"
+            with zipfile.ZipFile(first, "w") as archive:
+                archive.writestr(zipfile.ZipInfo("module.so", (2026, 1, 2, 3, 4, 6)), b"native")
+            with zipfile.ZipFile(second, "w") as archive:
+                archive.writestr(zipfile.ZipInfo("module.so", (2026, 8, 9, 10, 11, 12)), b"native")
+            NORMALIZE.normalize_wheel(first, 1_786_497_600)
+            NORMALIZE.normalize_wheel(second, 1_786_497_600)
+            self.assertEqual(hashlib.sha256(first.read_bytes()).digest(), hashlib.sha256(second.read_bytes()).digest())
+
     def test_accepts_a_complete_archive_contract(self):
         with tempfile.TemporaryDirectory() as directory:
             archive = Path(directory) / "release.zip"
