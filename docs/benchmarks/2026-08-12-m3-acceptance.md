@@ -8,11 +8,11 @@ announcement.
 
 | M3 criterion | Current evidence | Decision |
 | --- | --- | --- |
-| Clean install enables, authors, bakes, reloads, and renders on every supported platform | Blender Crowd 1.0 now claims only Blender 5.2 LTS on macOS 11+ Apple Silicon; the post-scope-change clean archive rerun is pending | unproven |
-| Complete cache plays without simulator; incomplete/corrupt/stale/older/newer behavior is documented | macOS archive drills pass complete, canceled, corrupt, stale, moved-project, save/reload, and newer-schema cases; incomplete is covered natively, but the older-cache drill is absent | partially proven |
-| Undo/save/reload/dependency graph have no hidden state | Existing M2 tests cover authoring undo/save/reload and M3 recovery survives save/reload; linked/library-override, clean-preference, and explicit dependency-graph stress evidence is absent | partially proven |
-| Resource, quality, package-size budgets pass | The macOS archive run records bake, memory, cache, playback/render, and package measurements, but M3 fixed thresholds and an enforcing budget report do not exist | unproven |
-| Release binaries contain no contributor paths and have reviewed dependencies | The clean archive passes path, wheel, SPDX, and provenance audit; reproducible staging now produces byte-identical ZIPs, but a clean post-fix rebuild and human license review are outstanding | partially proven |
+| Clean install enables, authors, bakes, reloads, and renders on every supported platform | The sole 1.0 row, Blender 5.2 LTS on macOS 11+ Apple Silicon, passes from clean archive `1af41f8f…79da07` | proven |
+| Complete cache plays without simulator; incomplete/corrupt/stale/older/newer behavior is documented | The archive drills pass complete, canceled, corrupt, stale, moved-project, save/reload, and newer-schema cases; incomplete is covered natively, but the older-cache drill is absent | partially proven |
+| Undo/save/reload/dependency graph have no hidden state | The window-context authoring suite passes undo/save/reload and native revalidation; M3 recovery survives save/reload, but linked/library-override, clean-preference, and explicit dependency-graph stress evidence is absent | partially proven |
+| Resource, quality, package-size budgets pass | Six fixed solver baselines, release density, strict rebake, reroute, and measurements pass; M3 does not define or enforce release thresholds for peak memory, cache/render/package size, or debug overhead | unproven |
+| Release binaries contain no contributor paths and have reviewed dependencies | Two clean full builds are byte-identical; path, platform, wheel, SPDX, and provenance audits pass, but human license/SBOM review is absent | partially proven |
 | Required user/schema/troubleshooting/headless/upgrade docs are exercised | Required documents are staged and archive-audited; there is no complete documented exercise/review record for every document | partially proven |
 | Limitations and recovery are public and specific | Candidate limitations and recovery policy are checked in; independent evaluator review remains outstanding | partially proven |
 
@@ -31,38 +31,56 @@ announcement.
   deterministic SPDX inventory, git provenance, archive audit, and
   archive-first acceptance entrypoint.
 
-## Verified local checks
+## Final candidate identity
+
+- Source revision: `0a6db9196d7aa85cc7e2060bf9f425e8ff3382db`.
+- Claimed matrix: Blender 5.2 LTS, macOS 11+, Apple Silicon only.
+- Archive: `blender_crowd-1.0.0.zip`, 1,063,131 bytes.
+- Archive SHA-256: `1af41f8fc69abb7839e2a23f0966dd5f636eac9d9dcb6101172a3cb1af79da07`.
+- Two independent complete builds from the clean revision produced the same
+  archive hash. The release audit confirms `source_dirty: false` provenance and
+  exactly `platforms = ["macos-arm64"]`.
+
+## Fresh verification
 
 ```text
-python3 -m unittest tests/test_m3_release_audit.py       PASS
-scripts/build-wheel.sh                                  PASS (1.0.0 macOS arm64 abi3 wheel)
-scripts/verify-wheel.sh 25                              PASS (complete/corrupt/canceled FFI cache checks)
-cargo test -p crowd-blender --lib                       PASS (8 native bridge tests)
-cargo test -p crowd-cache                               PASS
-cargo test -p crowd-core --test behavior_graph          PASS
-cargo clippy --workspace --all-targets -- -D warnings   PASS
+scripts/m3-build-release.sh (two clean outputs)          PASS, byte-identical
+scripts/m3-acceptance.sh --archive … --out …             PASS
+cargo test --workspace (release-density tests skipped)  PASS
+cargo test --release -p crowd-core --test fuzz_density  PASS, 4/4 in 570.69 s
+cargo test --release -p crowd-core --test two_room_reroute -- --ignored --nocapture
+                                                        PASS, 1/1 in 25.64 s
+cargo run --release -p crowd-bench -- check --agents 1000
+                                                        PASS, 6/6 baselines
+cargo test --release -p crowd-core --test m1_strict -- --ignored --nocapture
+                                                        PASS, 1/1 in 36.06 s
+scripts/m2-reference-acceptance.sh                       PASS, 1/1 in 50.38 s
+scripts/m2-blender-authoring-test.sh                     PASS, undo/save/reload
+scripts/cache-experiment.sh                              PASS, 9 candidates
+scripts/verify-wheel.sh 25                              PASS
+python3 -m unittest tests/test_m3_release_audit.py tests/test_m0_acceptance_runner.py
+                                                        PASS, 9/9 at audit time
 cargo fmt --check                                       PASS
+cargo clippy --workspace --all-targets -- -D warnings   PASS
+git diff --check                                        PASS
 ```
 
-The archive-audit contract is unit tested. The clean commit `ca3e147` produced a
-Blender-generated macOS archive that passed validation and archive audit. The
-corrected harness then passed the 10,000-tick reference workflow from that clean
-archive: 1,000 agents, a 50.847-second authorable bake, cache-only replay,
-stale/corrupt rejection, and Eevee/Cycles renders.
+The clean archive workflow baked 1,000 agents through 10,000 ticks in 59.555
+seconds, replayed without a simulation session, rejected stale and corrupt
+caches, preserved the sparse override boundary, and rendered tick 4,999 with
+700 proxy instances through Eevee and Cycles.
 
-The M3 recovery drill also passed cancellation, inspection, privacy-safe support
-bundle, save/reload, moved-project, and newer-schema rejection. Two acceptance
-harness defects were fixed while debugging: Blender Python raises
-`RuntimeError` for expected `ERROR`/`CANCELLED` operator reports, and the M3 test
-used `json` without importing it. Relative cache-path property flags were fixed
-after the drill exposed Blender 5.2 warnings.
+The measured archive-run outputs were 3,768,778,752 bytes peak Blender RSS,
+915,727,474 bytes of cache data including a 355,672,491-byte behavior-event
+file, 0.00630 seconds point upload, 0.00319 seconds canonical armature
+evaluation, 0.616 seconds Eevee GPU render, and 0.086 seconds Cycles CPU render.
+These are measurements, not M3 threshold passes, because the M3 release budget
+contract is not yet defined.
 
-Two archives staged independently after timestamp normalization are byte-for-byte
-identical at SHA-256
-`240a3efb27fb791f0cecdd80c09042124da921b76682ffcdc3ed00393b47d2ea`.
-These post-fix archives correctly attest to a dirty tree and therefore are
-diagnostic artifacts, not releasable candidates; the fixes need a clean commit,
-rebuild, and complete rerun.
+The recovery drill passed cancellation, inspection, privacy-safe support bundle,
+save/reload, moved-project resolution, and newer-schema rejection. The complete
+audit also exposed and fixed a source-install staging-path collision and
+non-reproducible maturin wheel ZIP timestamps before the final clean rerun.
 
 ## Remaining blocking evidence
 
@@ -74,17 +92,11 @@ Metal access.
 
 The release remains stopped on:
 
-- a clean commit, rebuild, and complete archive-first rerun containing the
-  harness, reproducibility, and relative-path fixes;
-- a clean macOS-arm64 archive build and complete archive-first rerun after the
-  1.0 support contract was narrowed to its sole manifest platform;
-- fixed, predeclared thresholds plus an enforcing report for quality,
-  performance, peak memory, cache/playback/render, debug overhead, and package
-  size (the macOS diagnostic run measured about 3.97 GB peak Blender RSS, an
-  874 MiB cache including a 340 MiB behavior-event file, and a 1.07 MB ZIP);
+- fixed, predeclared thresholds plus an enforcing report for peak memory,
+  cache/playback/render, debug overhead, and package size;
 - the absent older-cache, missing-asset, linked/library-override,
   clean-preference, and explicit dependency-graph stress drills;
 - a documented signing-channel applicability decision, human license/SBOM
-  review, and immutable provenance/evidence retention;
+  review, and publication of immutable provenance/evidence;
 - keyboard/focus, contrast, scaling, readable-label, and assistive-technology
-  review, plus two independent evaluator records per claimed platform.
+  review, plus two independent evaluator records on the sole claimed platform.
