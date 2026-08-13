@@ -115,6 +115,11 @@ pub struct World {
     // Staging. Written by steer, consumed by integrate.
     pub des_vel_x: Vec<f32>,
     pub des_vel_y: Vec<f32>,
+    /// Last avoidance target retained by a sparsely scheduled S2 agent.
+    /// `decide` overwrites `des_vel_*` every tick, so it cannot also retain
+    /// this value without turning sparse steering into a stop-start loop.
+    pub scheduled_target_vel_x: Vec<f32>,
+    pub scheduled_target_vel_y: Vec<f32>,
     pub next_pos_x: Vec<f32>,
     pub next_pos_y: Vec<f32>,
     pub next_vel_x: Vec<f32>,
@@ -206,6 +211,8 @@ impl World {
 
         self.des_vel_x.push(0.0);
         self.des_vel_y.push(0.0);
+        self.scheduled_target_vel_x.push(0.0);
+        self.scheduled_target_vel_y.push(0.0);
         self.next_pos_x.push(spawn.position.x);
         self.next_pos_y.push(spawn.position.y);
         self.next_vel_x.push(0.0);
@@ -278,6 +285,8 @@ impl World {
             h = hash_combine(h, canonical_bits(self.pos_y[slot]));
             h = hash_combine(h, canonical_bits(self.vel_x[slot]));
             h = hash_combine(h, canonical_bits(self.vel_y[slot]));
+            h = hash_combine(h, canonical_bits(self.scheduled_target_vel_x[slot]));
+            h = hash_combine(h, canonical_bits(self.scheduled_target_vel_y[slot]));
             h = hash_combine(h, canonical_bits(self.yaw[slot]));
             h = hash_combine(h, self.route[slot].0 as u64);
             h = hash_combine(h, self.route_index[slot] as u64);
@@ -395,6 +404,8 @@ mod tests {
         assert_eq!(world.pos_x.len(), n);
         assert_eq!(world.pos_y.len(), n);
         assert_eq!(world.vel_x.len(), n);
+        assert_eq!(world.scheduled_target_vel_x.len(), n);
+        assert_eq!(world.scheduled_target_vel_y.len(), n);
         assert_eq!(world.next_pos_x.len(), n);
         assert_eq!(world.solver_status.len(), n);
         assert_eq!(world.stall_ticks.len(), n);

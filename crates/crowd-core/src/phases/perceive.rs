@@ -60,7 +60,7 @@ pub fn perceive_scheduled(
     perceive_with_schedule(world, grid, config, scratch, arena, |slot| {
         match world.simulation_tier[slot] {
             SimulationTier::S0 | SimulationTier::S1 => true,
-        SimulationTier::S2 => tick.is_multiple_of(4),
+            SimulationTier::S2 => tick.is_multiple_of(4),
             SimulationTier::S3 => false,
         }
     });

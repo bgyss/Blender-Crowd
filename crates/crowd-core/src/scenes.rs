@@ -137,59 +137,88 @@ pub fn throughput_gate(name: &str, agents: u32) -> Option<Segment> {
 /// congestion benchmark, which makes it unsuitable for a 90% S2 background
 /// population. This scene keeps density stable by scaling the full street
 /// cross section with the requested population and has no hidden bottleneck.
+///
+/// Each direction uses parallel route lanes. A single waypoint line for a
+/// tall spawn region turns that whole region into an unintended merge: every
+/// agent is pulled onto one centreline before it can make forward progress.
+/// Parallel lane strips make the background-flow fixture measure scheduled
+/// steering at scale, rather than that artificial convergence.
 fn m5_city_flow(agents: u32, seed: u64, scale: f32) -> SceneDef {
+    const LANES_PER_DIRECTION: u32 = 6;
+    const TOTAL_LANES: u32 = LANES_PER_DIRECTION * 2;
+
     let bounds = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(80.0 * scale, 40.0 * scale));
     let mut waypoints = WaypointGraph::new();
-    let west_east_start = waypoints.add_node(Vec2::new(4.0 * scale, 10.0 * scale));
-    let west_east_exit = waypoints.add_node(Vec2::new(76.0 * scale, 10.0 * scale));
-    let east_west_start = waypoints.add_node(Vec2::new(76.0 * scale, 30.0 * scale));
-    let east_west_exit = waypoints.add_node(Vec2::new(4.0 * scale, 30.0 * scale));
-    waypoints.add_edge(west_east_start, west_east_exit);
-    waypoints.add_edge(east_west_start, east_west_exit);
-    // Keep the generic waypoint graph structurally connected. Neither
-    // population's shortest route uses this end-of-street connector.
-    waypoints.add_edge(west_east_exit, east_west_start);
     let margin = 2.0 * scale;
     let spawn_width = 14.0 * scale;
+    let lane_pitch = 16.0 * scale / LANES_PER_DIRECTION as f32;
+    let lane_half_width = lane_pitch * 0.35;
+    let mut destinations = Vec::with_capacity(TOTAL_LANES as usize);
+    let mut spawns = Vec::with_capacity(TOTAL_LANES as usize);
+    let mut previous_connector: Option<u32> = None;
+
+    for lane in 0..LANES_PER_DIRECTION {
+        let y = (2.0 * scale) + lane_pitch * (lane as f32 + 0.5);
+        let start = waypoints.add_node(Vec2::new(4.0 * scale, y));
+        let exit = waypoints.add_node(Vec2::new(76.0 * scale, y));
+        waypoints.add_edge(start, exit);
+        if let Some(previous) = previous_connector {
+            // This is a structural connection for the generic waypoint
+            // graph. The direct lane edge is always the shorter route.
+            waypoints.add_edge(previous, start);
+        }
+        previous_connector = Some(exit);
+        destinations.push(Destination {
+            name: format!("east_exit_lane_{lane}"),
+            node: exit,
+        });
+        spawns.push(SpawnRegion {
+            id: lane as u16,
+            population_id: 0,
+            area: Aabb::new(
+                Vec2::new(margin, y - lane_half_width),
+                Vec2::new(margin + spawn_width, y + lane_half_width),
+            ),
+            count: split_count(agents, TOTAL_LANES, lane),
+            per_tick: ((2.0 * scale).ceil() as u32).max(1),
+            destination: lane as u16,
+        });
+    }
+
+    for lane in 0..LANES_PER_DIRECTION {
+        let y = (22.0 * scale) + lane_pitch * (lane as f32 + 0.5);
+        let start = waypoints.add_node(Vec2::new(76.0 * scale, y));
+        let exit = waypoints.add_node(Vec2::new(4.0 * scale, y));
+        waypoints.add_edge(start, exit);
+        if let Some(previous) = previous_connector {
+            waypoints.add_edge(previous, start);
+        }
+        previous_connector = Some(exit);
+        let destination = LANES_PER_DIRECTION + lane;
+        destinations.push(Destination {
+            name: format!("west_exit_lane_{lane}"),
+            node: exit,
+        });
+        spawns.push(SpawnRegion {
+            id: destination as u16,
+            population_id: 0,
+            area: Aabb::new(
+                Vec2::new(80.0 * scale - margin - spawn_width, y - lane_half_width),
+                Vec2::new(80.0 * scale - margin, y + lane_half_width),
+            ),
+            count: split_count(agents, TOTAL_LANES, destination),
+            per_tick: ((2.0 * scale).ceil() as u32).max(1),
+            destination: destination as u16,
+        });
+    }
+
     SceneDef {
         name: "m5_city_flow".to_owned(),
         bounds,
         walls: box_walls(bounds),
         waypoints,
-        destinations: vec![
-            Destination {
-                name: "east_exit".to_owned(),
-                node: west_east_exit,
-            },
-            Destination {
-                name: "west_exit".to_owned(),
-                node: east_west_exit,
-            },
-        ],
-        spawns: vec![
-            SpawnRegion {
-                id: 0,
-                population_id: 0,
-                area: Aabb::new(
-                    Vec2::new(margin, margin),
-                    Vec2::new(margin + spawn_width, 18.0 * scale),
-                ),
-                count: split_count(agents, 2, 0),
-                per_tick: ((12.0 * scale).round() as u32).max(1),
-                destination: 0,
-            },
-            SpawnRegion {
-                id: 1,
-                population_id: 0,
-                area: Aabb::new(
-                    Vec2::new(80.0 * scale - margin - spawn_width, 22.0 * scale),
-                    Vec2::new(80.0 * scale - margin, 40.0 * scale - margin),
-                ),
-                count: split_count(agents, 2, 1),
-                per_tick: ((12.0 * scale).round() as u32).max(1),
-                destination: 1,
-            },
-        ],
+        destinations,
+        spawns,
         populations: vec![PopulationParams::default()],
         project_seed: seed,
         ticks_per_second: 30,
@@ -791,5 +820,28 @@ mod tests {
         // A count that does not divide evenly must still total exactly.
         let compiled = build("crossing", 101, 42).unwrap().compile().unwrap();
         assert_eq!(compiled.total_agents(), 101);
+    }
+
+    #[test]
+    fn m5_city_flow_uses_parallel_lane_strips_without_an_entry_funnel() {
+        let agents = 1_000;
+        let scale = population_scale(agents);
+        let scene = build("m5_city_flow", agents, 42).unwrap();
+
+        assert_eq!(scene.spawns.len(), 12);
+        assert_eq!(scene.destinations.len(), 12);
+        assert_eq!(
+            scene.spawns.iter().map(|spawn| spawn.count).sum::<u32>(),
+            agents
+        );
+        assert!(scene.waypoints.is_connected());
+        for (index, spawn) in scene.spawns.iter().enumerate() {
+            let height = spawn.area.max.y - spawn.area.min.y;
+            assert!(
+                height < 2.5 * scale,
+                "lane {index} grew into a wide merge strip: {height}m"
+            );
+            assert_eq!(spawn.destination as usize, index);
+        }
     }
 }

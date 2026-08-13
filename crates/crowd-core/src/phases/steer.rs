@@ -78,7 +78,7 @@ pub fn steer(
     steer_with_schedule(world, arena, scene, solver, config, scratch, None)
 }
 
-/// M5 steering schedule. S2 reuses its last solved velocity between scheduled
+/// M5 steering schedule. S2 reuses its last solved target between scheduled
 /// evaluations; S3 follows its coarse desired flow without invoking the
 /// individual avoidance solver. Neither path freezes root motion.
 pub fn steer_scheduled(
@@ -127,11 +127,12 @@ fn steer_with_schedule(
         if !should_solve {
             if world.simulation_tier[slot] == SimulationTier::S2 {
                 // `decide` has just written a new preferred velocity into
-                // des_vel; restore the last committed velocity until the next
-                // sparse solve. This is a bounded background approximation,
-                // never a pause in authoritative integration.
-                world.des_vel_x[slot] = world.vel_x[slot];
-                world.des_vel_y[slot] = world.vel_y[slot];
+                // des_vel; restore the target from the last sparse solve.
+                // Reusing the current velocity turns each sparse interval
+                // into a stop-start acceleration sawtooth and adds heading
+                // jitter without any new avoidance evidence.
+                world.des_vel_x[slot] = world.scheduled_target_vel_x[slot];
+                world.des_vel_y[slot] = world.scheduled_target_vel_y[slot];
             }
             world.solver_status[slot] = SolverStatus::Free;
             continue;
@@ -187,6 +188,8 @@ fn steer_with_schedule(
 
         world.des_vel_x[slot] = velocity.x;
         world.des_vel_y[slot] = velocity.y;
+        world.scheduled_target_vel_x[slot] = velocity.x;
+        world.scheduled_target_vel_y[slot] = velocity.y;
 
         world.solver_status[slot] = output.status;
 
@@ -476,5 +479,29 @@ mod tests {
         let report = run_steer(&mut world, &scene, &[]);
         assert_eq!(report.braking_agents, 0);
         assert!(report.min_time_to_collision.is_infinite());
+    }
+
+    #[test]
+    fn sparse_s2_tick_reuses_last_solved_target_not_current_velocity() {
+        let scene = open_scene(Vec::new());
+        let mut world = world_with(&[(1, Vec2::ZERO, Vec2::new(1.35, 0.0))]);
+        world.simulation_tier[0] = SimulationTier::S2;
+        world.vel_x[0] = 0.2;
+        world.vel_y[0] = -0.1;
+        world.scheduled_target_vel_x[0] = 1.1;
+        world.scheduled_target_vel_y[0] = 0.4;
+        let mut scratch = SteerScratch::default();
+
+        steer_scheduled(
+            &mut world,
+            &NeighborArena::new(),
+            &scene,
+            &SampledVelocitySolver::default(),
+            &SteerConfig::default(),
+            &mut scratch,
+            1,
+        );
+
+        assert_eq!(world.desired_velocity(0), Vec2::new(1.1, 0.4));
     }
 }

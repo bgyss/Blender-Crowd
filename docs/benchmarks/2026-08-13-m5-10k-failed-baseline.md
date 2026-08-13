@@ -1,6 +1,6 @@
 # M5 10K city-flow failed baseline
 
-Date: 2026-08-13  
+Date: 2026-08-13
 Milestone: [M5 — Scale, GPU tiers, and procedural rendering](../milestones/M5-scale-rendering.md)  
 Status: **failed; do not begin the 100K gate**
 
@@ -66,3 +66,51 @@ unoptimized baseline—not as a test of the M5 scheduler or final city fixture.
    1K confirmation run before repeating the full 10K gate.
 5. Stop before 100K unless the rerun meets fixed quality and performance gates
    and is supplemented by required Blender/fallback evidence.
+
+## Initial 1K post-optimization confirmation
+
+Date: 2026-08-13
+Status: **confirmation completed; neither a 10K acceptance nor authorization for 100K**
+
+The declared profile was present: 100 S1/R1 agents and 900 S2/R2 agents, with
+S2 perception and steering scheduled every four ticks. The lane-separated
+fixture completed 1,000 / 1,000 agents in 14,230 ticks at 527.6 ticks/s
+(26.97 s wall time).
+
+Quality remains an explicit optimization concern: the run recorded 3,036
+penetration pair-ticks, a 0.239 m maximum penetration, 759 agents ever stalled,
+and 269,057 heading reversals. These measurements must be judged against
+declared per-tier thresholds before a 10K result can be accepted; they cannot
+be treated as a pass merely because destination completion and throughput
+improved.
+
+## 1K quality-optimization pass
+
+Date: 2026-08-13
+Status: **simulation rerun is justified; this remains neither a 10K acceptance nor authorization for 100K**
+
+Root-cause review found that each direction's tall spawn band was routed onto a
+single waypoint centreline. That created an unintentional merge before agents
+could make forward progress. The fixture now uses twelve parallel lane strips
+(six per direction), each with its own direct route and destination. Sparse S2
+steering also now retains its last solved target velocity between evaluations;
+it previously reused the current velocity, producing a stop-start acceleration
+sawtooth.
+
+| Measure | Initial 1K confirmation | Quality-optimization pass |
+| --- | ---: | ---: |
+| Spawned / arrived | 1,000 / 1,000 | 1,000 / 1,000 |
+| Simulation rate | 527.6 ticks/s | 1,249.8 ticks/s |
+| Wall time | 26.97 s | 11.39 s |
+| Penetration pair-ticks | 3,036 | 40 |
+| Maximum penetration | 0.239 m | 0.026 m |
+| Agents ever stalled | 759 | 22 |
+| Abrupt turns | 522 | 27 |
+
+The raw heading-reversal counter remains high (259,797) because it counts
+alternating signed corrections above 0.001 radians; it must stay visible in the
+10K report and receive a declared per-tier tolerance rather than being treated
+as resolved by this pass. The 40 pair-ticks, 2.6 cm peak depth, 22 stalled
+agents, full completion, and retained 10% S1 / 90% S2 profile justify repeating
+the 10K simulation gate. The required Blender, CPU-fallback, and formal
+threshold evidence still blocks 10K acceptance and all 100K work.

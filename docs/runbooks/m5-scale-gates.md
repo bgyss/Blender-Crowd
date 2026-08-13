@@ -103,3 +103,41 @@ git diff --check
 ```
 
 M5 completes only with separate passing 10K and 100K reports.
+
+## 1K optimization confirmation
+
+Run this shorter confirmation after an optimization change and before repeating
+the full 10K simulation. It is evidence for the next optimization decision, not
+an M5 acceptance gate and does not authorize the 100K run.
+
+```sh
+mkdir -p "$HOME/blender-crowd-m5/1k-confirmation"
+cargo run --release -p crowd-bench -- run \
+  --scene m5_city_flow --agents 1000 \
+  --out "$HOME/blender-crowd-m5/1k-confirmation"
+```
+
+The report's scale measurements are nested under `.metrics`; only
+`fidelity_profile`, `environment`, `ticks_per_second`, and `duration_ticks` are
+top-level fields. Use this query rather than a `.metrics` wrapper around every
+field:
+
+```sh
+jq '{
+  fidelity_profile,
+  environment,
+  ticks_per_second,
+  duration_ticks,
+  metrics: {
+    agents_spawned: .metrics.agents_spawned,
+    agents_arrived: .metrics.agents_arrived,
+    completion_rate: .metrics.completion_rate,
+    penetration_pair_ticks: .metrics.penetration_pair_ticks,
+    max_penetration_depth: .metrics.max_penetration_depth,
+    agents_ever_stalled: .metrics.agents_ever_stalled,
+    ticks_per_second_achieved: .metrics.ticks_per_second_achieved,
+    wall_time_seconds: .metrics.wall_time_seconds,
+    phase_time_shares: .metrics.phase_time_shares
+  }
+}' "$HOME/blender-crowd-m5/1k-confirmation/m5_city_flow-1000.json"
+```
