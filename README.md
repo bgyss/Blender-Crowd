@@ -184,6 +184,11 @@ lifecycle drills, release-policy review, and accessibility audit. Independent
 evaluator studies are deferred to M7. Windows, Linux, and Intel macOS are
 explicitly outside the Blender Crowd 1.0 support contract.
 
+Generated cache directories are intentionally not versioned. See the
+[artifact storage policy](docs/release/artifact-storage-policy.md) for the
+future 100-agent GitHub demo-fixture path and external hosting policy for
+1,000-agent evidence and future 10K/100K artifacts.
+
 `--svg` and `--frames` sample the simulation every tick, so a run recorded with
 either reports a `ticks_per_second` that is not a performance measurement.
 `--trace` also writes every tick to disk and is not an isolated simulation-
