@@ -2,6 +2,7 @@
 # M5 contract foundation: deterministic tier scheduling and bounded cache reads.
 set -eu
 cargo test -p crowd-core fidelity --lib
+cargo test -p crowd-core profile_assignment_is_derived_from_stable_id_not_spawn_order --lib
 cargo test -p crowd-core background_perception_is_deterministically_scheduled --lib
 cargo test -p crowd-core sparse_s2_tick_reuses_last_solved_target_not_current_velocity --lib
 cargo test -p crowd-core m5_city_flow_uses_parallel_lane_strips_without_an_entry_funnel --lib

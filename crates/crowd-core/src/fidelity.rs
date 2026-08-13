@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::AgentId;
+use crate::ids::{mix64, AgentId};
 use crate::units::Vec2;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -98,6 +98,17 @@ impl FidelityPolicy {
         }
     }
 
+    /// Stable background assignment for a declared percentage profile.
+    ///
+    /// This must use the agent ID, not an emission ordinal local to one spawn
+    /// region. A lane-based fixture has many small regions; applying a 90%
+    /// cutoff to each region-local ordinal classified every agent as S2 while
+    /// the report still claimed a 90/10 split.
+    pub fn is_background_id(&self, id: AgentId) -> Option<bool> {
+        self.background_permyriad
+            .map(|background| mix64(id.0) % 10_000 < u64::from(background))
+    }
+
     pub fn target(&self, position: Vec2, current: SimulationTier) -> SimulationTier {
         let distance = position.distance_squared(self.camera).sqrt();
         match current {
@@ -162,5 +173,13 @@ mod tests {
             ..FidelityPolicy::default()
         };
         assert!(policy.validate().is_err());
+    }
+
+    #[test]
+    fn profile_assignment_is_derived_from_stable_id_not_spawn_order() {
+        let policy = FidelityPolicy::m5_10k_profile();
+        let id = AgentId(0x1234_5678_9abc_def0);
+        assert_eq!(policy.is_background_id(id), policy.is_background_id(id));
+        assert!(policy.is_background_id(id).is_some());
     }
 }

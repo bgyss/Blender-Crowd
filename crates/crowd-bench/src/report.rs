@@ -12,7 +12,7 @@ use crowd_core::avoidance::{
 use crowd_core::metrics::{MetricsConfig, MetricsSummary};
 use crowd_core::scenes;
 use crowd_core::sim::{SimConfig, Simulation};
-use crowd_core::FidelityPolicy;
+use crowd_core::{FidelityPolicy, RenderTier, SimulationTier};
 use serde::{Deserialize, Serialize};
 
 use crate::alloc;
@@ -20,7 +20,7 @@ use crate::frames::FrameWriter;
 use crate::svg::TrajectoryRecorder;
 
 /// Bumped whenever the report schema changes incompatibly.
-pub const REPORT_SCHEMA_VERSION: u32 = 3;
+pub const REPORT_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SolverKind {
@@ -339,14 +339,38 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
     );
 
     let fidelity_profile = if options.scene == "m5_city_flow" {
-        let s2_agents = options.agents.saturating_mul(9) / 10;
-        let s1_agents = options.agents - s2_agents;
+        // Count the committed assignments rather than re-deriving the target
+        // share from `options.agents`. The report is evidence of what ran.
+        let s1_agents = sim
+            .world()
+            .simulation_tier
+            .iter()
+            .filter(|tier| **tier == SimulationTier::S1)
+            .count() as u32;
+        let s2_agents = sim
+            .world()
+            .simulation_tier
+            .iter()
+            .filter(|tier| **tier == SimulationTier::S2)
+            .count() as u32;
+        let r1_agents = sim
+            .world()
+            .render_fidelity_tier
+            .iter()
+            .filter(|tier| **tier == RenderTier::R1)
+            .count() as u32;
+        let r2_agents = sim
+            .world()
+            .render_fidelity_tier
+            .iter()
+            .filter(|tier| **tier == RenderTier::R2)
+            .count() as u32;
         Some(FidelityProfileReport {
-            mode: "stable_id_10_percent_s1_90_percent_s2".to_owned(),
+            mode: "stable_agent_id_hash_target_10_percent_s1_90_percent_s2".to_owned(),
             s1_agents,
             s2_agents,
-            r1_agents: s1_agents,
-            r2_agents: s2_agents,
+            r1_agents,
+            r2_agents,
             s2_perception_interval_ticks: 4,
             s2_steering_interval_ticks: 4,
             s3_individual_perception: false,
@@ -443,19 +467,19 @@ mod tests {
     #[test]
     fn m5_city_flow_records_its_declared_background_mix() {
         let report = run_scene(&options("m5_city_flow", 100)).unwrap();
+        let profile = report.fidelity_profile.expect("M5 profile was omitted");
         assert_eq!(
-            report.fidelity_profile,
-            Some(FidelityProfileReport {
-                mode: "stable_id_10_percent_s1_90_percent_s2".to_owned(),
-                s1_agents: 10,
-                s2_agents: 90,
-                r1_agents: 10,
-                r2_agents: 90,
-                s2_perception_interval_ticks: 4,
-                s2_steering_interval_ticks: 4,
-                s3_individual_perception: false,
-            })
+            profile.mode,
+            "stable_agent_id_hash_target_10_percent_s1_90_percent_s2"
         );
+        assert_eq!(profile.s1_agents + profile.s2_agents, 100);
+        assert_eq!(profile.r1_agents, profile.s1_agents);
+        assert_eq!(profile.r2_agents, profile.s2_agents);
+        assert!(
+            profile.s1_agents > 0,
+            "stable profile assigned no S1 agents"
+        );
+        assert!(profile.s2_agents > profile.s1_agents);
     }
 
     #[test]

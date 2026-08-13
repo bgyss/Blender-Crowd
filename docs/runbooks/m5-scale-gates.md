@@ -50,9 +50,13 @@ cargo run --release -p crowd-bench -- cache-experiment \
   --out "$HOME/blender-crowd-m5/10k/cache"
 ```
 
-`m5_city_flow` now enables its declared stable-ID 10% S1 / 90% S2 profile;
-the generated report records that profile. Do not compare it directly with the
-pre-profile failed baseline except as an optimization reference.
+`m5_city_flow` now enables a declared stable-agent-ID profile targeting 10%
+S1/R1 and 90% S2/R2. Schema-v4 reports count the committed S/R assignments;
+because a stable hash partitions a finite population, the exact count may vary
+slightly around that target. Do not accept a schema-v3 city-flow report: it
+restated target counts while classifying lane-local ordinals incorrectly.
+Do not compare the schema-v4 result directly with the pre-profile failed
+baseline except as an optimization reference.
 
 The `run` command is the complete simulation measurement. Do not substitute
 the shorter `--cache-frames 8` preflight for it. The cache matrix proves cache

@@ -114,3 +114,33 @@ as resolved by this pass. The 40 pair-ticks, 2.6 cm peak depth, 22 stalled
 agents, full completion, and retained 10% S1 / 90% S2 profile justify repeating
 the 10K simulation gate. The required Blender, CPU-fallback, and formal
 threshold evidence still blocks 10K acceptance and all 100K work.
+
+## First 10K post-optimization rerun
+
+Date: 2026-08-13
+Status: **invalid profile evidence; do not accept and do not begin 100K**
+
+The rerun completed 10,000 / 10,000 agents at 72.9 ticks/s in 617.47 s, with
+6,479 penetration pair-ticks, a 0.316 m peak penetration, 6,570 agents ever
+stalled, and 7,275 abrupt turns. This is a substantial improvement over the
+original pre-profile baseline, but it cannot be used for M5 acceptance.
+
+The report was schema v3 and incorrectly declared 1,000 S1 / 9,000 S2 agents.
+Its scheduler applied the 90% cutoff to each lane-local ordinal, so every lane
+(about 833 agents) was actually S2. The profile is repaired in schema v4:
+classification now uses a stable-agent-ID hash and the report counts committed
+S/R assignments rather than restating the requested target. Repeat both the 1K
+confirmation and 10K simulation with schema v4 before making any quality or
+performance claim for the declared mix.
+
+## 1K confirmation after profile repair
+
+Date: 2026-08-13
+Status: **profile assignment confirmed; repeat 10K next**
+
+Schema v4 recorded 101 S1/R1 and 899 S2/R2 agents, close to the declared
+10%/90% target and now derived from stable IDs rather than lane-local ordinals.
+The run completed 1,000 / 1,000 at 985.9 ticks/s in 14.43 s, with 40
+penetration pair-ticks, 0.068 m maximum penetration, 50 agents ever stalled,
+and 43 abrupt turns. This confirms the repaired profile is active, but does
+not replace the pending 10K scale, Blender, fallback, or threshold gates.

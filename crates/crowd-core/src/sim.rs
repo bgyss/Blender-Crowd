@@ -206,10 +206,7 @@ impl Simulation {
                 .map(|index| self.fidelity_pins[index]);
             let simulation = pin.map_or_else(
                 || match policy.background_permyriad {
-                    Some(background)
-                        if u64::from(self.world.spawn_ordinal[slot]) % 10_000
-                            < u64::from(background) =>
-                    {
+                    Some(_) if policy.is_background_id(id) == Some(true) => {
                         crate::fidelity::SimulationTier::S2
                     }
                     Some(_) => crate::fidelity::SimulationTier::S1,
