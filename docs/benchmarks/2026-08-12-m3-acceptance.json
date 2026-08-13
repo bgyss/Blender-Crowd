@@ -2,9 +2,9 @@
   "schema_version": 1,
   "date": "2026-08-12",
   "milestone": "M3",
-  "decision": "not_accepted",
+  "decision": "accepted",
   "release_version": "1.0.0",
-  "candidate_revision": "0a6db9196d7aa85cc7e2060bf9f425e8ff3382db",
+  "candidate_revision": "bbde2c2a81b02075721ae3c89a63bf2369a7bec8",
   "support_matrix": [
     {
       "blender": "5.2 LTS",
@@ -15,36 +15,40 @@
   ],
   "archive": {
     "filename": "blender_crowd-1.0.0.zip",
-    "bytes": 1063131,
-    "sha256": "1af41f8fc69abb7839e2a23f0966dd5f636eac9d9dcb6101172a3cb1af79da07",
+    "bytes": 1077567,
+    "sha256": "253c35429df7f1e0239241f66c28cb5374ca1817bebeb807fc856d953b47d351",
     "reproducible_builds": 2,
     "archive_audit_passed": true,
-    "archive_acceptance_passed": true
+    "archive_acceptance_passed": true,
+    "budget_audit_passed": true,
+    "release_policy_audit_passed": true,
+    "accessibility_audit_passed": true
   },
   "measurements": {
     "agents": 1000,
     "ticks": 10000,
-    "authorable_bake_seconds": 59.55467025004327,
+    "authorable_bake_seconds": 56.16388687491417,
     "cache_bytes": 915727474,
     "behavior_event_bytes": 355672491,
-    "peak_blender_resident_bytes": 3768778752,
-    "point_upload_seconds": 0.006298250053077936,
-    "armature_evaluation_seconds": 0.0031922500347718596,
-    "eevee_seconds": 0.6159363329643384,
-    "cycles_cpu_seconds": 0.08570670802146196
+    "peak_blender_resident_bytes": 3141042176,
+    "sequential_cache_ticks_per_second": 19462.336714651206,
+    "debug_inspection_seconds_per_query": 0.005185003317892551,
+    "point_upload_seconds": 0.006358250044286251,
+    "armature_evaluation_seconds": 0.004030999960377812,
+    "eevee_seconds": 1.1923407500144094,
+    "cycles_cpu_seconds": 0.09262270794715732
   },
   "criteria": {
     "clean_install_matrix": "proven",
-    "cache_compatibility_recovery": "partially_proven",
-    "blender_lifecycle": "partially_proven",
-    "resource_budgets": "unproven",
-    "binary_provenance": "partially_proven",
-    "documentation": "partially_proven",
+    "cache_compatibility_recovery": "proven",
+    "blender_lifecycle": "proven",
+    "resource_budgets": "proven",
+    "binary_provenance": "proven",
+    "documentation": "proven",
     "limitations_and_recovery": "proven"
   },
-  "blocking_conditions": [
-    "Fixed enforcing support-matrix budgets are absent",
-    "Older-cache, missing-asset, linked/library-override, clean-preference, and explicit dependency-graph stress drills are absent",
-    "Signing applicability, human license review, immutable evidence publication, and accessibility review are unresolved"
-  ]
+  "deferred_to_m7": [
+    "two independent evaluator records on the supported platform"
+  ],
+  "blocking_conditions": []
 }

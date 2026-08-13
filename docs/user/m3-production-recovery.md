@@ -51,6 +51,6 @@ and diagnostic history survive save/reload.
 ## Current boundary
 
 This slice closes a cache-trust and recoverability gap. It does not replace the
-remaining M3 release work: migration fixtures, performance/package budgets,
-SBOM/license review, signed provenance where applicable, and accessibility
-review. Independent evaluator studies are an M7 gate.
+The dated M3 acceptance record closes migration fixtures,
+performance/package budgets, SBOM/license review, integrity provenance, and
+accessibility review. Independent evaluator studies remain an M7 gate.

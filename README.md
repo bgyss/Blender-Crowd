@@ -33,7 +33,8 @@ integration proposal backed by production evidence.
 
 ## Status
 
-M0, M1, and M2 are accepted, and M3 is unblocked. The implemented system includes a
+M0 through M3 are accepted. Blender Crowd 1.0 is narrowed to Blender 5.2 LTS
+on macOS 11+ Apple Silicon. The implemented system includes a
 headless deterministic Rust kernel, selected navigation and avoidance, a
 recoverable versioned cache, an abi3 native facade, a clean-install Blender
 extension, and cache-only Geometry Nodes presentation.
@@ -173,15 +174,15 @@ Built wheels are not committed. The wheel is `abi3` on purpose: Blender 5.2
 treats an `abi3` tag as "any CPython 3", so a single wheel survives Blender
 moving to a newer CPython.
 
-The M3 candidate release contract is documented in the [support matrix](docs/release/1.0-support-matrix.md)
+The M3 release contract is documented in the [support matrix](docs/release/1.0-support-matrix.md)
 and [compatibility policy](docs/release/1.0-compatibility.md). Generate the
 release SPDX inventory with `scripts/m3_sbom.py --out addon/blender_crowd/sbom.spdx.json`;
 the wheel builder does this automatically before packaging.
-The current dated [M3 candidate audit](docs/benchmarks/2026-08-12-m3-acceptance.md)
-is intentionally **not accepted**; it names the remaining macOS-arm64 archive,
-budget, signing-applicability, license-review, and evaluator gates. Windows,
-Linux, and Intel macOS are explicitly outside the Blender Crowd 1.0 support
-contract.
+The dated [M3 acceptance record](docs/benchmarks/2026-08-12-m3-acceptance.md)
+records the reproducible archive, enforcing budgets, compatibility and
+lifecycle drills, release-policy review, and accessibility audit. Independent
+evaluator studies are deferred to M7. Windows, Linux, and Intel macOS are
+explicitly outside the Blender Crowd 1.0 support contract.
 
 `--svg` and `--frames` sample the simulation every tick, so a run recorded with
 either reports a `ticks_per_second` that is not a performance measurement.

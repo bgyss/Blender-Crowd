@@ -15,8 +15,9 @@ scoped proposals for generally useful Blender mainline capabilities.
 
 ## Prerequisites and authorization
 
-M3 passes and real users or production evaluators have exercised the extension.
-M4-M6 evidence is included only for completed capabilities. Researching public
+M3 passes. Independent production-evaluator studies are part of the M7 gate,
+not a prerequisite for 1.0 or for beginning M7. M4-M6 evidence is included only
+for completed capabilities. Researching public
 Blender processes and preparing local proposals is in scope; contacting
 maintainers, publishing proposals, filing issues, opening pull requests, or
 representing the project externally requires explicit authorization in that

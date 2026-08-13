@@ -1,5 +1,9 @@
 # M3 — Production Blender Crowd 1.0
 
+**Accepted on 2026-08-12.** The clean macOS arm64 archive passed the complete
+archive-first, resource, compatibility, lifecycle, policy, and accessibility
+gates. See the [dated acceptance record](../benchmarks/2026-08-12-m3-acceptance.md).
+
 ## Objective
 
 Harden the authorable MVP into a trustworthy, installable, recoverable release
@@ -99,9 +103,8 @@ archives. Stop the release on data loss, cache misidentification, unsupported
 binary linkage, nondeterministic discrete decisions, or an unbounded crash. Do
 not reclassify a failing criterion as post-1.0 to ship on schedule.
 
-## Current candidate audit
+## Acceptance record
 
-The dated [M3 candidate acceptance audit](../benchmarks/2026-08-12-m3-acceptance.md)
-tracks this milestone criterion by criterion. It remains **not accepted** until
-the locally executable release, compatibility, resource, documentation, and
-accessibility gates pass from a clean archive.
+The dated [M3 acceptance record](../benchmarks/2026-08-12-m3-acceptance.md)
+tracks every criterion, exact artifact identity, measured budget, and deferred
+M7 evaluator study.

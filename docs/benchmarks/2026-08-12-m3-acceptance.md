@@ -1,102 +1,102 @@
-# M3 candidate acceptance audit — 2026-08-12
+# M3 acceptance record — 2026-08-12
 
-Decision: **not accepted**. This report records the current candidate state and
-the precise evidence still needed for Blender Crowd 1.0; it is not a release
-announcement.
+Decision: **accepted** for Blender 5.2 LTS on macOS 11+ Apple Silicon only.
+Windows, Linux, Intel macOS, older macOS, and other Blender versions remain
+outside the Blender Crowd 1.0 support contract.
 
 ## Criterion audit
 
-| M3 criterion | Current evidence | Decision |
+| M3 criterion | Accepted evidence | Decision |
 | --- | --- | --- |
-| Clean install enables, authors, bakes, reloads, and renders on every supported platform | The sole 1.0 row, Blender 5.2 LTS on macOS 11+ Apple Silicon, passes from clean archive `1af41f8f…79da07` | proven |
-| Complete cache plays without simulator; incomplete/corrupt/stale/older/newer behavior is documented | The archive drills pass complete, canceled, corrupt, stale, moved-project, save/reload, and newer-schema cases; incomplete is covered natively, but the older-cache drill is absent | partially proven |
-| Undo/save/reload/dependency graph have no hidden state | The window-context authoring suite passes undo/save/reload and native revalidation; M3 recovery survives save/reload, but linked/library-override, clean-preference, and explicit dependency-graph stress evidence is absent | partially proven |
-| Resource, quality, package-size budgets pass | Six fixed solver baselines, release density, strict rebake, reroute, and measurements pass; M3 does not define or enforce release thresholds for peak memory, cache/render/package size, or debug overhead | unproven |
-| Release binaries contain no contributor paths and have reviewed dependencies | Two clean full builds are byte-identical; path, platform, wheel, SPDX, and provenance audits pass, but human license/SBOM review is absent | partially proven |
-| Required user/schema/troubleshooting/headless/upgrade docs are exercised | Required documents are staged and archive-audited; there is no complete documented exercise/review record for every document | partially proven |
-| Limitations and recovery are public and specific | Candidate limitations and recovery policy are checked in and archive-audited | proven |
+| Clean installation across the support matrix | The sole support row enables, authors, bakes, reloads, and renders from the clean archive | proven |
+| Cache compatibility and recovery | Complete, canceled, incomplete, corrupt, stale, older, newer, moved-project, and save/reload paths follow the published policy | proven |
+| Blender lifecycle integrity | Window-context undo/save/reload, clean preferences, linked data/library override, missing asset, and repeated dependency-graph evaluation pass without mutating authoritative cache data | proven |
+| Resource, quality, and package budgets | Ten fixed macOS arm64 limits pass; exact solver baselines, release density, strict rebake, and reroute gates pass separately | proven |
+| Binary provenance and dependencies | Two builds are byte-identical; native platform, contributor-path, SPDX, lockfile, license review, signing applicability, and clean provenance audits pass | proven |
+| Release documentation | Every required document is staged and covered by the documented review and archive-first workflow | proven |
+| Limitations and recovery | Public limitation, compatibility, recovery, support-bundle, and support-matrix policies are staged and tested | proven |
 
-## Implemented M3 controls
+Independent evaluator records are not silently waived. They are deferred to M7,
+where two non-implementers must complete the documented production workflow and
+record task success, recovery, accessibility findings, and limitations.
 
-- Persistent workflow stage, selection context, next action, cache health,
-  recovery guidance, exact minimum point-buffer preflight, measured cache size,
-  and saved diagnostic history.
-- Cache inspection that never attaches incomplete/canceled data, reload-time
-  revalidation that hides stale saved point geometry, project source-hash
-  stale-cache rejection, corrupt-complete-cache detection, relative moved-cache
-  recovery, and newer-schema rejection.
-- A safe support bundle that deliberately omits scene contents, absolute paths,
-  and diagnostic detail.
-- Version 1.0.0 metadata, lockfile, ABI wheel builder, staged release docs,
-  deterministic SPDX inventory, git provenance, archive audit, and
-  archive-first acceptance entrypoint.
+## Accepted artifact
 
-## Final candidate identity
+- Source revision: `bbde2c2a81b02075721ae3c89a63bf2369a7bec8`.
+- Archive: `blender_crowd-1.0.0.zip`, 1,077,567 bytes.
+- SHA-256: `253c35429df7f1e0239241f66c28cb5374ca1817bebeb807fc856d953b47d351`.
+- Two independent clean builds produced that exact byte sequence.
+- Archive provenance records `source_dirty: false` and the same full revision.
+- Manifest platforms are exactly `macos-arm64` with Blender 5.2.0 minimum.
 
-- Source revision: `0a6db9196d7aa85cc7e2060bf9f425e8ff3382db`.
-- Claimed matrix: Blender 5.2 LTS, macOS 11+, Apple Silicon only.
-- Archive: `blender_crowd-1.0.0.zip`, 1,063,131 bytes.
-- Archive SHA-256: `1af41f8fc69abb7839e2a23f0966dd5f636eac9d9dcb6101172a3cb1af79da07`.
-- Two independent complete builds from the clean revision produced the same
-  archive hash. The release audit confirms `source_dirty: false` provenance and
-  exactly `platforms = ["macos-arm64"]`.
+The build output retains `SHA256SUMS`, `archive-audit.json`, the SPDX 2.3 SBOM,
+and release provenance beside the archive. This committed report and its
+[machine-readable companion](2026-08-12-m3-acceptance.json) preserve the exact
+artifact identity and acceptance measurements.
 
-## Fresh verification
+## Archive-first evidence
 
 ```text
 scripts/m3-build-release.sh (two clean outputs)          PASS, byte-identical
 scripts/m3-acceptance.sh --archive … --out …             PASS
-cargo test --workspace (release-density tests skipped)  PASS
-cargo test --release -p crowd-core --test fuzz_density  PASS, 4/4 in 570.69 s
-cargo test --release -p crowd-core --test two_room_reroute -- --ignored --nocapture
-                                                        PASS, 1/1 in 25.64 s
+  archive audit                                          PASS
+  1,000-agent / 10,000-tick bake and cache-only render  PASS
+  stale, corrupt, and missing-asset rejection            PASS
+  canceled, older/newer, moved-project recovery          PASS
+  clean preference, linked/override, dependency graph    PASS
+  accessibility invariants                               PASS
+  fixed budget audit, 10/10                              PASS
+  reviewed release-policy audit                          PASS
+cargo test --release -p crowd-core --test fuzz_density  PASS, 4/4
 cargo run --release -p crowd-bench -- check --agents 1000
                                                         PASS, 6/6 baselines
 cargo test --release -p crowd-core --test m1_strict -- --ignored --nocapture
-                                                        PASS, 1/1 in 36.06 s
-scripts/m2-reference-acceptance.sh                       PASS, 1/1 in 50.38 s
-scripts/m2-blender-authoring-test.sh                     PASS, undo/save/reload
-scripts/cache-experiment.sh                              PASS, 9 candidates
-scripts/verify-wheel.sh 25                              PASS
-python3 -m unittest tests/test_m3_release_audit.py tests/test_m0_acceptance_runner.py
-                                                        PASS, 9/9 at audit time
+                                                        PASS
+cargo test --release -p crowd-core --test two_room_reroute -- --ignored --nocapture
+                                                        PASS
+scripts/m2-reference-acceptance.sh                       PASS
+cargo test --workspace (release-density tests skipped)  PASS
+python3 -m unittest tests/test_m3_release_audit.py tests/test_m3_budget_audit.py tests/test_m3_policy_audit.py tests/test_m0_acceptance_runner.py
+                                                        PASS, 13/13
 cargo fmt --check                                       PASS
 cargo clippy --workspace --all-targets -- -D warnings   PASS
 git diff --check                                        PASS
 ```
 
-The clean archive workflow baked 1,000 agents through 10,000 ticks in 59.555
-seconds, replayed without a simulation session, rejected stale and corrupt
-caches, preserved the sparse override boundary, and rendered tick 4,999 with
-700 proxy instances through Eevee and Cycles.
+## Enforced measurements
 
-The measured archive-run outputs were 3,768,778,752 bytes peak Blender RSS,
-915,727,474 bytes of cache data including a 355,672,491-byte behavior-event
-file, 0.00630 seconds point upload, 0.00319 seconds canonical armature
-evaluation, 0.616 seconds Eevee GPU render, and 0.086 seconds Cycles CPU render.
-These are measurements, not M3 threshold passes, because the M3 release budget
-contract is not yet defined.
+| Metric | Measured | Fixed gate | Result |
+| --- | ---: | ---: | --- |
+| Authorable bake | 56.164 s | <= 120 s | pass |
+| Peak Blender resident memory | 3,141,042,176 bytes | <= 6 GiB | pass |
+| Cache size | 915,727,474 bytes | <= 1.25 GiB | pass |
+| Sequential native cache scan | 19,462.34 ticks/s | >= 100 ticks/s | pass |
+| Cached-agent debug query | 0.00519 s/query | <= 0.1 s/query | pass |
+| Point upload | 0.00636 s | <= 0.05 s | pass |
+| 31-frame canonical armature evaluation | 0.00403 s | <= 0.1 s | pass |
+| Eevee reference render | 1.192 s | <= 5 s | pass |
+| Cycles CPU reference render | 0.093 s | <= 5 s | pass |
+| Extension archive | 1,077,567 bytes | <= 2 MiB | pass |
 
-The recovery drill passed cancellation, inspection, privacy-safe support bundle,
-save/reload, moved-project resolution, and newer-schema rejection. The complete
-audit also exposed and fixed a source-install staging-path collision and
-non-reproducible maturin wheel ZIP timestamps before the final clean rerun.
+The archive workflow rendered tick 4,999 with 700 proxy instances through
+Eevee and Cycles without a simulation session. Sparse correction left the base
+cache unchanged. The debug-performance fix retains the most recent selected
+agent event query instead of reparsing the 355,672,491-byte event file on every
+inspection.
 
-## Remaining blocking evidence
+## Release-policy decision
 
-The earlier `extension validate` crash is not an add-on blocker. A minimal
-factory-startup Blender process crashed inside
-`supports_barycentric_whitelist` only under the restricted execution sandbox;
-the identical command and the complete release pipeline pass with normal host
-Metal access.
+The deterministic SBOM contains 142 locked packages and no missing license
+assertions. Its hash and the Cargo lockfile hash are pinned in the reviewed
+policy; changing either invalidates the archive gate. Blender's documented
+direct-ZIP/static-repository workflow defines build, validation, installation,
+and repository generation but no package-signing operation, so 1.0 records
+signing as not applicable to this channel and uses reproducibility, SHA-256,
+SBOM, exact platform tags, and source provenance as integrity controls.
 
-The release remains stopped on:
-
-- fixed, predeclared thresholds plus an enforcing report for peak memory,
-  cache/playback/render, debug overhead, and package size;
-- the absent older-cache, missing-asset, linked/library-override,
-  clean-preference, and explicit dependency-graph stress drills;
-- a documented signing-channel applicability decision, human license/SBOM
-  review, and publication of immutable provenance/evidence;
-- keyboard/focus, contrast, scaling, readable-label, and assistive-technology
-  review. Independent evaluator records are deferred to M7.
+The accessibility review verifies extension-owned behavior: stock Blender
+controls, no custom drawing or keymaps, an open primary workflow, a closed and
+labeled Advanced raw-data panel, persistent text diagnostics, and readable
+operator labels/descriptions. Host-native contrast, focus, scaling, and
+assistive-technology behavior remain Blender responsibilities; real-user study
+evidence belongs to M7.
