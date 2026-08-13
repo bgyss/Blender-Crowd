@@ -19,6 +19,9 @@ pub const SCENE_NAMES: [&str; 6] = [
     "l_corridor",
 ];
 
+/// Scale fixtures deliberately excluded from the legacy baseline sweep.
+pub const M5_SCENE_NAMES: [&str; 1] = ["m5_city_flow"];
+
 pub fn build(name: &str, agents: u32, seed: u64) -> Option<SceneDef> {
     let scale = population_scale(agents);
     let scene = match name {
@@ -33,6 +36,7 @@ pub fn build(name: &str, agents: u32, seed: u64) -> Option<SceneDef> {
         // with the population — see `population_scale`.
         "bottleneck" => bottleneck(agents, seed, scale),
         "dense_flow" => dense_flow(agents, seed, scale),
+        "m5_city_flow" => m5_city_flow(agents, seed, scale),
         _ => return None,
     };
     Some(scene)
@@ -107,7 +111,7 @@ pub fn throughput_gate(name: &str, agents: u32) -> Option<Segment> {
                 Vec2::new(x, mid + 1.2),
             ))
         }
-        "dense_flow" => {
+        "dense_flow" | "m5_city_flow" => {
             let x = 28.0 * scale;
             let mid = 15.0 * scale;
             Some(Segment::new(
@@ -117,6 +121,14 @@ pub fn throughput_gate(name: &str, agents: u32) -> Option<Segment> {
         }
         _ => None,
     }
+}
+
+/// M5 background-flow reference with a unique scene hash and duration.
+fn m5_city_flow(agents: u32, seed: u64, scale: f32) -> SceneDef {
+    let mut scene = dense_flow(agents, seed, scale);
+    scene.name = "m5_city_flow".to_owned();
+    scene.duration_ticks = scene.duration_ticks.max(2_400);
+    scene
 }
 
 /// Split `total` across `parts` so the counts sum to exactly `total`.

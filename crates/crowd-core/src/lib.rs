@@ -10,6 +10,8 @@ pub mod behavior;
 pub mod clock;
 pub mod commuter;
 pub mod concourse;
+pub mod fidelity;
+pub mod field;
 pub mod geometry;
 pub mod grid;
 pub mod ids;
@@ -39,6 +41,8 @@ pub use commuter::{
     RuntimeAgentSpec, RuntimeAnimationSettings, TimedPortalInput,
 };
 pub use concourse::compile_concourse;
+pub use fidelity::{FidelityPin, FidelityPolicy, RenderTier, SimulationTier};
+pub use field::{CpuSpatialField, FieldConfig, FieldSample, FieldValue, SpatialFieldKernel};
 pub use geometry::Segment;
 pub use grid::{SegmentIndex, UniformGrid};
 pub use ids::{derive_agent_id, AgentId};

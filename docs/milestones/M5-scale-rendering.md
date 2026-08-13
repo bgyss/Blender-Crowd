@@ -75,6 +75,16 @@ meaning. Cross-vendor parity is not claimed from a single device.
 - Backend/support matrix describing correctness, determinism mode, fallback,
   driver/API requirements, and unsupported features.
 
+`m5_city_flow` is the dedicated background-flow fixture. It is excluded from
+the legacy baseline sweep and must be invoked by name for M5 evidence.
+
+Current backend availability is recorded in the
+[backend support matrix](../backend-support-matrix.md). It is intentionally a
+support boundary, not evidence that an unimplemented backend has passed M5.
+
+Use the [10K and 100K scale-gate runbook](../runbooks/m5-scale-gates.md) for
+the exact long-running command-line procedure and evidence checklist.
+
 ## 10K acceptance gate
 
 1. The declared 10K scene and tier mix meet fixed simulation, memory, cache,

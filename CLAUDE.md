@@ -15,6 +15,7 @@ cargo test --workspace                                    # unit, property, dete
 cargo test -p crowd-core --test behavior_graph            # M2 typed graph schema/compiler
 scripts/m2-foundation-test.sh                             # implemented M2 compiler/data-layer checks
 scripts/m4-foundation-test.sh                             # M4 layer composition, migration, bridge, and profile checks
+scripts/m5-foundation-test.sh                             # M5 tier scheduler and bounded cache-streaming foundation
 scripts/m4-blender-test.sh                                # M4 clean-install layer editor, conflict, flatten, USD, and reload proof
 M4_ARTIFACT_DIR=/tmp/blender-crowd-m4-captures scripts/m4-blender-test.sh # retain M4 before/after and scale PNGs
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress

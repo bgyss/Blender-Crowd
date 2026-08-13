@@ -242,6 +242,37 @@ class CROWD_PT_project(Panel):
         layout.operator("crowd.render_reference_frame")
 
 
+class CROWD_PT_m5_scale_profile(Panel):
+    bl_label = "M5 Scale and Profiling"
+    bl_idname = "CROWD_PT_m5_scale_profile"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "scene"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.crowd_project
+        layout.label(text="Aggregate tiers; no per-agent list", icon="SEQ_STRIP_META")
+        layout.label(text=props.m5_profile_status)
+        box = layout.box()
+        box.label(text="Declared S0-S3")
+        for name in ("m5_s0_count", "m5_s1_count", "m5_s2_count", "m5_s3_count"):
+            box.prop(props, name)
+        box.label(text="Declared R0-R4")
+        for name in ("m5_r0_count", "m5_r1_count", "m5_r2_count", "m5_r3_count", "m5_r4_count"):
+            box.prop(props, name)
+        box.prop(props, "m5_backend")
+        box.prop(props, "m5_fallback")
+        layout.label(text="Estimates (not measurements)", icon="INFO")
+        layout.prop(props, "m5_estimated_memory")
+        layout.prop(props, "m5_estimated_cache")
+        layout.prop(props, "m5_estimated_extract")
+        layout.label(text="Measured evidence")
+        layout.prop(props, "m5_measured_summary")
+        layout.prop(props, "m5_bottleneck")
+
+
 class CROWD_PT_m4_layout(Panel):
     bl_label = "M4 Layered Layout and Interchange"
     bl_idname = "CROWD_PT_m4_layout"
@@ -318,7 +349,7 @@ class CROWD_PT_m4_layout(Panel):
         layout.label(text="Unsupported profile features report as warnings.", icon="INFO")
 
 
-_CLASSES = (CROWD_UL_diagnostics, CROWD_UL_m4_layers, CROWD_PT_workflow, CROWD_PT_project, CROWD_PT_m4_layout)
+_CLASSES = (CROWD_UL_diagnostics, CROWD_UL_m4_layers, CROWD_PT_workflow, CROWD_PT_project, CROWD_PT_m5_scale_profile, CROWD_PT_m4_layout)
 
 
 def register():

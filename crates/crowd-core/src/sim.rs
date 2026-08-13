@@ -16,6 +16,8 @@ use crate::clock::Clock;
 use crate::commuter::{
     AgentSnapshot, ClipState, DecisionReason, FrameSnapshot, PortalControlError,
 };
+use crate::fidelity::{render_for, FidelityPin, FidelityPolicy};
+use crate::field::{CpuSpatialField, FieldConfig, FieldSample, SpatialFieldKernel};
 use crate::geometry::Segment;
 use crate::grid::UniformGrid;
 use crate::metrics::{Metrics, MetricsConfig, Phase};
@@ -23,7 +25,7 @@ use crate::nav::{PortalId, TileGraph};
 use crate::phases::animate::{animate, AnimateConfig};
 use crate::phases::decide::{decide, DecideConfig};
 use crate::phases::integrate::{integrate, IntegrateConfig, IntegrateScratch};
-use crate::phases::perceive::{perceive, PerceiveConfig, PerceiveScratch};
+use crate::phases::perceive::{perceive, perceive_scheduled, PerceiveConfig, PerceiveScratch};
 use crate::phases::plan::{invalidate_portal, plan, PlanConfig, PlanState};
 use crate::phases::spawn::{apply_spawns, SpawnState};
 use crate::phases::steer::{steer, SteerConfig, SteerScratch};
@@ -44,6 +46,9 @@ pub struct SimConfig {
     /// is the right default: cells much smaller than the query radius make
     /// every query touch many cells.
     pub grid_cell_size: f32,
+    /// Optional M5 presentation scheduler. It runs after root-motion commit,
+    /// so it can never feed back into this tick's authoritative trajectory.
+    pub fidelity: Option<FidelityPolicy>,
 }
 
 pub struct Simulation {
@@ -69,6 +74,7 @@ pub struct Simulation {
 
     metrics: Metrics,
     authorable_behavior: Option<RuntimeBehaviorController>,
+    fidelity_pins: Vec<FidelityPin>,
 }
 
 impl Simulation {
@@ -118,6 +124,7 @@ impl Simulation {
             integrate_scratch: IntegrateScratch::default(),
             metrics: Metrics::new(),
             authorable_behavior: None,
+            fidelity_pins: Vec::new(),
         }
     }
 
@@ -153,12 +160,64 @@ impl Simulation {
         self.world.state_hash()
     }
 
+    /// Produce a read-only aggregate field from the committed authoritative
+    /// world.  This deliberately returns a separate artifact: M5 consumers
+    /// can use it for background-flow presentation or coarse perception but
+    /// cannot feed a field result back into identity, layers, or root motion.
+    pub fn cpu_spatial_field(&self, config: FieldConfig) -> Result<CpuSpatialField, &'static str> {
+        let samples = (0..self.world.len())
+            .map(|slot| FieldSample {
+                position: self.world.position(slot as u32),
+                velocity: self.world.velocity(slot as u32),
+            })
+            .collect::<Vec<_>>();
+        let mut field = CpuSpatialField::default();
+        field.build(&samples, config)?;
+        Ok(field)
+    }
+
     pub fn nav(&self) -> Option<&TileGraph> {
         self.nav.as_ref()
     }
 
     pub fn enable_authorable_behavior(&mut self, controller: RuntimeBehaviorController) {
         self.authorable_behavior = Some(controller);
+    }
+
+    /// Replace pins atomically. Sorting makes lookup and results independent
+    /// of Blender/UI collection order.
+    pub fn set_fidelity_pins(&mut self, mut pins: Vec<FidelityPin>) {
+        pins.sort_by_key(|pin| pin.agent_id);
+        pins.dedup_by_key(|pin| pin.agent_id);
+        self.fidelity_pins = pins;
+    }
+
+    fn schedule_fidelity(&mut self) {
+        let Some(policy) = self.config.fidelity else {
+            return;
+        };
+        debug_assert!(policy.validate().is_ok());
+        for slot in 0..self.world.len() {
+            let id = self.world.agent_id[slot];
+            let pin = self
+                .fidelity_pins
+                .binary_search_by_key(&id, |pin| pin.agent_id)
+                .ok()
+                .map(|index| self.fidelity_pins[index]);
+            let simulation = pin.map_or_else(
+                || {
+                    policy.target(
+                        self.world.position(slot as u32),
+                        self.world.simulation_tier[slot],
+                    )
+                },
+                |pin| pin.simulation,
+            );
+            let render = pin.map_or_else(|| render_for(simulation), |pin| pin.render);
+            self.world.simulation_tier[slot] = simulation;
+            self.world.render_fidelity_tier[slot] = render;
+            self.world.render_tier[slot] = render as u8;
+        }
     }
 
     pub fn behavior_trace(
@@ -448,13 +507,24 @@ impl Simulation {
             .record_phase(Phase::Index, start.elapsed().as_nanos() as u64);
 
         let start = Instant::now();
-        perceive(
-            &self.world,
-            &self.grid,
-            &self.config.perceive,
-            &mut self.perceive_scratch,
-            &mut self.neighbors,
-        );
+        if self.config.fidelity.is_some() {
+            perceive_scheduled(
+                &self.world,
+                &self.grid,
+                &self.config.perceive,
+                &mut self.perceive_scratch,
+                &mut self.neighbors,
+                self.clock.tick(),
+            );
+        } else {
+            perceive(
+                &self.world,
+                &self.grid,
+                &self.config.perceive,
+                &mut self.perceive_scratch,
+                &mut self.neighbors,
+            );
+        }
         self.metrics
             .record_phase(Phase::Perceive, start.elapsed().as_nanos() as u64);
 
@@ -506,6 +576,7 @@ impl Simulation {
         let start = Instant::now();
         animate(&mut self.world, &self.animate_config);
         self.world.commit();
+        self.schedule_fidelity();
         self.metrics
             .record_phase(Phase::Animate, start.elapsed().as_nanos() as u64);
 
@@ -616,6 +687,40 @@ mod tests {
         sim.run(5);
         assert_eq!(sim.world().len(), 10, "spawning must stop at the count");
         assert!(sim.spawn_errors().is_empty());
+    }
+
+    #[test]
+    fn fidelity_scheduler_preserves_root_motion_and_honors_artist_pins() {
+        let mut sim = Simulation::new(
+            corridor(4),
+            Box::new(SampledVelocitySolver::default()),
+            SimConfig {
+                fidelity: Some(FidelityPolicy {
+                    camera: Vec2::new(1000.0, 1000.0),
+                    ..FidelityPolicy::default()
+                }),
+                ..SimConfig::default()
+            },
+        );
+        sim.step();
+        let pinned = sim.world.agent_id[0];
+        sim.set_fidelity_pins(vec![FidelityPin {
+            agent_id: pinned,
+            simulation: crate::fidelity::SimulationTier::S0,
+            render: crate::fidelity::RenderTier::R0,
+        }]);
+        sim.step();
+        assert_eq!(
+            sim.world.simulation_tier[0],
+            crate::fidelity::SimulationTier::S0
+        );
+        assert_eq!(sim.world.render_tier[0], 0);
+        assert!(sim.world.simulation_tier[1..]
+            .iter()
+            .all(|tier| *tier == crate::fidelity::SimulationTier::S3));
+        assert!(sim.world.pos_x.iter().all(|position| position.is_finite()));
+        let field = sim.cpu_spatial_field(FieldConfig::default()).unwrap();
+        assert!(field.sample(sim.world.position(0)).density > 0);
     }
 
     #[test]

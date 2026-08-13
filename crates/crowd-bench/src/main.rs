@@ -39,7 +39,7 @@ fn usage() -> &'static str {
   crowd-bench check [--agents N] [--seed N] [--solver NAME]
   crowd-bench compare [--scene NAME] [--out DIR]
   crowd-bench nav-reroute [--agents N] [--seed N] [--out DIR] [--svg]
-  crowd-bench cache-experiment [--agents N] [--seed N] [--out DIR]
+  crowd-bench cache-experiment [--agents N] [--seed N] [--cache-frames N] [--out DIR]
   crowd-bench m1 validate [--out FILE]
   crowd-bench m1 bake --cache DIR [--out FILE]
   crowd-bench m1 compare --first DIR --second DIR [--out FILE]
@@ -60,6 +60,7 @@ struct Args {
     out: PathBuf,
     solver: crate::report::SolverKind,
     trace: bool,
+    cache_frames: u32,
 }
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -73,6 +74,7 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         out: PathBuf::from(REPORT_DIR),
         solver: crate::report::SolverKind::SampledVelocity,
         trace: false,
+        cache_frames: 120,
     };
     let mut index = 0;
     while index < raw.len() {
@@ -104,6 +106,17 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
             "--svg" => args.svg = true,
             "--frames" => args.frames = true,
             "--trace" => args.trace = true,
+            "--cache-frames" => {
+                index += 1;
+                args.cache_frames = raw
+                    .get(index)
+                    .ok_or("--cache-frames needs a value")?
+                    .parse()
+                    .map_err(|_| "--cache-frames must be a number")?;
+                if args.cache_frames == 0 {
+                    return Err("--cache-frames must be positive".to_string());
+                }
+            }
             "--frame-interval" => {
                 index += 1;
                 args.frame_interval = raw
@@ -136,7 +149,9 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
 fn scenes_to_run(args: &Args) -> Result<Vec<String>, String> {
     match &args.scene {
         Some(name) => {
-            if !scenes::SCENE_NAMES.contains(&name.as_str()) {
+            if !scenes::SCENE_NAMES.contains(&name.as_str())
+                && !scenes::M5_SCENE_NAMES.contains(&name.as_str())
+            {
                 return Err(format!(
                     "unknown scene {name}; known scenes: {}",
                     scenes::SCENE_NAMES.join(", ")
@@ -198,6 +213,7 @@ fn command_sweep(args: &Args) -> Result<(), String> {
                 out: args.out.clone(),
                 solver: args.solver,
                 trace: false,
+                cache_frames: args.cache_frames,
             };
             let report = run_scene(&options_for(&scene, &sweep_args))?;
             println!(
@@ -253,6 +269,7 @@ fn command_check(args: &Args) -> Result<bool, String> {
                 out: args.out.clone(),
                 solver: args.solver,
                 trace: false,
+                cache_frames: args.cache_frames,
             },
         ))?;
 
@@ -373,7 +390,7 @@ fn command_nav_reroute(args: &Args) -> Result<(), String> {
 fn command_cache_experiment(args: &Args) -> Result<(), String> {
     let report = run_experiment(&ExperimentOptions {
         agents: args.agents,
-        frames: 120,
+        frames: args.cache_frames,
         seed: args.seed,
         out_dir: args.out.clone(),
     })?;
