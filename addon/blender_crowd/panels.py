@@ -12,6 +12,14 @@ class CROWD_UL_diagnostics(UIList):
         layout.label(text="{}: {}".format(item.severity.title(), item.summary), icon=icon)
 
 
+class CROWD_UL_m4_layers(UIList):
+    """Dense layer rows expose composition order and affect scope at a glance."""
+
+    def draw_item(self, _context, layout, _data, item, _icon, _active_data, _active_propname, _index):
+        icon = "HIDE_ON" if item.muted else "RESTRICT_VIEW_OFF"
+        layout.label(text="{} · {} · {}".format(item.kind, item.layer_id, item.target_summary), icon=icon)
+
+
 class CROWD_PT_workflow(Panel):
     bl_label = "Crowd Workflow"
     bl_idname = "CROWD_PT_workflow"
@@ -234,7 +242,83 @@ class CROWD_PT_project(Panel):
         layout.operator("crowd.render_reference_frame")
 
 
-_CLASSES = (CROWD_UL_diagnostics, CROWD_PT_workflow, CROWD_PT_project)
+class CROWD_PT_m4_layout(Panel):
+    bl_label = "M4 Layered Layout and Interchange"
+    bl_idname = "CROWD_PT_m4_layout"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "scene"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.crowd_project
+        layout.label(text="Base cache remains read-only", icon="LOCKED")
+        layout.prop(props, "layout_layers_path")
+        row = layout.row(align=True)
+        row.operator("crowd.apply_m4_layers", icon="MODIFIER")
+        row.operator("crowd.inspect_m4_layout", icon="INFO")
+        layout.template_list(
+            "CROWD_UL_m4_layers", "", props, "m4_layers", props, "active_m4_layer_index", rows=4
+        )
+        if props.m4_layers and props.active_m4_layer_index < len(props.m4_layers):
+            item = props.m4_layers[props.active_m4_layer_index]
+            box = layout.box()
+            box.label(text="Order {} / Priority {}".format(item.order, item.priority))
+            box.label(text=item.provenance or "No provenance")
+            box.label(text="Validity: {}".format(item.validity))
+            row = box.row(align=True)
+            row.operator("crowd.toggle_m4_layer_mute", text="Unmute" if item.muted else "Mute", icon="HIDE_ON" if item.muted else "HIDE_OFF")
+            row.operator("crowd.toggle_m4_layer_solo", text="Unsolo" if item.solo else "Solo", icon="SOLO_ON" if item.solo else "SOLO_OFF")
+        layout.separator()
+        layout.label(text="Sparse viewport correction")
+        layout.operator("crowd.select_m4_nearest_agent", icon="RESTRICT_SELECT_OFF")
+        layout.label(text="Place the 3D cursor near a visible instance, then select it.")
+        layout.prop(props, "m4_layer_id")
+        layout.prop(props, "m4_layer_kind")
+        row = layout.row(align=True)
+        row.prop(props, "m4_order")
+        row.prop(props, "m4_priority")
+        layout.prop(props, "m4_target_agent_ids")
+        row = layout.row(align=True)
+        row.prop(props, "m4_tick_start")
+        row.prop(props, "m4_tick_end")
+        row = layout.row(align=True)
+        row.prop(props, "m4_offset_x")
+        row.prop(props, "m4_offset_y")
+        row.prop(props, "m4_offset_z")
+        layout.operator("crowd.add_m4_transform_layer", icon="PLUS")
+        layout.separator()
+        layout.label(text="Region and curve corrections")
+        layout.prop(props, "m4_region_id")
+        layout.prop(props, "m4_density_millionths")
+        layout.operator("crowd.add_m4_region_density", icon="MOD_VERTEX_WEIGHT")
+        layout.prop(props, "m4_curve_id")
+        layout.prop(props, "m4_curve_offset_ticks")
+        layout.operator("crowd.add_m4_curve_retiming", icon="CURVE_DATA")
+        layout.separator()
+        layout.label(text="Selected-agent physics handoff")
+        layout.prop(props, "m4_physics_masks")
+        layout.prop(props, "m4_physics_restitution_millionths")
+        layout.operator("crowd.add_m4_physics_handoff", icon="PHYSICS")
+        layout.separator()
+        layout.label(text="Bounded local re-simulation")
+        row = layout.row(align=True)
+        row.prop(props, "m4_resim_target_x")
+        row.prop(props, "m4_resim_target_y")
+        row.prop(props, "m4_resim_target_z")
+        layout.prop(props, "m4_resim_max_speed_mps")
+        layout.operator("crowd.add_m4_local_resimulation", icon="FILE_REFRESH")
+        layout.label(text=props.m4_layout_status, icon="FILE_TICK")
+        layout.separator()
+        layout.prop(props, "layout_flatten_path")
+        layout.operator("crowd.flatten_m4_layout", icon="DUPLICATE")
+        layout.prop(props, "layout_export_path")
+        layout.operator("crowd.export_m4_usd", icon="EXPORT")
+        layout.label(text="Unsupported profile features report as warnings.", icon="INFO")
+
+
+_CLASSES = (CROWD_UL_diagnostics, CROWD_UL_m4_layers, CROWD_PT_workflow, CROWD_PT_project, CROWD_PT_m4_layout)
 
 
 def register():

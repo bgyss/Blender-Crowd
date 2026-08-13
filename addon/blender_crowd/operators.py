@@ -4,8 +4,9 @@ import json
 import threading
 
 import bpy
-from bpy.props import EnumProperty, StringProperty
+from bpy.props import EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy.types import Operator
+from mathutils import Vector
 
 import blender_crowd_native
 
@@ -18,6 +19,7 @@ from . import (
     geometry_nodes,
     health,
     layout_editor,
+    m4_layout,
     overrides,
     project,
     reference_assets,
@@ -277,6 +279,375 @@ class CROWD_OT_pin_selected_agent(Operator):
         )
         health.set_selection(context.scene, "Pinned agent: {}".format(layer["target_agent_id"]))
         self.report({"INFO"}, context.scene.crowd_project.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_apply_m4_layers(Operator):
+    bl_idname = "crowd.apply_m4_layers"
+    bl_label = "Apply M4 Layer Stack"
+    bl_description = "Compose a validated non-destructive M4 stack over the attached cache"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        props = context.scene.crowd_project
+        path = bpy.path.abspath(props.layout_layers_path or m4_layout.default_layer_stack_path(props.cache_path))
+        try:
+            layers = m4_layout.attach_layer_stack(playback, path)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.layout_layers_path = path
+        m4_layout.sync_layer_summaries(context.scene, layers)
+        props.status = "Applied {} M4 layers without rebaking".format(len(layers))
+        health.record(context.scene, "INFO", "M4 layers composed", props.status, path, playback.object.name)
+        self.report({"INFO"}, props.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_export_m4_usd(Operator):
+    bl_idname = "crowd.export_m4_usd"
+    bl_label = "Export M4 USD Profile"
+    bl_description = "Export the current composed cache as the documented PointInstancer profile"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        path = bpy.path.abspath(context.scene.crowd_project.layout_export_path)
+        try:
+            m4_layout.write_usda(playback, playback.current_tick, path)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        context.scene.crowd_project.status = "Exported M4 USD profile: {}".format(path)
+        health.record(context.scene, "INFO", "M4 USD profile exported", context.scene.crowd_project.status, path, playback.object.name)
+        self.report({"INFO"}, context.scene.crowd_project.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_add_m4_transform_layer(Operator):
+    bl_idname = "crowd.add_m4_transform_layer"
+    bl_label = "Add Transform Correction"
+    bl_description = "Add a sparse M4 layout correction for selected stable IDs"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        props = context.scene.crowd_project
+        try:
+            text = props.m4_target_agent_ids.strip()
+            agent_ids = [int(value.strip()) for value in text.split(",") if value.strip()]
+            if not agent_ids and props.selected_agent_id.strip():
+                agent_ids = [overrides.selected_agent_id(props)]
+            path = bpy.path.abspath(props.layout_layers_path or m4_layout.default_layer_stack_path(props.cache_path))
+            layer = m4_layout.new_transform_layer(
+                props.m4_layer_id,
+                props.m4_layer_kind,
+                playback.base_cache_hash,
+                agent_ids,
+                props.m4_tick_start,
+                props.m4_tick_end,
+                (props.m4_offset_x, props.m4_offset_y, props.m4_offset_z),
+                order=props.m4_order,
+                priority=props.m4_priority,
+            )
+            layers = m4_layout.append_layer(path, layer)
+            playback.set_layout_layers(layers)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.layout_layers_path = path
+        m4_layout.sync_layer_summaries(context.scene, layers)
+        props.m4_layout_status = "Added {} for {} agent(s), ticks {}..{}".format(layer["layer_id"], len(agent_ids), props.m4_tick_start, props.m4_tick_end)
+        health.record(context.scene, "INFO", "M4 correction added", props.m4_layout_status, path, playback.object.name)
+        self.report({"INFO"}, props.m4_layout_status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_inspect_m4_layout(Operator):
+    bl_idname = "crowd.inspect_m4_layout"
+    bl_label = "Inspect M4 Layout"
+    bl_description = "Show active layers, conflicts, and explicit interchange warnings"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        try:
+            report = m4_layout.status(playback)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        conflicts = report.get("conflicts", [])
+        props = context.scene.crowd_project
+        props.m4_layout_status = "{} active layer(s), {} conflict(s)".format(len(report.get("active_layer_ids", [])), len(conflicts))
+        severity = "WARNING" if conflicts else "INFO"
+        health.record(context.scene, severity, "M4 layout inspected", "\n".join(conflicts + report.get("warnings", [])), object_name=playback.object.name)
+        self.report({"INFO"}, props.m4_layout_status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_select_m4_nearest_agent(Operator):
+    bl_idname = "crowd.select_m4_nearest_agent"
+    bl_label = "Select Agent Near 3D Cursor"
+    bl_description = "Resolve the nearest visible procedural cache point to the 3D cursor as a stable agent ID"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        point_cloud = playback.object.data
+        position = point_cloud.attributes.get("crowd_position")
+        id_lo = point_cloud.attributes.get("crowd_agent_id_lo")
+        id_hi = point_cloud.attributes.get("crowd_agent_id_hi")
+        visible = point_cloud.attributes.get("crowd_visible")
+        if any(attribute is None for attribute in (position, id_lo, id_hi, visible)) or not len(position.data):
+            self.report({"ERROR"}, "attached cache has no selectable procedural points")
+            return {"CANCELLED"}
+        try:
+            cursor = context.scene.cursor.location
+            nearest_index, nearest_distance = None, None
+            for index, item in enumerate(position.data):
+                if not visible.data[index].value:
+                    continue
+                world_position = playback.object.matrix_world @ Vector(item.vector)
+                distance = (world_position - cursor).length_squared
+                if nearest_distance is None or distance < nearest_distance:
+                    nearest_index, nearest_distance = index, distance
+            if nearest_index is None:
+                raise ValueError("no visible cache agents are selectable at this tick")
+            agent_id = (int(id_lo.data[nearest_index].value) & 0xFFFFFFFF) | ((int(id_hi.data[nearest_index].value) & 0xFFFFFFFF) << 32)
+            props = context.scene.crowd_project
+            props.selected_agent_id = str(agent_id)
+            health.set_selection(context.scene, "M4 cursor selection: agent {}".format(agent_id))
+            props.m4_layout_status = "Selected stable agent {} near 3D cursor ({:.2f} m²)".format(agent_id, nearest_distance)
+        except (RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        self.report({"INFO"}, props.m4_layout_status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_toggle_m4_layer_mute(Operator):
+    bl_idname = "crowd.toggle_m4_layer_mute"
+    bl_label = "Toggle M4 Layer Mute"
+    bl_description = "Persistently mute or unmute the selected layout layer"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        props = context.scene.crowd_project
+        try:
+            path = bpy.path.abspath(props.layout_layers_path or m4_layout.default_layer_stack_path(props.cache_path))
+            row = props.m4_layers[props.active_m4_layer_index]
+            layer_id, next_state = row.layer_id, not row.muted
+            layers = m4_layout.set_layer_enabled_state(path, props.active_m4_layer_index, "muted", next_state)
+            playback.set_layout_layers(layers)
+            m4_layout.sync_layer_summaries(context.scene, layers)
+        except (IndexError, OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.layout_layers_path = path
+        props.m4_layout_status = "{} {}".format(layer_id, "muted" if next_state else "unmuted")
+        self.report({"INFO"}, props.m4_layout_status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_toggle_m4_layer_solo(Operator):
+    bl_idname = "crowd.toggle_m4_layer_solo"
+    bl_label = "Toggle M4 Layer Solo"
+    bl_description = "Persistently solo or unsolo the selected layout layer"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        props = context.scene.crowd_project
+        try:
+            path = bpy.path.abspath(props.layout_layers_path or m4_layout.default_layer_stack_path(props.cache_path))
+            row = props.m4_layers[props.active_m4_layer_index]
+            layer_id, next_state = row.layer_id, not row.solo
+            layers = m4_layout.set_layer_enabled_state(path, props.active_m4_layer_index, "solo", next_state)
+            playback.set_layout_layers(layers)
+            m4_layout.sync_layer_summaries(context.scene, layers)
+        except (IndexError, OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.layout_layers_path = path
+        props.m4_layout_status = "{} {}".format(layer_id, "soloed" if next_state else "unsoloed")
+        self.report({"INFO"}, props.m4_layout_status)
+        return {"FINISHED"}
+
+
+def _m4_target_ids(props):
+    text = props.m4_target_agent_ids.strip()
+    ids = [int(value.strip()) for value in text.split(",") if value.strip()]
+    return ids or ([overrides.selected_agent_id(props)] if props.selected_agent_id.strip() else [])
+
+
+class CROWD_OT_add_m4_region_density(Operator):
+    bl_idname = "crowd.add_m4_region_density"
+    bl_label = "Apply Region Density"
+    bl_description = "Deterministically retain the chosen density over explicit region-selected IDs"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        props = context.scene.crowd_project
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        try:
+            path = bpy.path.abspath(props.layout_layers_path or m4_layout.default_layer_stack_path(props.cache_path))
+            layer = m4_layout.new_scoped_layer(
+                props.m4_layer_id, "layout", playback.base_cache_hash, _m4_target_ids(props), props.m4_tick_start, props.m4_tick_end,
+                {"type": "region_density", "region_id": props.m4_region_id, "density_millionths": props.m4_density_millionths}, props.m4_order, props.m4_priority,
+            )
+            layers = m4_layout.append_layer(path, layer)
+            playback.set_layout_layers(layers)
+            m4_layout.sync_layer_summaries(context.scene, layers)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.layout_layers_path = path
+        props.m4_layout_status = "Applied region density to {} explicit agent(s)".format(len(layer["target"]["agent_ids"]))
+        self.report({"INFO"}, props.m4_layout_status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_add_m4_curve_retiming(Operator):
+    bl_idname = "crowd.add_m4_curve_retiming"
+    bl_label = "Add Curve Retiming"
+    bl_description = "Retime explicit curve-selected IDs without changing the base cache"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        props = context.scene.crowd_project
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        try:
+            path = bpy.path.abspath(props.layout_layers_path or m4_layout.default_layer_stack_path(props.cache_path))
+            layer = m4_layout.new_scoped_layer(
+                props.m4_layer_id, "layout", playback.base_cache_hash, _m4_target_ids(props), props.m4_tick_start, props.m4_tick_end,
+                {"type": "curve_retiming", "curve_id": props.m4_curve_id, "offset_ticks": props.m4_curve_offset_ticks}, props.m4_order, props.m4_priority,
+            )
+            layers = m4_layout.append_layer(path, layer)
+            playback.set_layout_layers(layers)
+            m4_layout.sync_layer_summaries(context.scene, layers)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.layout_layers_path = path
+        props.m4_layout_status = "Applied curve retiming to {} explicit agent(s)".format(len(layer["target"]["agent_ids"]))
+        self.report({"INFO"}, props.m4_layout_status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_flatten_m4_layout(Operator):
+    bl_idname = "crowd.flatten_m4_layout"
+    bl_label = "Write Reversible Flattened Preview"
+    bl_description = "Write a composed JSON preview while retaining the base cache and layers"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        path = bpy.path.abspath(context.scene.crowd_project.layout_flatten_path)
+        try:
+            m4_layout.write_flattened(playback, playback.current_tick, path)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        context.scene.crowd_project.m4_layout_status = "Flattened preview written; base cache and layers remain unchanged"
+        health.record(context.scene, "INFO", "M4 flattened preview written", path, path, playback.object.name)
+        self.report({"INFO"}, context.scene.crowd_project.m4_layout_status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_add_m4_physics_handoff(Operator):
+    bl_idname = "crowd.add_m4_physics_handoff"
+    bl_label = "Cache Physics Handoff"
+    bl_description = "Create a selected-agent deterministic physics cache interval and recovery layer"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        props = context.scene.crowd_project
+        if playback is None or not props.selected_agent_id.strip():
+            self.report({"ERROR"}, "attach a cache and select one stable agent first")
+            return {"CANCELLED"}
+        try:
+            agent_id = overrides.selected_agent_id(props)
+            evidence = playback.inspect_agent(agent_id, playback.current_tick)
+            path = bpy.path.abspath(props.layout_layers_path or m4_layout.default_layer_stack_path(props.cache_path))
+            layer = m4_layout.new_physics_handoff_layer(
+                blender_crowd_native, props.m4_layer_id, playback.base_cache_hash, agent_id,
+                props.m4_tick_start, props.m4_tick_end, playback.ticks_per_second,
+                evidence["position"], evidence["solved_velocity"], props.m4_physics_masks.split(","),
+                props.m4_physics_restitution_millionths,
+            )
+            layers = m4_layout.append_layer(path, layer)
+            playback.set_layout_layers(layers)
+            m4_layout.sync_layer_summaries(context.scene, layers)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.layout_layers_path = path
+        props.m4_layout_status = "Cached physics handoff for agent {} through tick {}".format(agent_id, props.m4_tick_end)
+        health.record(context.scene, "INFO", "M4 physics handoff cached", props.m4_layout_status, path, playback.object.name)
+        self.report({"INFO"}, props.m4_layout_status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_add_m4_local_resimulation(Operator):
+    bl_idname = "crowd.add_m4_local_resimulation"
+    bl_label = "Recompute Selected Local Trajectory"
+    bl_description = "Write a bounded selected-agent trajectory replacement into a reversible M4 layer"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        props = context.scene.crowd_project
+        if playback is None or not props.selected_agent_id.strip():
+            self.report({"ERROR"}, "attach a cache and select one stable agent first")
+            return {"CANCELLED"}
+        try:
+            agent_id = overrides.selected_agent_id(props)
+            evidence = playback.inspect_agent(agent_id, playback.current_tick)
+            path = bpy.path.abspath(props.layout_layers_path or m4_layout.default_layer_stack_path(props.cache_path))
+            layer = m4_layout.new_local_resimulation_layer(
+                blender_crowd_native, props.m4_layer_id, playback.base_cache_hash, agent_id,
+                props.m4_tick_start, props.m4_tick_end, playback.ticks_per_second,
+                evidence["position"], evidence["solved_velocity"],
+                (props.m4_resim_target_x, props.m4_resim_target_y, props.m4_resim_target_z), props.m4_resim_max_speed_mps,
+            )
+            layers = m4_layout.append_layer(path, layer)
+            playback.set_layout_layers(layers)
+            m4_layout.sync_layer_summaries(context.scene, layers)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.layout_layers_path = path
+        props.m4_layout_status = "Recomputed agent {} locally for ticks {}..{}".format(agent_id, props.m4_tick_start, props.m4_tick_end)
+        health.record(context.scene, "INFO", "M4 local trajectory recomputed", props.m4_layout_status, path, playback.object.name)
+        self.report({"INFO"}, props.m4_layout_status)
         return {"FINISHED"}
 
 
@@ -854,6 +1225,18 @@ _CLASSES = (
     CROWD_OT_apply_terrain_presentation,
     CROWD_OT_inspect_agent,
     CROWD_OT_pin_selected_agent,
+    CROWD_OT_apply_m4_layers,
+    CROWD_OT_export_m4_usd,
+    CROWD_OT_add_m4_transform_layer,
+    CROWD_OT_inspect_m4_layout,
+    CROWD_OT_select_m4_nearest_agent,
+    CROWD_OT_toggle_m4_layer_mute,
+    CROWD_OT_toggle_m4_layer_solo,
+    CROWD_OT_add_m4_region_density,
+    CROWD_OT_add_m4_curve_retiming,
+    CROWD_OT_flatten_m4_layout,
+    CROWD_OT_add_m4_physics_handoff,
+    CROWD_OT_add_m4_local_resimulation,
     CROWD_OT_render_reference_frame,
     CROWD_OT_create_reference_project,
     CROWD_OT_validate_project,

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "layer_id": "hero-pin",
+  "author": "migration fixture",
+  "created_at": "2026-08-12T00:00:00Z",
+  "priority": 100,
+  "enabled": true,
+  "target_agent_id": 7,
+  "tick_start": 10,
+  "tick_end": 20,
+  "operation": "additive",
+  "samples": [{"tick": 10, "translation": [1.0, 2.0, 3.0]}]
+}

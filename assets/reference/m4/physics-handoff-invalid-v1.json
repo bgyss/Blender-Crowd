@@ -1,0 +1,5 @@
+{
+  "description": "Failure fixture: handoff with no collision mask must be rejected.",
+  "collision_masks": [],
+  "recovery_tick": 15
+}

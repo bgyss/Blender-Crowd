@@ -16,9 +16,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crowd_cache::{
-    compose_frame, AgentStatic, BakeSpec, BehaviorEventCompactor, BehaviorEventKindV1,
-    BehaviorEventV1, CacheReader, CacheStatus, CacheWriter, ChannelDef, Frame as CacheFrame,
-    FrameRecord, OverrideLayerV1, RecoveryInspector, RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
+    compose_frame, compose_layout_frame_v1, write_usda_crowd_profile_v1, AgentStatic, BakeSpec,
+    BehaviorEventCompactor, BehaviorEventKindV1, BehaviorEventV1, CacheReader, CacheStatus,
+    CacheWriter, ChannelDef, Frame as CacheFrame, FrameRecord, LayoutLayerV1,
+    LocalResimulationRequestV1, OverrideLayerV1, PhysicsHandoffSpecV1, RecoveryInspector,
+    RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
 };
 use crowd_core::authoring::{
     compile_authorable_project as compile_core_authorable_project, migrate_project_v1,
@@ -380,7 +382,9 @@ enum CacheBacking {
 struct PyCache {
     path: PathBuf,
     backing: CacheBacking,
+    base_cache_hash: String,
     override_layers: Vec<OverrideLayerV1>,
+    layout_layers: Vec<LayoutLayerV1>,
     cached_behavior_query: Option<(u64, u64, Option<String>)>,
 }
 
@@ -425,10 +429,18 @@ impl PyCache {
                 }
             }
         };
+        let base_cache_hash = match &backing {
+            CacheBacking::Complete(reader) => reader.base_cache_hash_hex().map_err(|error| {
+                PyOSError::new_err(format!("E_CACHE_IDENTITY {}: {error}", path.display()))
+            })?,
+            CacheBacking::Inspection(_) => String::new(),
+        };
         Ok(Self {
             path,
             backing,
+            base_cache_hash,
             override_layers: Vec::new(),
+            layout_layers: Vec::new(),
             cached_behavior_query: None,
         })
     }
@@ -466,6 +478,11 @@ impl PyCache {
         Ok(&self.complete()?.manifest().source_hash)
     }
 
+    #[getter]
+    fn base_cache_hash(&self) -> &str {
+        &self.base_cache_hash
+    }
+
     fn read_tick<'py>(&self, py: Python<'py>, tick: u64) -> PyResult<Bound<'py, PyDict>> {
         let frame = self.complete()?.read_tick(tick).map_err(|error| {
             PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
@@ -484,6 +501,12 @@ impl PyCache {
                     record.position[2],
                 );
             }
+        }
+        if !self.layout_layers.is_empty() {
+            let composed =
+                compose_layout_frame_v1(&frame, tick, &self.base_cache_hash, &self.layout_layers)
+                    .map_err(|error| PyValueError::new_err(format!("E_LAYOUT: {error}")))?;
+            apply_layout_records(&mut packed, &composed.records);
         }
         packed_cache_dict(py, &packed)
     }
@@ -509,6 +532,87 @@ impl PyCache {
 
     fn clear_override_layers(&mut self) {
         self.override_layers.clear();
+    }
+
+    fn set_layout_layers(&mut self, layers_json: &str) -> PyResult<()> {
+        self.layout_layers = serde_json::from_str(layers_json)
+            .map_err(|error| PyValueError::new_err(format!("E_LAYOUT_JSON: {error}")))?;
+        Ok(())
+    }
+
+    fn clear_layout_layers(&mut self) {
+        self.layout_layers.clear();
+    }
+
+    fn inspect_layout<'py>(&self, py: Python<'py>, tick: u64) -> PyResult<Bound<'py, PyDict>> {
+        let reader = self.complete()?;
+        let frame = reader.read_tick(tick).map_err(|error| {
+            PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
+        })?;
+        let composed =
+            compose_layout_frame_v1(&frame, tick, &self.base_cache_hash, &self.layout_layers)
+                .map_err(|error| PyValueError::new_err(format!("E_LAYOUT: {error}")))?;
+        let out = PyDict::new(py);
+        out.set_item("base_cache_hash", &self.base_cache_hash)?;
+        out.set_item("active_layer_ids", composed.active_layer_ids)?;
+        out.set_item(
+            "conflicts",
+            composed
+                .conflicts
+                .iter()
+                .map(|conflict| {
+                    format!(
+                        "agent {} {}: {} -> {}",
+                        conflict.agent_id,
+                        conflict.channel,
+                        conflict.earlier_layer_id,
+                        conflict.later_layer_id
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )?;
+        out.set_item(
+            "warnings",
+            vec![
+                "USD profile v1 exports point instancer identity, position, and variant only; animation, physics, guides, groups, and unresolved conflicts are not representable.".to_owned(),
+            ],
+        )?;
+        Ok(out)
+    }
+
+    fn flatten_layout(&self, tick: u64, path: PathBuf) -> PyResult<()> {
+        let reader = self.complete()?;
+        let frame = reader.read_tick(tick).map_err(|error| {
+            PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
+        })?;
+        let composed =
+            compose_layout_frame_v1(&frame, tick, &self.base_cache_hash, &self.layout_layers)
+                .map_err(|error| PyValueError::new_err(format!("E_LAYOUT: {error}")))?;
+        let document = serde_json::json!({
+            "schema_version": 1,
+            "source_base_hash": self.base_cache_hash,
+            "tick": tick,
+            "composed": composed,
+        });
+        let bytes = serde_json::to_vec_pretty(&document)
+            .map_err(|error| PyValueError::new_err(format!("E_FLATTEN_JSON: {error}")))?;
+        fs::write(&path, bytes).map_err(|error| {
+            PyOSError::new_err(format!("E_FLATTEN_WRITE {}: {error}", path.display()))
+        })
+    }
+
+    fn export_usda(&self, tick: u64, path: PathBuf) -> PyResult<()> {
+        let reader = self.complete()?;
+        let frame = reader.read_tick(tick).map_err(|error| {
+            PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
+        })?;
+        let composed =
+            compose_layout_frame_v1(&frame, tick, &self.base_cache_hash, &self.layout_layers)
+                .map_err(|error| PyValueError::new_err(format!("E_LAYOUT: {error}")))?;
+        let usda = write_usda_crowd_profile_v1(&composed.records, &self.base_cache_hash)
+            .map_err(|error| PyValueError::new_err(format!("E_USD: {error}")))?;
+        fs::write(&path, usda)
+            .map_err(|error| PyOSError::new_err(format!("E_USD_WRITE {}: {error}", path.display())))
     }
 
     fn inspect_agent<'py>(
@@ -713,6 +817,28 @@ fn compile_authorable_runtime_py(project_json: &str) -> PyResult<PyAuthorablePro
         base: Arc::new(base),
         inner: Arc::new(compiled),
     })
+}
+
+/// Build a deterministic physics interval for a selected M4 layer. Blender
+/// receives JSON cache samples only; it does not become a hidden simulator.
+#[pyfunction(name = "simulate_physics_handoff")]
+fn simulate_physics_handoff_py(spec_json: &str) -> PyResult<String> {
+    let spec: PhysicsHandoffSpecV1 = serde_json::from_str(spec_json)
+        .map_err(|error| PyValueError::new_err(format!("E_PHYSICS_SPEC_JSON: {error}")))?;
+    let samples = crowd_cache::simulate_physics_handoff_v1(&spec)
+        .map_err(|error| PyValueError::new_err(format!("E_PHYSICS_SPEC: {error}")))?;
+    serde_json::to_string(&samples)
+        .map_err(|error| PyValueError::new_err(format!("E_PHYSICS_SERIALIZE: {error}")))
+}
+
+#[pyfunction(name = "resimulate_local_kinematic")]
+fn resimulate_local_kinematic_py(request_json: &str) -> PyResult<String> {
+    let request: LocalResimulationRequestV1 = serde_json::from_str(request_json)
+        .map_err(|error| PyValueError::new_err(format!("E_RESIM_REQUEST_JSON: {error}")))?;
+    let samples = crowd_cache::resimulate_local_kinematic_v1(&request)
+        .map_err(|error| PyValueError::new_err(format!("E_RESIM_REQUEST: {error}")))?;
+    serde_json::to_string(&samples)
+        .map_err(|error| PyValueError::new_err(format!("E_RESIM_SERIALIZE: {error}")))
 }
 
 #[pyfunction]
@@ -971,6 +1097,42 @@ fn pack_cache(records: &[FrameRecord], agents: &[AgentStatic]) -> PackedCacheCha
         push_u32(&mut out.render_tier, u32::from(record.render_tier));
     }
     out
+}
+
+/// Replace only presentation channels with a composed M4 layer frame.  The
+/// source `Frame` and the cache reader remain immutable, so a viewport scrub or
+/// USD export can never turn a directed result into a rebake.
+fn apply_layout_records(packed: &mut PackedCacheChannels, records: &[crowd_cache::LayoutRecordV1]) {
+    packed.position.clear();
+    packed.velocity.clear();
+    packed.variant_id.clear();
+    packed.clip_id.clear();
+    packed.phase.clear();
+    packed.playback_rate.clear();
+    packed.destination_id.clear();
+    packed.visible.clear();
+    packed.render_tier.clear();
+    for record in records {
+        push_f32x3(
+            &mut packed.position,
+            record.position[0],
+            record.position[1],
+            record.position[2],
+        );
+        push_f32x3(
+            &mut packed.velocity,
+            record.velocity[0],
+            record.velocity[1],
+            record.velocity[2],
+        );
+        push_u32(&mut packed.variant_id, record.variant_id);
+        push_u32(&mut packed.clip_id, u32::from(record.clip_id));
+        push_f32(&mut packed.phase, record.phase);
+        push_f32(&mut packed.playback_rate, record.playback_rate);
+        push_u32(&mut packed.destination_id, record.destination_id);
+        push_u32(&mut packed.visible, u32::from(record.visible));
+        push_u32(&mut packed.render_tier, u32::from(record.render_tier));
+    }
 }
 
 fn packed_cache_dict<'py>(
@@ -1533,6 +1695,8 @@ fn blender_crowd_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(migrate_project_v1_py, m)?)?;
     m.add_function(wrap_pyfunction!(compile_authorable_project_py, m)?)?;
     m.add_function(wrap_pyfunction!(compile_authorable_runtime_py, m)?)?;
+    m.add_function(wrap_pyfunction!(simulate_physics_handoff_py, m)?)?;
+    m.add_function(wrap_pyfunction!(resimulate_local_kinematic_py, m)?)?;
     m.add_function(wrap_pyfunction!(inspect_cache, m)?)?;
     Ok(())
 }

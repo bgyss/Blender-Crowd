@@ -85,6 +85,7 @@ class CachePlayback:
         self._current_tick = None
         self._last_warning = ""
         self._override_layers = []
+        self._layout_layers = []
         self._upload_static(self._cache.read_agents())
         self._static_uploaded = True
         self.sync_to_tick(self._cache.tick_start)
@@ -102,8 +103,16 @@ class CachePlayback:
         return self._cache.tick_end
 
     @property
+    def ticks_per_second(self):
+        return self._cache.ticks_per_second
+
+    @property
     def source_hash(self):
         return self._cache.source_hash
+
+    @property
+    def base_cache_hash(self):
+        return self._cache.base_cache_hash
 
     @property
     def object(self):
@@ -190,6 +199,29 @@ class CachePlayback:
         self._cache.clear_override_layers()
         if self._current_tick is not None:
             self.sync_to_tick(self._current_tick)
+
+    def set_layout_layers(self, layers):
+        self._layout_layers = list(layers)
+        self._cache.set_layout_layers(
+            json.dumps(self._layout_layers, sort_keys=True, separators=(",", ":"))
+        )
+        if self._current_tick is not None:
+            self.sync_to_tick(self._current_tick)
+
+    def clear_layout_layers(self):
+        self._layout_layers = []
+        self._cache.clear_layout_layers()
+        if self._current_tick is not None:
+            self.sync_to_tick(self._current_tick)
+
+    def export_usda(self, tick, path):
+        self._cache.export_usda(int(tick), str(path))
+
+    def inspect_layout(self, tick=None):
+        return dict(self._cache.inspect_layout(int(self._current_tick if tick is None else tick)))
+
+    def flatten_layout(self, tick, path):
+        self._cache.flatten_layout(int(tick), str(path))
 
     def inspect_agent(self, agent_id, tick):
         return dict(self._cache.inspect_agent(agent_id, tick))

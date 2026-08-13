@@ -122,6 +122,11 @@ clang — without it, nothing links.
 
 The Blender runners require Blender 5.2 LTS at
 /Applications/Blender.app/Contents/MacOS/Blender (override with BLENDER=...).
+On macOS they must run with normal host Metal access. Restricted automation
+sandboxes can make `MTLCreateSystemDefaultDevice()` return `nil` and crash
+Blender before Python starts. The M4 runner already enables Blender 5.2's
+`--python-use-system-env` mode so its source add-on and native wheel paths are
+available to the embedded interpreter.
 
 ```sh
 cargo test --workspace                                    # unit, property, determinism
@@ -131,6 +136,9 @@ scripts/m2-blender-authoring-test.sh                      # M2 clean-install + U
 scripts/blender-install-test.sh --python tests/blender/test_m3_production.py # M3 cache recovery/save-reload proof
 scripts/m3-acceptance.sh --archive /path/to/blender_crowd-1.0.0.zip --out /tmp/blender-crowd-m3-proof # archive-first M3 gate
 scripts/m2-full-acceptance.sh --out /path/to/blender-crowd-m2-proof      # 1K full bake/replay/debug/render subgate
+scripts/m4-foundation-test.sh                         # M4 layer composition, v1 migration, cache-only bridge, and USD profile checks
+scripts/m4-blender-test.sh                            # M4 1K/5K-tick layer UI, seven-agent correction, physics, procedural render, USD, reload proof
+M4_ARTIFACT_DIR=/tmp/blender-crowd-m4-captures scripts/m4-blender-test.sh # retain M4 before/after and scale PNGs
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
 cargo clippy --workspace --all-targets -- -D warnings
 

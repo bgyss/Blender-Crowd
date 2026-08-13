@@ -6,6 +6,7 @@ mod checksum;
 mod codec;
 mod defaults;
 mod error;
+mod layout;
 mod manifest;
 mod override_layer;
 mod reader;
@@ -24,6 +25,16 @@ pub use codec::{
 };
 pub use defaults::{CacheDefaults, CACHE_V1_DEFAULTS};
 pub use error::CacheError;
+pub use layout::{
+    compose_layout_frame_v1, extract_procedural_instances_v1, invalidate_dependents_v1,
+    mark_dependents_stale_v1, migrate_override_layer_v1, read_usda_crowd_profile_v1,
+    resimulate_local_kinematic_v1, simulate_physics_handoff_v1, write_usda_crowd_profile_v1,
+    ComposedLayoutFrameV1, LayerInvalidationV1, LayerKindV1, LayerTargetV1, LayoutConflictV1,
+    LayoutEditV1, LayoutErrorV1, LayoutLayerV1, LayoutRecordV1, LocalResimulationRequestV1,
+    LocalResimulationV1, PhysicsHandoffSpecV1, PhysicsSampleV1, ProceduralInstanceV1,
+    ProceduralPrototypeV1, UsdCrowdImportV1, LAYOUT_LAYER_SCHEMA_VERSION,
+    USD_CROWD_PROFILE_VERSION,
+};
 pub use manifest::{
     CacheManifestV1, CacheStatus, ChannelDef, ChunkDef, FileDef, ManifestError, ScalarType,
     CACHE_SCHEMA_VERSION,
