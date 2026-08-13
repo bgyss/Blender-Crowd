@@ -11,6 +11,7 @@ characters, while preserving deterministic lower-fidelity tiers.
 - [Industrial capability ledger](../industrial-crowd-capability-roadmap.md#industrial-capability-ledger)
 - [Blender Crowd 1.0 post-1.0 ordering](../blender-crowd-1.0.md#17-post-10-roadmap-ordering)
 - [Crowd simulation research synthesis](../crowd-simulation-research-2026.md)
+- [Reactive neural interaction animation research track](../reactive-neural-interaction-animation-2026.md)
 - [M4 layered layout](M4-layout-interchange.md) and [M5 tiers](M5-scale-rendering.md)
 - [UI/UX roadmap](../ui-ux-roadmap.md)
 
@@ -46,6 +47,12 @@ motion/trajectory data and redistribution terms are documented before ingestion.
    Python remains coarse-grained; native extensions use versioned IR or a stable
    C ABI with an optional C++ wrapper only if measured demand justifies its
    compatibility and security cost.
+9. A research-only, model-independent reactive-motion boundary for promoted
+   interaction groups. ARDY is the first single-character integration candidate,
+   while paired reaction models remain alternatives. The core owns roles, roots,
+   required/forbidden contacts, outcome, and fallback; an optional local worker
+   proposes skeletal motion that must pass validation before becoming a sparse
+   animation layer.
 
 ## UI/UX goals and gate
 
@@ -73,7 +80,9 @@ and clear degraded-evidence states at lower fidelity tiers.
 
 No per-agent per-frame LLM/VLM, opaque behavior that cannot be traced, universal
 automatic rig conversion, unlicensed motion data, or requirement that cloth/hair
-run on all agents. Semantic AI and domain packs belong to M8.
+run on all agents. A neural backend may not decide collision safety, damage, or
+interaction outcome, and may not become a Blender-file or render-time dependency.
+Semantic AI and domain packs belong to M8.
 
 ## Required artifacts
 
@@ -83,6 +92,10 @@ run on all agents. Semantic AI and domain packs belong to M8.
   profiles, and redistributable reference motions.
 - Social, activity, terrain, paired-interaction, ragdoll/recovery, and mixed-tier
   acceptance scenes plus dated evidence reports.
+- For the reactive-motion stretch: versioned interaction request/response
+  schemas, local-worker and deterministic paired-clip baselines, constraint and
+  contact validators, frozen model/checkpoint provenance, cache-layer fixtures,
+  and model-absent playback proof.
 
 ## Acceptance criteria
 
@@ -105,14 +118,20 @@ run on all agents. Semantic AI and domain packs belong to M8.
    failure, and support boundaries rather than becoming hidden dependencies.
 9. External behavior examples pass determinism, channel-declaration, cost-budget,
    version-mismatch, and failure-isolation tests on every claimed API language.
+10. Reactive neural motion, if pursued, passes the staged R0-R4 gates in the
+    research track. Single-character ARDY output cannot be counted as paired
+    reaction proof, and accepted motion must remain editable, removable,
+    content-addressed, and playable through a deterministic fallback without the
+    model or accelerator.
 
 ## Validation and proof
 
 Use golden graph/IR tests, deterministic perception scenarios, large action-
 library compile/runtime benchmarks, resource-reservation properties, social
 comparisons, motion/contact/terrain fixtures, physics transition/recovery tests,
-mixed-tier performance reports, and blinded human review only for claims that
-genuinely concern perceived realism.
+mixed-tier performance reports, counterfactual partner perturbations, worker
+failure/recovery tests, and blinded human review only for claims that genuinely
+concern perceived realism.
 
 ## Definition of done and stop conditions
 

@@ -22,6 +22,7 @@ Research informing the avoidance, social-attention, scale, and animation-tier
 decisions is summarized in:
 
 - [Crowd simulation research synthesis](docs/crowd-simulation-research-2026.md)
+- [Reactive neural interaction animation research track](docs/reactive-neural-interaction-animation-2026.md)
 
 The first release is intentionally focused: build a trustworthy pedestrian-crowd
 pipeline for 1,000 interactive agents before expanding into semantic activities,

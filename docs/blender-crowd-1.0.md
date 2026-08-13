@@ -1088,7 +1088,10 @@ The recommended order is driven by dependency and product value:
    cache, and trajectory contracts.
 7. **Interaction and hero physics.** Add paired actions, ragdoll/recovery,
    rigid-body layers, and promoted hero cloth/hair behind the stable cache and
-   fidelity-tier contracts.
+   fidelity-tier contracts. Research reactive neural motion for promoted
+   interaction groups only through a model-independent request/response
+   boundary, validation, sparse animation layers, and deterministic fallbacks;
+   see the [research track](reactive-neural-interaction-animation-2026.md).
 8. **Blender ecosystem and mainline readiness.** Turn real extension evidence
    into narrowly scoped, generally useful host proposals while retaining a
    supported extension fallback.
