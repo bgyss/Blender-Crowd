@@ -111,7 +111,7 @@ pub fn throughput_gate(name: &str, agents: u32) -> Option<Segment> {
                 Vec2::new(x, mid + 1.2),
             ))
         }
-        "dense_flow" | "m5_city_flow" => {
+        "dense_flow" => {
             let x = 28.0 * scale;
             let mid = 15.0 * scale;
             Some(Segment::new(
@@ -119,16 +119,87 @@ pub fn throughput_gate(name: &str, agents: u32) -> Option<Segment> {
                 Vec2::new(x, mid + 3.5),
             ))
         }
+        "m5_city_flow" => {
+            let x = 40.0 * scale;
+            let mid = 20.0 * scale;
+            Some(Segment::new(
+                Vec2::new(x, mid - 16.0 * scale),
+                Vec2::new(x, mid + 16.0 * scale),
+            ))
+        }
         _ => None,
     }
 }
 
-/// M5 background-flow reference with a unique scene hash and duration.
+/// M5's broad bidirectional city-flow reference.
+///
+/// Do not reuse `dense_flow`: its fixed 6m funnel is deliberately a
+/// congestion benchmark, which makes it unsuitable for a 90% S2 background
+/// population. This scene keeps density stable by scaling the full street
+/// cross section with the requested population and has no hidden bottleneck.
 fn m5_city_flow(agents: u32, seed: u64, scale: f32) -> SceneDef {
-    let mut scene = dense_flow(agents, seed, scale);
-    scene.name = "m5_city_flow".to_owned();
-    scene.duration_ticks = scene.duration_ticks.max(2_400);
-    scene
+    let bounds = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(80.0 * scale, 40.0 * scale));
+    let mut waypoints = WaypointGraph::new();
+    let west_east_start = waypoints.add_node(Vec2::new(4.0 * scale, 10.0 * scale));
+    let west_east_exit = waypoints.add_node(Vec2::new(76.0 * scale, 10.0 * scale));
+    let east_west_start = waypoints.add_node(Vec2::new(76.0 * scale, 30.0 * scale));
+    let east_west_exit = waypoints.add_node(Vec2::new(4.0 * scale, 30.0 * scale));
+    waypoints.add_edge(west_east_start, west_east_exit);
+    waypoints.add_edge(east_west_start, east_west_exit);
+    // Keep the generic waypoint graph structurally connected. Neither
+    // population's shortest route uses this end-of-street connector.
+    waypoints.add_edge(west_east_exit, east_west_start);
+    let margin = 2.0 * scale;
+    let spawn_width = 14.0 * scale;
+    SceneDef {
+        name: "m5_city_flow".to_owned(),
+        bounds,
+        walls: box_walls(bounds),
+        waypoints,
+        destinations: vec![
+            Destination {
+                name: "east_exit".to_owned(),
+                node: west_east_exit,
+            },
+            Destination {
+                name: "west_exit".to_owned(),
+                node: east_west_exit,
+            },
+        ],
+        spawns: vec![
+            SpawnRegion {
+                id: 0,
+                population_id: 0,
+                area: Aabb::new(
+                    Vec2::new(margin, margin),
+                    Vec2::new(margin + spawn_width, 18.0 * scale),
+                ),
+                count: split_count(agents, 2, 0),
+                per_tick: ((12.0 * scale).round() as u32).max(1),
+                destination: 0,
+            },
+            SpawnRegion {
+                id: 1,
+                population_id: 0,
+                area: Aabb::new(
+                    Vec2::new(80.0 * scale - margin - spawn_width, 22.0 * scale),
+                    Vec2::new(80.0 * scale - margin, 40.0 * scale - margin),
+                ),
+                count: split_count(agents, 2, 1),
+                per_tick: ((12.0 * scale).round() as u32).max(1),
+                destination: 1,
+            },
+        ],
+        populations: vec![PopulationParams::default()],
+        project_seed: seed,
+        ticks_per_second: 30,
+        // Includes emission and the measured 500-agent P95 traversal with
+        // slack, rather than declaring failure while a valid background agent
+        // is still in the street. The gate evaluates completion separately.
+        duration_ticks: (4_500.0 * scale).round() as u64,
+        nav: None,
+        nav_destinations: Vec::new(),
+    }
 }
 
 /// Split `total` across `parts` so the counts sum to exactly `total`.

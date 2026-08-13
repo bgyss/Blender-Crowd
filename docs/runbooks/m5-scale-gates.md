@@ -50,6 +50,10 @@ cargo run --release -p crowd-bench -- cache-experiment \
   --out "$HOME/blender-crowd-m5/10k/cache"
 ```
 
+`m5_city_flow` now enables its declared stable-ID 10% S1 / 90% S2 profile;
+the generated report records that profile. Do not compare it directly with the
+pre-profile failed baseline except as an optimization reference.
+
 The `run` command is the complete simulation measurement. Do not substitute
 the shorter `--cache-frames 8` preflight for it. The cache matrix proves cache
 size, range-read throughput, encoding error, and cancellation recovery only.

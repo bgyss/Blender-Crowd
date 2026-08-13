@@ -51,6 +51,10 @@ pub struct FidelityPolicy {
     pub mid_exit: f32,
     pub far_enter: f32,
     pub far_exit: f32,
+    /// When set, assign this share of stable IDs to background S2/R2. This
+    /// makes a scale benchmark's declared mix explicit and repeatable instead
+    /// of depending on an arbitrary benchmark camera position.
+    pub background_permyriad: Option<u16>,
 }
 
 impl Default for FidelityPolicy {
@@ -63,12 +67,19 @@ impl Default for FidelityPolicy {
             mid_exit: 42.0,
             far_enter: 80.0,
             far_exit: 96.0,
+            background_permyriad: None,
         }
     }
 }
 
 impl FidelityPolicy {
     pub fn validate(&self) -> Result<(), &'static str> {
+        if self
+            .background_permyriad
+            .is_some_and(|share| share > 10_000)
+        {
+            return Err("background_permyriad must not exceed 10000");
+        }
         if !(self.near_enter <= self.near_exit
             && self.near_exit <= self.mid_enter
             && self.mid_enter <= self.mid_exit
@@ -78,6 +89,13 @@ impl FidelityPolicy {
             return Err("fidelity radii must be ordered enter <= exit <= next enter");
         }
         Ok(())
+    }
+
+    pub fn m5_10k_profile() -> Self {
+        Self {
+            background_permyriad: Some(9_000),
+            ..Self::default()
+        }
     }
 
     pub fn target(&self, position: Vec2, current: SimulationTier) -> SimulationTier {

@@ -12,6 +12,7 @@ use crowd_core::avoidance::{
 use crowd_core::metrics::{MetricsConfig, MetricsSummary};
 use crowd_core::scenes;
 use crowd_core::sim::{SimConfig, Simulation};
+use crowd_core::FidelityPolicy;
 use serde::{Deserialize, Serialize};
 
 use crate::alloc;
@@ -19,7 +20,7 @@ use crate::frames::FrameWriter;
 use crate::svg::TrajectoryRecorder;
 
 /// Bumped whenever the report schema changes incompatibly.
-pub const REPORT_SCHEMA_VERSION: u32 = 2;
+pub const REPORT_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SolverKind {
@@ -208,8 +209,22 @@ pub struct Report {
     pub duration_ticks: u64,
     pub scene_hash: u64,
     pub final_state_hash: u64,
+    /// Declared M5 fidelity mix, never inferred from an arbitrary camera.
+    pub fidelity_profile: Option<FidelityProfileReport>,
     pub environment: Environment,
     pub metrics: MetricsSummary,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FidelityProfileReport {
+    pub mode: String,
+    pub s1_agents: u32,
+    pub s2_agents: u32,
+    pub r1_agents: u32,
+    pub r2_agents: u32,
+    pub s2_perception_interval_ticks: u32,
+    pub s2_steering_interval_ticks: u32,
+    pub s3_individual_perception: bool,
 }
 
 /// Build, run, and measure one scene.
@@ -224,11 +239,17 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
     let ticks_per_second = scene.ticks_per_second;
     let duration_ticks = scene.duration_ticks;
 
+    let fidelity = if options.scene == "m5_city_flow" {
+        Some(FidelityPolicy::m5_10k_profile())
+    } else {
+        None
+    };
     let config = SimConfig {
         metrics: MetricsConfig {
             throughput_gate: scenes::throughput_gate(&options.scene, options.agents),
             ..MetricsConfig::default()
         },
+        fidelity,
         ..SimConfig::default()
     };
 
@@ -317,6 +338,22 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
         peak_allocated_bytes,
     );
 
+    let fidelity_profile = if options.scene == "m5_city_flow" {
+        let s2_agents = options.agents.saturating_mul(9) / 10;
+        let s1_agents = options.agents - s2_agents;
+        Some(FidelityProfileReport {
+            mode: "stable_id_10_percent_s1_90_percent_s2".to_owned(),
+            s1_agents,
+            s2_agents,
+            r1_agents: s1_agents,
+            r2_agents: s2_agents,
+            s2_perception_interval_ticks: 4,
+            s2_steering_interval_ticks: 4,
+            s3_individual_perception: false,
+        })
+    } else {
+        None
+    };
     Ok(Report {
         schema_version: REPORT_SCHEMA_VERSION,
         scene: options.scene.clone(),
@@ -327,6 +364,7 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
         duration_ticks,
         scene_hash,
         final_state_hash: sim.state_hash(),
+        fidelity_profile,
         environment: Environment::capture(),
         metrics,
     })
@@ -400,6 +438,24 @@ mod tests {
     fn the_report_records_the_scene_hash() {
         let report = run_scene(&options("circle", 32)).unwrap();
         assert_ne!(report.scene_hash, 0);
+    }
+
+    #[test]
+    fn m5_city_flow_records_its_declared_background_mix() {
+        let report = run_scene(&options("m5_city_flow", 100)).unwrap();
+        assert_eq!(
+            report.fidelity_profile,
+            Some(FidelityProfileReport {
+                mode: "stable_id_10_percent_s1_90_percent_s2".to_owned(),
+                s1_agents: 10,
+                s2_agents: 90,
+                r1_agents: 10,
+                r2_agents: 90,
+                s2_perception_interval_ticks: 4,
+                s2_steering_interval_ticks: 4,
+                s3_individual_perception: false,
+            })
+        );
     }
 
     #[test]

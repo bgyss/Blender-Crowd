@@ -7,6 +7,7 @@
 
 use crate::arena::NeighborArena;
 use crate::avoidance::{AvoidanceInput, AvoidanceSolver, NeighborState};
+use crate::fidelity::SimulationTier;
 use crate::geometry::{time_to_collision_disc, time_to_collision_segment, Segment};
 use crate::scene::CompiledScene;
 use crate::units::Vec2;
@@ -74,6 +75,33 @@ pub fn steer(
     config: &SteerConfig,
     scratch: &mut SteerScratch,
 ) -> SteerReport {
+    steer_with_schedule(world, arena, scene, solver, config, scratch, None)
+}
+
+/// M5 steering schedule. S2 reuses its last solved velocity between scheduled
+/// evaluations; S3 follows its coarse desired flow without invoking the
+/// individual avoidance solver. Neither path freezes root motion.
+pub fn steer_scheduled(
+    world: &mut World,
+    arena: &NeighborArena,
+    scene: &CompiledScene,
+    solver: &dyn AvoidanceSolver,
+    config: &SteerConfig,
+    scratch: &mut SteerScratch,
+    tick: u64,
+) -> SteerReport {
+    steer_with_schedule(world, arena, scene, solver, config, scratch, Some(tick))
+}
+
+fn steer_with_schedule(
+    world: &mut World,
+    arena: &NeighborArena,
+    scene: &CompiledScene,
+    solver: &dyn AvoidanceSolver,
+    config: &SteerConfig,
+    scratch: &mut SteerScratch,
+    scheduled_tick: Option<u64>,
+) -> SteerReport {
     let mut min_time_to_collision = f32::INFINITY;
     let mut time_to_collision_sum = 0.0;
     let mut risk_samples = 0;
@@ -81,6 +109,33 @@ pub fn steer(
     let mut braking_agents = 0;
 
     for slot in 0..world.len() {
+        let should_solve = match scheduled_tick {
+            None => true,
+            Some(_)
+                if matches!(
+                    world.simulation_tier[slot],
+                    SimulationTier::S0 | SimulationTier::S1
+                ) =>
+            {
+                true
+            }
+            Some(tick) if world.simulation_tier[slot] == SimulationTier::S2 => {
+                tick.is_multiple_of(4)
+            }
+            Some(_) => false,
+        };
+        if !should_solve {
+            if world.simulation_tier[slot] == SimulationTier::S2 {
+                // `decide` has just written a new preferred velocity into
+                // des_vel; restore the last committed velocity until the next
+                // sparse solve. This is a bounded background approximation,
+                // never a pause in authoritative integration.
+                world.des_vel_x[slot] = world.vel_x[slot];
+                world.des_vel_y[slot] = world.vel_y[slot];
+            }
+            world.solver_status[slot] = SolverStatus::Free;
+            continue;
+        }
         let position = Vec2::new(world.pos_x[slot], world.pos_y[slot]);
 
         scratch.neighbors.clear();

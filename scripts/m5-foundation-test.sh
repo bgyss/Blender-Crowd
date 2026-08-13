@@ -3,6 +3,7 @@
 set -eu
 cargo test -p crowd-core fidelity --lib
 cargo test -p crowd-core background_perception_is_deterministically_scheduled --lib
+cargo test -p crowd-bench m5_city_flow_records_its_declared_background_mix --bin crowd-bench
 cargo test -p crowd-core field --lib
 cargo test -p crowd-core fidelity_scheduler --lib
 cargo test -p crowd-cache --test cache_lifecycle complete_cache_streams_a_range

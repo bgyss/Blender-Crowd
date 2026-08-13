@@ -28,7 +28,7 @@ use crate::phases::integrate::{integrate, IntegrateConfig, IntegrateScratch};
 use crate::phases::perceive::{perceive, perceive_scheduled, PerceiveConfig, PerceiveScratch};
 use crate::phases::plan::{invalidate_portal, plan, PlanConfig, PlanState};
 use crate::phases::spawn::{apply_spawns, SpawnState};
-use crate::phases::steer::{steer, SteerConfig, SteerScratch};
+use crate::phases::steer::{steer, steer_scheduled, SteerConfig, SteerScratch};
 use crate::route::RouteArena;
 use crate::runtime_behavior::RuntimeBehaviorController;
 use crate::scene::CompiledScene;
@@ -205,11 +205,18 @@ impl Simulation {
                 .ok()
                 .map(|index| self.fidelity_pins[index]);
             let simulation = pin.map_or_else(
-                || {
-                    policy.target(
+                || match policy.background_permyriad {
+                    Some(background)
+                        if u64::from(self.world.spawn_ordinal[slot]) % 10_000
+                            < u64::from(background) =>
+                    {
+                        crate::fidelity::SimulationTier::S2
+                    }
+                    Some(_) => crate::fidelity::SimulationTier::S1,
+                    None => policy.target(
                         self.world.position(slot as u32),
                         self.world.simulation_tier[slot],
-                    )
+                    ),
                 },
                 |pin| pin.simulation,
             );
@@ -551,14 +558,26 @@ impl Simulation {
             .record_phase(Phase::Decide, start.elapsed().as_nanos() as u64);
 
         let start = Instant::now();
-        let steer_report = steer(
-            &mut self.world,
-            &self.neighbors,
-            &self.scene,
-            self.solver.as_ref(),
-            &self.config.steer,
-            &mut self.steer_scratch,
-        );
+        let steer_report = if self.config.fidelity.is_some() {
+            steer_scheduled(
+                &mut self.world,
+                &self.neighbors,
+                &self.scene,
+                self.solver.as_ref(),
+                &self.config.steer,
+                &mut self.steer_scratch,
+                self.clock.tick(),
+            )
+        } else {
+            steer(
+                &mut self.world,
+                &self.neighbors,
+                &self.scene,
+                self.solver.as_ref(),
+                &self.config.steer,
+                &mut self.steer_scratch,
+            )
+        };
         self.metrics
             .record_phase(Phase::Steer, start.elapsed().as_nanos() as u64);
 

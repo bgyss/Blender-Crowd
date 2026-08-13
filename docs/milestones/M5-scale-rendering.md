@@ -85,6 +85,10 @@ support boundary, not evidence that an unimplemented backend has passed M5.
 Use the [10K and 100K scale-gate runbook](../runbooks/m5-scale-gates.md) for
 the exact long-running command-line procedure and evidence checklist.
 
+The first [10K failed baseline](../benchmarks/2026-08-13-m5-10k-failed-baseline.md)
+is retained as optimization evidence. It is not an accepted gate and blocks
+100K work.
+
 ## 10K acceptance gate
 
 1. The declared 10K scene and tier mix meet fixed simulation, memory, cache,
