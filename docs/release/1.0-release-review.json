@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "release_version": "1.0.0",
+  "budgets_sha256": "0e54720d7b75c5c9059487a38ce816f94c08b45894df5fb136040cbb2659aade",
+  "dependency_review": {
+    "cargo_lock_sha256": "3523c6588d974b8a1b99edecfe7f8303544085a420bbe4d12045432bbb562984",
+    "sbom_sha256": "576a958407e9116095761480673996908a00a798640cb7fc1a33efc99cbe43ae",
+    "package_count": 142,
+    "noassertion_count": 0,
+    "reviewed": true,
+    "decision": "accepted_for_gpl_3_0_or_later_distribution"
+  },
+  "signing_review": {
+    "channel": "direct Blender extension ZIP or static Blender extension repository",
+    "applicable": false,
+    "decision": "Blender's documented ZIP build, validate, install-file, and static-repository workflow defines no package-signing step; publish SHA256SUMS and immutable provenance instead",
+    "source": "https://docs.blender.org/manual/en/latest/advanced/command_line/extension_arguments.html"
+  },
+  "documentation_review": {
+    "reviewed": true,
+    "archive_exercised": true,
+    "documents": [
+      "docs/blender-crowd-1.0.md",
+      "docs/cache-format-v1.md",
+      "docs/dependencies/cache-v1.md",
+      "docs/user/m1-reference-walkthrough.md",
+      "docs/user/m2-behavior-graph.md",
+      "docs/user/m2-authoring-foundation.md",
+      "docs/user/m3-production-recovery.md",
+      "docs/user/m3-headless-release.md",
+      "docs/release/1.0-compatibility.md",
+      "docs/release/1.0-support-matrix.md",
+      "docs/release/1.0-release-checklist.md",
+      "docs/release/1.0-known-limitations.md",
+      "docs/release/1.0-budgets.md",
+      "docs/release/1.0-release-review.md",
+      "docs/release/1.0-accessibility-review.md"
+    ]
+  }
+}

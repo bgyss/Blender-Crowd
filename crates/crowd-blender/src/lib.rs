@@ -381,6 +381,7 @@ struct PyCache {
     path: PathBuf,
     backing: CacheBacking,
     override_layers: Vec<OverrideLayerV1>,
+    cached_behavior_query: Option<(u64, u64, Option<String>)>,
 }
 
 /// Select the event bundle that most recently explains an agent's state at a
@@ -428,6 +429,7 @@ impl PyCache {
             path,
             backing,
             override_layers: Vec::new(),
+            cached_behavior_query: None,
         })
     }
 
@@ -459,6 +461,11 @@ impl PyCache {
         Ok(self.complete()?.manifest().ticks_per_second)
     }
 
+    #[getter]
+    fn source_hash(&self) -> PyResult<&str> {
+        Ok(&self.complete()?.manifest().source_hash)
+    }
+
     fn read_tick<'py>(&self, py: Python<'py>, tick: u64) -> PyResult<Bound<'py, PyDict>> {
         let frame = self.complete()?.read_tick(tick).map_err(|error| {
             PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
@@ -485,6 +492,15 @@ impl PyCache {
         packed_agent_static_dict(py, &pack_agent_static(self.complete()?.agents()))
     }
 
+    fn scan_ticks(&self) -> PyResult<usize> {
+        self.complete()?
+            .read_all_frames()
+            .map(|frames| frames.len())
+            .map_err(|error| {
+                PyOSError::new_err(format!("E_CACHE_SCAN {}: {error}", self.path.display()))
+            })
+    }
+
     fn set_override_layers(&mut self, layers_json: &str) -> PyResult<()> {
         self.override_layers = serde_json::from_str(layers_json)
             .map_err(|error| PyValueError::new_err(format!("E_OVERRIDE_JSON: {error}")))?;
@@ -496,7 +512,7 @@ impl PyCache {
     }
 
     fn inspect_agent<'py>(
-        &self,
+        &mut self,
         py: Python<'py>,
         agent_id: u64,
         tick: u64,
@@ -535,10 +551,28 @@ impl PyCache {
         out.set_item("playback_rate", record.playback_rate)?;
         out.set_item("visible", record.visible)?;
 
-        let behavior_events = self.complete()?.read_behavior_events().map_err(|error| {
-            PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
-        })?;
-        let cached_trace_json = inspection_behavior_events(&behavior_events, agent_id, tick);
+        let cache_hit = self.cached_behavior_query.as_ref().is_some_and(
+            |(cached_agent, cached_tick, _trace)| *cached_agent == agent_id && *cached_tick == tick,
+        );
+        let cached_trace_json = if cache_hit {
+            self.cached_behavior_query
+                .as_ref()
+                .and_then(|(_agent, _tick, trace)| trace.clone())
+        } else {
+            let behavior_events = self.complete()?.read_behavior_events().map_err(|error| {
+                PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
+            })?;
+            let selected = inspection_behavior_events(&behavior_events, agent_id, tick);
+            let trace = if selected.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_string(&selected).map_err(|error| {
+                    PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
+                })?)
+            };
+            self.cached_behavior_query = Some((agent_id, tick, trace.clone()));
+            trace
+        };
         let legacy_evidence_path = self.path.join("debug/selected-agent.json");
         let legacy_trace_json = fs::read_to_string(&legacy_evidence_path)
             .ok()
@@ -553,12 +587,10 @@ impl PyCache {
                     })
                     == Some((agent_id, tick))
             });
-        let decision_trace_json = if cached_trace_json.is_empty() {
+        let decision_trace_json = if cached_trace_json.is_none() {
             legacy_trace_json
         } else {
-            Some(serde_json::to_string(&cached_trace_json).map_err(|error| {
-                PyOSError::new_err(format!("E_CACHE_EVENTS {}: {error}", self.path.display()))
-            })?)
+            cached_trace_json
         };
         out.set_item("decision_trace_json", decision_trace_json)?;
         Ok(out)
@@ -688,8 +720,26 @@ fn inspect_cache<'py>(py: Python<'py>, path: PathBuf) -> PyResult<Bound<'py, PyD
     let report = RecoveryInspector::open(&path).map_err(|error| {
         PyOSError::new_err(format!("E_CACHE_INSPECT {}: {error}", path.display()))
     })?;
+    // Recovery inspection intentionally stops at a readable prefix. A cache
+    // that claims completion needs the stricter reader pass as well, otherwise
+    // a corrupt final chunk or optional event file could be presented as safe.
+    let integrity_error = if report.status == CacheStatus::Complete {
+        CacheReader::open_complete(&path)
+            .err()
+            .map(|error| error.to_string())
+    } else {
+        None
+    };
     let out = PyDict::new(py);
-    out.set_item("status", cache_status_name(report.status))?;
+    out.set_item(
+        "status",
+        if integrity_error.is_some() {
+            "corrupt"
+        } else {
+            cache_status_name(report.status)
+        },
+    )?;
+    out.set_item("integrity_error", integrity_error)?;
     out.set_item("cancellation_reason", report.cancellation_reason)?;
     out.set_item("last_complete_tick", report.last_complete_tick)?;
     out.set_item("valid_chunk_count", report.valid_chunk_count)?;
@@ -1216,10 +1266,22 @@ mod tests {
 
     #[test]
     fn authorable_bake_persists_live_graph_evidence_in_the_cache() {
-        let project: AuthorableProjectV2 = serde_json::from_str(include_str!(
+        let base = serde_json::from_str(include_str!(
+            "../../../assets/reference/concourse-project-v1.json"
+        ))
+        .unwrap();
+        let mut project = migrate_project_v1(base);
+        project.behavior_graphs = vec![serde_json::from_str(include_str!(
+            "../../../addon/blender_crowd/reference/leave-concourse-v1.json"
+        ))
+        .unwrap()];
+        project.semantics = serde_json::from_str(include_str!(
             "../../../addon/blender_crowd/reference/concourse-authoring-v2.json"
         ))
         .unwrap();
+        for assignment in &mut project.population_behaviors {
+            assignment.graph_id = "leave_concourse".to_string();
+        }
         let base = Arc::new(compile_core_project(&project.base).unwrap());
         let authorable = Arc::new(compile_core_authorable_project(&project).unwrap());
         let mut session = Session::create_authorable(base, authorable, 1).unwrap();

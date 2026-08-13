@@ -8,11 +8,18 @@ license.workspace = true
 name = "blender_crowd_native"
 crate-type = ["cdylib"]
 
+[features]
+# Cargo's unit-test harness must link against Python. Maturin selects the
+# extension-module feature for the distributed wheel, where Blender provides
+# the Python symbols at load time.
+default = []
+extension-module = ["pyo3/extension-module"]
+
 [dependencies]
 crowd-cache = { path = "../crowd-cache" }
 crowd-core = { path = "../crowd-core" }
 crowd-trace = { path = "../crowd-trace" }
-pyo3 = { version = "0.29", features = ["abi3-py311", "extension-module"] }
+pyo3 = { version = "0.29", features = ["abi3-py311"] }
 serde_json = { workspace = true }
 
 [build-dependencies]

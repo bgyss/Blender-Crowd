@@ -16,11 +16,13 @@ from . import (
     cache_playback,
     debug_overlay,
     geometry_nodes,
+    health,
     layout_editor,
     overrides,
     project,
     reference_assets,
     render_workflow,
+    support,
 )
 
 _ACTIVE = {}
@@ -62,6 +64,68 @@ def active_cache_playback():
     return _ACTIVE.get("cache_playback")
 
 
+def attach_cache_path(scene, cache_path):
+    """Inspect, then attach only a complete cache as authoritative playback."""
+    if not cache_path:
+        raise ValueError("choose a cache path")
+    cache_playback.detach_active_playback()
+    _ACTIVE.pop("cache_playback", None)
+    path = bpy.path.abspath(cache_path)
+    report = health.inspect_cache(scene, path)
+    if report is None:
+        raise ValueError(scene.crowd_project.cache_recovery_hint)
+    if report["status"] != "complete":
+        health.set_workflow(scene, "Recover cache", "Rebake the project", progress=0.0)
+        raise ValueError(scene.crowd_project.cache_recovery_hint)
+    assets = reference_assets.ensure_reference_assets(scene)
+    playback = cache_playback.CachePlayback(path)
+    if scene.crowd_project.project_uuid:
+        current = blender_crowd_native.compile_project(_encode_ir(project.extract_ir(scene)))
+        if playback.source_hash != current.source_hash:
+            playback.object.hide_viewport = True
+            playback.object.hide_render = True
+            health.set_workflow(scene, "Stale cache", "Rebake the changed project", progress=0.0)
+            health.record(
+                scene,
+                "ERROR",
+                "Cache does not match the current project",
+                "Cache source {} does not match project source {}. Rebake before playback or render.".format(
+                    playback.source_hash[:12], current.source_hash[:12]
+                ),
+                path,
+                playback.object.name,
+            )
+            raise ValueError("cache is stale for the current project; rebake before playback")
+    geometry_nodes.attach_cache(
+        playback.object,
+        assets["prototypes"],
+        assets["manifest"]["clips"],
+        scene.crowd_project.terrain_object,
+    )
+    cache_playback.set_active(playback)
+    _ACTIVE["cache_playback"] = playback
+    scene.frame_start = playback.tick_start
+    scene.frame_end = playback.tick_end
+    playback.sync_to_frame(scene, scene.frame_current)
+    props = scene.crowd_project
+    props.cache_path = cache_path
+    props.cache_resolved_path = path
+    props.cache_status = "complete"
+    props.cache_source_hash = playback.source_hash
+    props.cache_attached = True
+    health.set_selection(scene, "Cache playback: {}".format(playback.object.name))
+    health.set_workflow(scene, "Playback ready", "Inspect an agent or render the cache")
+    health.record(
+        scene,
+        "INFO",
+        "Complete cache attached",
+        "{} agents, ticks {}..{}".format(playback.agent_count, playback.tick_start, playback.tick_end),
+        path,
+        playback.object.name,
+    )
+    return playback
+
+
 class CROWD_OT_attach_cache(Operator):
     bl_idname = "crowd.attach_cache"
     bl_label = "Attach Crowd Cache"
@@ -71,30 +135,62 @@ class CROWD_OT_attach_cache(Operator):
 
     def execute(self, context):
         path = self.filepath or context.scene.crowd_project.cache_path
-        path = bpy.path.abspath(path)
         try:
-            assets = reference_assets.ensure_reference_assets(context.scene)
-            playback = cache_playback.CachePlayback(path)
-            geometry_nodes.attach_cache(
-                playback.object,
-                assets["prototypes"],
-                assets["manifest"]["clips"],
-                context.scene.crowd_project.terrain_object,
-            )
-            cache_playback.set_active(playback)
-            _ACTIVE["cache_playback"] = playback
-            context.scene.frame_start = playback.tick_start
-            context.scene.frame_end = playback.tick_end
-            playback.sync_to_frame(context.scene, context.scene.frame_current)
+            playback = attach_cache_path(context.scene, path)
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             context.scene.crowd_project.status = "Attach failed: {}".format(error)
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
-        context.scene.crowd_project.cache_path = path
         context.scene.crowd_project.status = "Cache attached: {} agents".format(
             playback.agent_count
         )
         self.report({"INFO"}, context.scene.crowd_project.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_inspect_cache_health(Operator):
+    bl_idname = "crowd.inspect_cache_health"
+    bl_label = "Inspect Cache Health"
+    bl_description = "Inspect cache completeness and recovery state without attaching it"
+
+    def execute(self, context):
+        path = context.scene.crowd_project.cache_path
+        if not path:
+            self.report({"ERROR"}, "choose a cache path")
+            return {"CANCELLED"}
+        report = health.inspect_cache(context.scene, path)
+        if report is None:
+            self.report({"ERROR"}, context.scene.crowd_project.cache_recovery_hint)
+            return {"CANCELLED"}
+        if report["status"] == "complete":
+            health.record(context.scene, "INFO", "Cache health verified", "Ready for cache-only playback.", bpy.path.abspath(path))
+        else:
+            health.record(context.scene, "WARNING", "Cache requires recovery", context.scene.crowd_project.cache_recovery_hint, bpy.path.abspath(path))
+        self.report({"INFO"}, "Cache status: {}".format(report["status"]))
+        return {"FINISHED"}
+
+
+class CROWD_OT_write_support_bundle(Operator):
+    bl_idname = "crowd.write_support_bundle"
+    bl_label = "Write Safe Support Bundle"
+    bl_description = "Write diagnostics without private scene content or absolute paths"
+
+    filepath: StringProperty(subtype="FILE_PATH", default="//blender-crowd-support.json")
+
+    def execute(self, context):
+        try:
+            path = support.write_bundle(context.scene, self.filepath)
+        except (OSError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        health.record(
+            context.scene,
+            "INFO",
+            "Safe support bundle written",
+            "Support bundle excludes scene content and absolute paths.",
+            str(path),
+        )
+        self.report({"INFO"}, "Support bundle: {}".format(path))
         return {"FINISHED"}
 
 
@@ -149,6 +245,7 @@ class CROWD_OT_inspect_agent(Operator):
             evidence.get("commuter_state", evidence.get("behavior_state", "unknown")),
             evidence.get("decision_reason", "unknown"),
         )
+        health.set_selection(context.scene, "Agent: {}".format(agent_id))
         self.report({"INFO"}, context.scene.crowd_project.status)
         return {"FINISHED"}
 
@@ -178,6 +275,7 @@ class CROWD_OT_pin_selected_agent(Operator):
         context.scene.crowd_project.status = "Pinned agent {}: {}".format(
             layer["target_agent_id"], path
         )
+        health.set_selection(context.scene, "Pinned agent: {}".format(layer["target_agent_id"]))
         self.report({"INFO"}, context.scene.crowd_project.status)
         return {"FINISHED"}
 
@@ -230,6 +328,12 @@ class CROWD_OT_create_reference_project(Operator):
             context.scene.crowd_project.status = "Create failed: {}".format(error)
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
+        health.set_workflow(context.scene, "Author project", "Validate Project")
+        health.set_selection(
+            context.scene,
+            "Project: {}".format(context.scene.crowd_project.project_uuid),
+        )
+        health.record(context.scene, "INFO", "Reference project created", "The project is ready for validation.")
         context.scene.crowd_project.status = (
             "Ready: {} agents, {}".format(compiled.agent_count, compiled.source_hash[:12])
         )
@@ -253,6 +357,8 @@ class CROWD_OT_validate_project(Operator):
         context.scene.crowd_project.status = "Valid: {} agents, {}".format(
             compiled.agent_count, compiled.source_hash[:12]
         )
+        health.set_workflow(context.scene, "Validated", "Bake Crowd Cache")
+        health.record(context.scene, "INFO", "Project validation passed", context.scene.crowd_project.status)
         self.report({"INFO"}, context.scene.crowd_project.status)
         return {"FINISHED"}
 
@@ -304,6 +410,7 @@ class CROWD_OT_validate_authorable_project(Operator):
 class CROWD_OT_add_m2_semantic(Operator):
     bl_idname = "crowd.add_m2_semantic"
     bl_label = "Add M2 Semantic"
+    bl_description = "Add an editable queue, lane, or cost-region contract"
     bl_options = {"REGISTER", "UNDO"}
 
     entity_type: EnumProperty(
@@ -336,6 +443,7 @@ class CROWD_OT_add_m2_semantic(Operator):
 class CROWD_OT_remove_m2_semantic(Operator):
     bl_idname = "crowd.remove_m2_semantic"
     bl_label = "Remove M2 Semantic"
+    bl_description = "Remove the last semantic contract of the selected kind"
     bl_options = {"REGISTER", "UNDO"}
 
     entity_type: EnumProperty(
@@ -359,6 +467,7 @@ class CROWD_OT_remove_m2_semantic(Operator):
 class CROWD_OT_add_group(Operator):
     bl_idname = "crowd.add_group"
     bl_label = "Add M2 Social Group"
+    bl_description = "Add an editable social-group contract"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -375,6 +484,7 @@ class CROWD_OT_add_group(Operator):
 class CROWD_OT_remove_group(Operator):
     bl_idname = "crowd.remove_group"
     bl_label = "Remove Last M2 Social Group"
+    bl_description = "Remove the last authored social-group contract"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -423,6 +533,7 @@ class CROWD_OT_remove_population(Operator):
 class CROWD_OT_add_m2_asset(Operator):
     bl_idname = "crowd.add_m2_asset"
     bl_label = "Add M2 Asset Contract"
+    bl_description = "Add an editable retarget, clip, or variation contract"
     bl_options = {"REGISTER", "UNDO"}
 
     entity_type: EnumProperty(
@@ -467,6 +578,7 @@ class CROWD_OT_add_m2_asset(Operator):
 class CROWD_OT_remove_m2_asset(Operator):
     bl_idname = "crowd.remove_m2_asset"
     bl_label = "Remove M2 Asset Contract"
+    bl_description = "Remove the last asset contract of the selected kind"
     bl_options = {"REGISTER", "UNDO"}
 
     entity_type: EnumProperty(
@@ -522,6 +634,7 @@ class CROWD_OT_add_layout(Operator):
 class CROWD_OT_remove_layout(Operator):
     bl_idname = "crowd.remove_layout"
     bl_label = "Remove Layout"
+    bl_description = "Remove the last authored layout contract"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -640,11 +753,21 @@ def _update_project_bake_status(scene):
         result = dict(job["result"]) if job["result"] is not None else None
     if not done:
         scene.crowd_project.status = "Baking cache"
+        scene.crowd_project.operation_progress = 0.5
         return False
     if error is not None:
         scene.crowd_project.status = "Bake failed: {}".format(error)
+        health.set_workflow(scene, "Bake failed", "Review diagnostics and fix the project", progress=0.0)
+        health.record(scene, "ERROR", "Cache bake failed", error, scene.crowd_project.cache_path)
     elif result is not None:
         scene.crowd_project.status = "Cache {}".format(result["status"])
+        scene.crowd_project.operation_progress = 1.0
+        if result["status"] == "complete":
+            health.set_workflow(scene, "Cache baked", "Attach Crowd Cache", progress=1.0)
+            health.record(scene, "INFO", "Cache bake complete", "Ready to attach the resulting cache.", result["path"])
+        else:
+            health.set_workflow(scene, "Recover cache", "Rebake the project", progress=0.0)
+            health.record(scene, "WARNING", "Cache bake did not complete", "Status: {}".format(result["status"]), result["path"])
     return True
 
 
@@ -674,6 +797,16 @@ class CROWD_OT_bake_cache(Operator):
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
         context.scene.crowd_project.status = "Baking cache"
+        health.set_workflow(
+            context.scene,
+            "Baking cache",
+            "Wait for completion or cancel safely",
+            progress=0.0,
+        )
+        health.set_bake_estimate(
+            context.scene, sum(item["count"] for item in ir["populations"]), ticks
+        )
+        health.record(context.scene, "INFO", "Cache bake started", context.scene.crowd_project.operation_estimate, cache_path)
         if context.window is None:
             return {"FINISHED"}
         self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
@@ -707,6 +840,8 @@ class CROWD_OT_cancel_bake(Operator):
             return {"CANCELLED"}
         job["token"].cancel()
         context.scene.crowd_project.status = "Canceling cache"
+        health.set_workflow(context.scene, "Canceling bake", "Wait for recovery inspection", progress=context.scene.crowd_project.operation_progress)
+        health.record(context.scene, "WARNING", "Cache cancellation requested", "The partial cache will not be attachable.", context.scene.crowd_project.cache_path)
         self.report({"INFO"}, "crowd bake cancellation requested")
         return {"FINISHED"}
 
@@ -714,6 +849,8 @@ class CROWD_OT_cancel_bake(Operator):
 _CLASSES = (
     CROWD_OT_load_trace,
     CROWD_OT_attach_cache,
+    CROWD_OT_inspect_cache_health,
+    CROWD_OT_write_support_bundle,
     CROWD_OT_apply_terrain_presentation,
     CROWD_OT_inspect_agent,
     CROWD_OT_pin_selected_agent,

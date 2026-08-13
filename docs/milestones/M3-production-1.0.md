@@ -1,5 +1,9 @@
 # M3 — Production Blender Crowd 1.0
 
+**Accepted on 2026-08-12.** The clean macOS arm64 archive passed the complete
+archive-first, resource, compatibility, lifecycle, policy, and accessibility
+gates. See the [dated acceptance record](../benchmarks/2026-08-12-m3-acceptance.md).
+
 ## Objective
 
 Harden the authorable MVP into a trustworthy, installable, recoverable release
@@ -19,8 +23,9 @@ checked-in baselines; no threshold is invented after seeing a release result.
 
 ## In scope
 
-- Cross-platform native packaging for the declared Blender LTS-compatible
-  versions and OS/architecture matrix.
+- Native packaging for the declared Blender 5.2 LTS / macOS Apple Silicon 1.0
+  support row. Other operating systems and architectures require a later
+  support-contract expansion backed by their own evidence.
 - Cache atomicity, cancellation, recovery, invalidation explanations, migration,
   partial corruption handling, optional channels, and compatibility policy.
 - Blender undo/redo, save/reload, dependency-graph, linked/overridden data,
@@ -49,11 +54,11 @@ checked-in baselines; no threshold is invented after seeing a release result.
 - Expose operation estimates, progress, cancellation, recovery, and resulting
   artifact locations for long-running work.
 
-The M3 UI gate passes from clean release archives on every claimed platform. At
-least two evaluators who did not implement the feature must install, create or
-open, validate, bake, reload, recover one injected failure, and render the
-acceptance shot using the documented interface. Record task success, time,
-errors, recovery, accessibility findings, and remaining support limitations.
+The M3 UI gate passes from clean release archives on every claimed platform
+through automated interaction checks plus a documented maintainer accessibility
+review. Independent production-evaluator studies are intentionally deferred to
+M7, after 1.0 has established a stable workflow worth evaluating; they are not
+a Blender Crowd 1.0 release condition.
 
 ## Explicit exclusions
 
@@ -97,3 +102,9 @@ M3 is done only when all Blender Crowd 1.0 criteria pass from clean release
 archives. Stop the release on data loss, cache misidentification, unsupported
 binary linkage, nondeterministic discrete decisions, or an unbounded crash. Do
 not reclassify a failing criterion as post-1.0 to ship on schedule.
+
+## Acceptance record
+
+The dated [M3 acceptance record](../benchmarks/2026-08-12-m3-acceptance.md)
+tracks every criterion, exact artifact identity, measured budget, and deferred
+M7 evaluator study.

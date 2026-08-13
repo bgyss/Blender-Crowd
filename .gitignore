@@ -2,4 +2,6 @@
 /benchmarks/reports
 /addon/blender_crowd/wheels/*.whl
 /dist
+/m2-crowd-cache/
+/m2-proof/
 __pycache__/

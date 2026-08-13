@@ -226,6 +226,11 @@ def main(path):
 
         cache = blender_crowd_native.Cache(complete_path, require_complete=True)
         check(cache.agent_count == 25, "complete cache reopens after session destruction")
+        check(cache.source_hash == project.source_hash, "cache source hash matches the compiled project")
+        check(
+            blender_crowd_native.inspect_cache(complete_path)["status"] == "complete",
+            "integrity inspector reports complete cache",
+        )
         buffers = cache.read_tick(cache.tick_start)
         check(set(buffers) == set(CACHE_CHANNELS), "cache returns every v1 playback channel")
         for name, per_agent in CACHE_CHANNELS.items():
@@ -234,6 +239,15 @@ def main(path):
                 isinstance(buffers[name], bytes) and len(buffers[name]) == expected,
                 f"cache {name} is {expected} bytes",
             )
+
+        corrupt_chunk = next(Path(complete_path, "frames").glob("*.chunk"))
+        with corrupt_chunk.open("r+b") as handle:
+            original = handle.read(1)
+            handle.seek(0)
+            handle.write(bytes([original[0] ^ 0x01]))
+        corrupt = blender_crowd_native.inspect_cache(complete_path)
+        check(corrupt["status"] == "corrupt", "integrity inspector reports a damaged complete cache")
+        check(corrupt["integrity_error"], "corrupt cache names an integrity failure")
 
         canceled_path = os.path.join(temp, "canceled.crowd")
         token = blender_crowd_native.CancelToken()

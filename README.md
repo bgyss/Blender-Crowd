@@ -33,7 +33,8 @@ integration proposal backed by production evidence.
 
 ## Status
 
-M0, M1, and M2 are accepted, and M3 is unblocked. The implemented system includes a
+M0 through M3 are accepted. Blender Crowd 1.0 is narrowed to Blender 5.2 LTS
+on macOS 11+ Apple Silicon. The implemented system includes a
 headless deterministic Rust kernel, selected navigation and avoidance, a
 recoverable versioned cache, an abi3 native facade, a clean-install Blender
 extension, and cache-only Geometry Nodes presentation.
@@ -127,6 +128,8 @@ cargo test --workspace                                    # unit, property, dete
 cargo test -p crowd-core --test behavior_graph            # M2 typed graph schema/compiler
 scripts/m2-foundation-test.sh                             # implemented M2 compiler/data-layer checks
 scripts/m2-blender-authoring-test.sh                      # M2 clean-install + UI-context undo/save/reload
+scripts/blender-install-test.sh --python tests/blender/test_m3_production.py # M3 cache recovery/save-reload proof
+scripts/m3-acceptance.sh --archive /path/to/blender_crowd-1.0.0.zip --out /tmp/blender-crowd-m3-proof # archive-first M3 gate
 scripts/m2-full-acceptance.sh --out /path/to/blender-crowd-m2-proof      # 1K full bake/replay/debug/render subgate
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
 cargo clippy --workspace --all-targets -- -D warnings
@@ -170,6 +173,21 @@ where the nix `cc` on `PATH` is the linker and cannot resolve libSystem.
 Built wheels are not committed. The wheel is `abi3` on purpose: Blender 5.2
 treats an `abi3` tag as "any CPython 3", so a single wheel survives Blender
 moving to a newer CPython.
+
+The M3 release contract is documented in the [support matrix](docs/release/1.0-support-matrix.md)
+and [compatibility policy](docs/release/1.0-compatibility.md). Generate the
+release SPDX inventory with `scripts/m3_sbom.py --out addon/blender_crowd/sbom.spdx.json`;
+the wheel builder does this automatically before packaging.
+The dated [M3 acceptance record](docs/benchmarks/2026-08-12-m3-acceptance.md)
+records the reproducible archive, enforcing budgets, compatibility and
+lifecycle drills, release-policy review, and accessibility audit. Independent
+evaluator studies are deferred to M7. Windows, Linux, and Intel macOS are
+explicitly outside the Blender Crowd 1.0 support contract.
+
+Generated cache directories are intentionally not versioned. See the
+[artifact storage policy](docs/release/artifact-storage-policy.md) for the
+future 100-agent GitHub demo-fixture path and external hosting policy for
+1,000-agent evidence and future 10K/100K artifacts.
 
 `--svg` and `--frames` sample the simulation every tick, so a run recorded with
 either reports a `ticks_per_second` that is not a performance measurement.

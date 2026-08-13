@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-12",
+  "milestone": "M3",
+  "decision": "accepted",
+  "release_version": "1.0.0",
+  "candidate_revision": "bbde2c2a81b02075721ae3c89a63bf2369a7bec8",
+  "support_matrix": [
+    {
+      "blender": "5.2 LTS",
+      "os": "macOS 11+",
+      "architecture": "Apple Silicon",
+      "manifest_platform": "macos-arm64"
+    }
+  ],
+  "archive": {
+    "filename": "blender_crowd-1.0.0.zip",
+    "bytes": 1077567,
+    "sha256": "253c35429df7f1e0239241f66c28cb5374ca1817bebeb807fc856d953b47d351",
+    "reproducible_builds": 2,
+    "archive_audit_passed": true,
+    "archive_acceptance_passed": true,
+    "budget_audit_passed": true,
+    "release_policy_audit_passed": true,
+    "accessibility_audit_passed": true
+  },
+  "measurements": {
+    "agents": 1000,
+    "ticks": 10000,
+    "authorable_bake_seconds": 56.16388687491417,
+    "cache_bytes": 915727474,
+    "behavior_event_bytes": 355672491,
+    "peak_blender_resident_bytes": 3141042176,
+    "sequential_cache_ticks_per_second": 19462.336714651206,
+    "debug_inspection_seconds_per_query": 0.005185003317892551,
+    "point_upload_seconds": 0.006358250044286251,
+    "armature_evaluation_seconds": 0.004030999960377812,
+    "eevee_seconds": 1.1923407500144094,
+    "cycles_cpu_seconds": 0.09262270794715732
+  },
+  "criteria": {
+    "clean_install_matrix": "proven",
+    "cache_compatibility_recovery": "proven",
+    "blender_lifecycle": "proven",
+    "resource_budgets": "proven",
+    "binary_provenance": "proven",
+    "documentation": "proven",
+    "limitations_and_recovery": "proven"
+  },
+  "deferred_to_m7": [
+    "two independent evaluator records on the supported platform"
+  ],
+  "blocking_conditions": []
+}

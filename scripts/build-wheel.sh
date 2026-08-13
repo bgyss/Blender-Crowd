@@ -29,4 +29,8 @@ rm -f "$OUT_DIR"/*.whl
     --manifest-path "$REPO_ROOT/crates/crowd-blender/Cargo.toml" \
     --out "$OUT_DIR"
 
-echo "built: $(ls "$OUT_DIR"/*.whl)"
+WHEEL_PATH="$(ls "$OUT_DIR"/*.whl)"
+SOURCE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$REPO_ROOT" show -s --format=%ct HEAD)}"
+python3 "$REPO_ROOT/scripts/m3_normalize_wheel.py" "$WHEEL_PATH" --epoch "$SOURCE_EPOCH"
+
+echo "built: $WHEEL_PATH"
