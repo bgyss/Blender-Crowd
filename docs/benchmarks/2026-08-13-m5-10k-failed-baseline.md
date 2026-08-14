@@ -228,15 +228,77 @@ penetration, 9,097 agents ever stalled, 4,469,568 stall agent-ticks, and 4,963
 abrupt turns. It is rejected: peak penetration and corrected stalls are worse
 than the two-tick contact candidate.
 
-## Selected two-tick S2 candidate requiring corrected-accounting 10K rerun
+## Two-tick S2 candidate after corrected stall accounting
 
 Date: 2026-08-14
-Status: **selected for contact quality; rerun required before any acceptance decision**
+Status: **rejected on corrected continuous-stall evidence; do not begin 100K**
 
-The active candidate is restored to the stable-ID-staggered two-tick S2
-schedule. Its earlier 10K run had the best contact evidence so far: 3,311
-pair-ticks, 0.216 m maximum penetration, and 3,767 abrupt turns at 36.62
-ticks/s. That run predates the continuous-braking accounting repair, so its
-7,805 `agents_ever_stalled` and 3,040,879 stall-agent-ticks are not comparable
-to the corrected three-tick report. Repeat the two-tick 10K run with current
-code before selecting or rejecting it on the stall gate.
+The current-code rerun completed all 10,000 agents at 37.12 ticks/s (1,212.30 s
+wall time). It retained the best contact result of the cadence candidates so
+far: 3,311 penetration pair-ticks, 0.216 m maximum penetration, and 3,767
+abrupt turns. Corrected continuous-braking accounting recorded 8,764 agents
+ever stalled and 3,682,282 stall-agent-ticks. The lower contact count is real,
+but it does not make the run acceptable: 87.6% of the population entered a
+continuous braking state.
+
+This result establishes that cadence alone cannot fix the dense-lane quality
+failure. It also exposed a fixture-scale defect: at 10K the scene still used
+twelve physical route centrelines. Route length had grown by 10x from the
+100-agent reference while population had grown by 100x, placing about 10x more
+agents on each one-dimensional lane. The next fixture revision scales lanes
+per direction with the linear scene scale (six at 100 agents, sixty at 10K),
+so total route capacity grows with population while lane pitch stays near
+2.7 m. All earlier 10K cadence comparisons are retained as evidence for the
+old twelve-lane fixture, but are not evidence for the scaled-lane revision.
+
+The next required evidence is a fresh 1K confirmation and then a 10K rerun of
+the scaled-lane fixture. Do not begin 100K unless that new 10K report is
+accepted and all non-simulation M5 gates are separately evidenced.
+
+## Scaled-lane 1K confirmation
+
+Date: 2026-08-14
+Status: **fixture revision confirmed at 1K; repeat 10K next**
+
+The revised fixture used 19 lanes per direction (38 total), compared with the
+old fixed twelve lanes. It completed 1,000 / 1,000 agents at 648.43 ticks/s in
+21.95 s. It recorded one penetration pair-tick, 0.00029 m maximum penetration,
+53 agents ever stalled, 2,208 stall-agent-ticks, and 28 abrupt turns. The
+declared stable-ID profile remained active with 102 S1/R1 and 898 S2/R2 agents
+at the two-tick cadence.
+
+This is strong 1K evidence that lane-capacity scaling removes the artificial
+single-file queue. It is only a confirmation run: repeat the full 10K
+simulation with a new output directory before assessing the revised fixture.
+
+## Scaled-lane 10K simulation result
+
+Date: 2026-08-14
+Status: **simulation sub-gate measured successfully; full 10K acceptance remains pending**
+
+The revised fixture used 60 lanes per direction (120 total) under the declared
+stable-ID target profile: 959 S1/R1 and 9,041 S2/R2 agents. All 10,000 agents
+arrived. The run completed on the Apple M1 Max reference workstation at 60.15
+ticks/s (748.16 s wall time for 45,000 ticks).
+
+| Measure | Scaled-lane 10K result | Change from fixed-lane two-tick rerun |
+| --- | ---: | ---: |
+| Spawned / arrived | 10,000 / 10,000 | Full completion retained |
+| Simulation rate | 60.15 ticks/s | 37.12 to 60.15 ticks/s |
+| Penetration pair-ticks | 49 | 3,311 to 49 |
+| Penetration agent-ticks | 99 | Newly recorded comparison field |
+| Maximum penetration | 0.0183 m | 0.216 m to 0.0183 m |
+| Agents ever stalled | 998 | 8,764 to 998 |
+| Stall episodes / agent-ticks | 1,455 / 92,322 | 62,708 / 3,682,282 to corrected values |
+| Abrupt turns | 346 | 3,767 to 346 |
+| Gate crossings | 4,422 | Diagnostic only: one direction is counted |
+
+This is the first valid 10K result for the scaled-lane fixture, and it meets
+the existing 10 ticks/s engineering budget with low measured contact error.
+It is not yet a passing M5 10K report: the governing contract requires fixed
+per-tier thresholds for destination, penetration, stall, oscillation, and group
+metrics. These measurements are the required checked-in baseline from which
+those thresholds can be set; a subjective reading of the improvement cannot
+replace them. Cache, Blender playback/render and UI evidence, tier-transition
+evidence, and CPU-fallback compatibility evidence also remain required before
+100K work begins.

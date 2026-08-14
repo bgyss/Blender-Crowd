@@ -58,10 +58,24 @@ restated target counts while classifying lane-local ordinals incorrectly.
 Do not compare the schema-v4 result directly with the pre-profile failed
 baseline except as an optimization reference.
 
-The current S2 candidate uses a stable-ID-staggered two-tick perception and
-steering interval. Verify `s2_perception_interval_ticks` and
-`s2_steering_interval_ticks` in the report before comparing it with an older
-four-tick result; cadence is part of the quality/performance tradeoff.
+The scaled-lane fixture has now completed its first 10K simulation run: 10,000
+/ 10,000 arrived at 60.15 ticks/s, with 49 penetration pair-ticks and 0.0183 m
+maximum penetration. It is a successful simulation measurement, but not a full
+10K acceptance report and does not authorize the 100K gate. Fix and check in
+per-tier quality thresholds before adjudicating it; then collect the cache,
+Blender playback/render and UI, tier-transition, and CPU-fallback evidence
+listed below.
+
+The current fixture scales the count of one-way route lanes with linear scene
+scale (six per direction at 100 agents and sixty per direction at 10K). This
+keeps per-lane linear density comparable as population grows. Do not compare a
+report from the older fixed twelve-lane fixture with this revised fixture as
+acceptance evidence; retain it only as a diagnostic baseline.
+
+S2 uses a stable-ID-staggered two-tick perception and steering interval. Verify
+`s2_perception_interval_ticks` and `s2_steering_interval_ticks` in the report
+before comparing it with an older four-tick result; cadence is part of the
+quality/performance tradeoff.
 
 The `run` command is the complete simulation measurement. Do not substitute
 the shorter `--cache-frames 8` preflight for it. The cache matrix proves cache
