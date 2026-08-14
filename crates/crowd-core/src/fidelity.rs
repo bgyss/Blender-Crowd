@@ -10,6 +10,11 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{mix64, AgentId};
 use crate::units::Vec2;
 
+/// Background S2 agents are refreshed every other tick. At 30 Hz this bounds
+/// stale avoidance state to 66.7 ms while retaining a large reduction from
+/// S1's every-tick work. The per-agent phase below distributes it evenly.
+pub const S2_UPDATE_INTERVAL_TICKS: u64 = 2;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum SimulationTier {
@@ -109,6 +114,17 @@ impl FidelityPolicy {
             .map(|background| mix64(id.0) % 10_000 < u64::from(background))
     }
 
+    /// Spread background work over the S2 cadence by stable ID.
+    ///
+    /// A global phase makes every S2 agent perceive and steer in lockstep.
+    /// Dense lanes amplify that into repeated collective braking and turns.
+    /// A fixed per-agent phase preserves the same per-agent work budget while
+    /// avoiding a synchronized response.
+    pub fn s2_update_due(id: AgentId, tick: u64) -> bool {
+        let phase = mix64(id.0 ^ 0x9e37_79b9_7f4a_7c15) % S2_UPDATE_INTERVAL_TICKS;
+        tick % S2_UPDATE_INTERVAL_TICKS == phase
+    }
+
     pub fn target(&self, position: Vec2, current: SimulationTier) -> SimulationTier {
         let distance = position.distance_squared(self.camera).sqrt();
         match current {
@@ -181,5 +197,17 @@ mod tests {
         let id = AgentId(0x1234_5678_9abc_def0);
         assert_eq!(policy.is_background_id(id), policy.is_background_id(id));
         assert!(policy.is_background_id(id).is_some());
+    }
+
+    #[test]
+    fn s2_update_cadence_is_stable_and_runs_once_per_two_ticks() {
+        let id = AgentId(0x0123_4567_89ab_cdef);
+        let due: Vec<_> = (0..8)
+            .filter(|tick| FidelityPolicy::s2_update_due(id, *tick))
+            .collect();
+        assert_eq!(due.len(), 4);
+        assert_eq!(due[1] - due[0], 2);
+        assert_eq!(due[2] - due[1], 2);
+        assert_eq!(due[3] - due[2], 2);
     }
 }

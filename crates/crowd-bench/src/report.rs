@@ -9,6 +9,7 @@ use std::time::Instant;
 use crowd_core::avoidance::{
     AnticipatorySolver, AvoidanceSolver, OrcaSolver, SampledVelocitySolver,
 };
+use crowd_core::fidelity::S2_UPDATE_INTERVAL_TICKS;
 use crowd_core::metrics::{MetricsConfig, MetricsSummary};
 use crowd_core::scenes;
 use crowd_core::sim::{SimConfig, Simulation};
@@ -371,8 +372,8 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
             s2_agents,
             r1_agents,
             r2_agents,
-            s2_perception_interval_ticks: 4,
-            s2_steering_interval_ticks: 4,
+            s2_perception_interval_ticks: S2_UPDATE_INTERVAL_TICKS as u32,
+            s2_steering_interval_ticks: S2_UPDATE_INTERVAL_TICKS as u32,
             s3_individual_perception: false,
         })
     } else {

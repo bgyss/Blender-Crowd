@@ -58,6 +58,11 @@ restated target counts while classifying lane-local ordinals incorrectly.
 Do not compare the schema-v4 result directly with the pre-profile failed
 baseline except as an optimization reference.
 
+The current S2 candidate uses a stable-ID-staggered two-tick perception and
+steering interval. Verify `s2_perception_interval_ticks` and
+`s2_steering_interval_ticks` in the report before comparing it with an older
+four-tick result; cadence is part of the quality/performance tradeoff.
+
 The `run` command is the complete simulation measurement. Do not substitute
 the shorter `--cache-frames 8` preflight for it. The cache matrix proves cache
 size, range-read throughput, encoding error, and cancellation recovery only.

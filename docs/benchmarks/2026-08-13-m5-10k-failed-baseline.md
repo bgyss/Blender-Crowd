@@ -144,3 +144,99 @@ The run completed 1,000 / 1,000 at 985.9 ticks/s in 14.43 s, with 40
 penetration pair-ticks, 0.068 m maximum penetration, 50 agents ever stalled,
 and 43 abrupt turns. This confirms the repaired profile is active, but does
 not replace the pending 10K scale, Blender, fallback, or threshold gates.
+
+## 10K schema-v4 declared-profile rerun
+
+Date: 2026-08-13
+Status: **valid declared-profile simulation evidence; failed quality gate; do not begin 100K**
+
+The schema-v4 report recorded 1,013 S1/R1 and 8,987 S2/R2 agents, within a
+small hash-partition variance of the declared 10%/90% target. All 10,000
+agents arrived. The run achieved 58.25 ticks/s (772.56 s wall time for 45,000
+ticks), clearing the contract's 10 ticks/s 10K engineering budget.
+
+| Measure | Schema-v4 result | Assessment |
+| --- | ---: | --- |
+| Spawned / arrived | 10,000 / 10,000 | Completion pass |
+| Simulation rate | 58.25 ticks/s | Performance budget pass |
+| Penetration pair-ticks | 5,952 | Quality failure pending reduction/threshold |
+| Maximum penetration | 0.333 m | Quality failure |
+| Agents ever stalled | 6,818 | Quality failure |
+| Stall agent-ticks | 3,914,299 | Quality failure |
+| Heading reversals | 9,568,588 | Must remain reported and receive tolerance |
+| Abrupt turns | 6,861 | Quality failure |
+| Gate crossings | 4,170 | Diagnostic only; current gate counts one flow direction |
+
+Steering remains the dominant cost at 79.8% of measured phase time and
+perception is 15.3%. The next optimization round must improve the crowded S2
+lanes' quality without losing the validated profile mix or 10K throughput.
+This result also lacks the required cache rerun, Blender viewport/render,
+tier-transition, CPU-fallback, and declared-threshold evidence; none may be
+inferred from the Rust simulation report.
+
+## Dense-S2 cadence quality pass
+
+Date: 2026-08-13
+Status: **candidate validated at 1K; repeat 10K before accepting**
+
+The original S2 schedule refreshed every S2 agent together, producing a dense
+lane's collective correction on one tick and holding it for the next three.
+The scheduler now assigns each S2 agent a stable-ID phase and refreshes it every
+two ticks (66.7 ms maximum stale interval at 30 Hz). This doubles S2 avoidance
+work relative to the prior four-tick policy but keeps it below S1's every-tick
+work and avoids synchronized correction waves.
+
+At 1K, the declared profile remained 101 S1/R1 and 899 S2/R2. All 1,000
+agents arrived. Penetration fell from 40 to 6 pair-ticks and maximum depth fell
+from 0.068 m to 0.010 m. The tradeoff is explicit: throughput fell from 985.9
+to 592.6 ticks/s, agents ever stalled rose from 50 to 120, and abrupt turns
+rose from 43 to 45. The candidate is therefore a contact-quality improvement,
+not a completed quality gate; the next 10K report must evaluate the stall and
+throughput tradeoff under the same schema-v4 declared profile.
+
+## Two-tick S2 10K rerun
+
+Date: 2026-08-14
+Status: **contact-quality improvement; stalled-population gate remains failed; do not begin 100K**
+
+The schema-v4 two-tick run completed 10,000 / 10,000 at 36.62 ticks/s. Compared
+with the preceding four-tick declared-profile run, penetration pair-ticks fell
+from 5,952 to 3,311, peak penetration from 0.333 m to 0.216 m, abrupt turns
+from 6,861 to 3,767, and stall agent-ticks from 3,914,299 to 3,040,879.
+However, 7,805 agents were marked as ever stalled, so this does not pass the
+quality gate.
+
+Review found that sparse S2 ticks cleared `solver_status` while preserving the
+previous braking target. That counted periodic brake samples as separate stall
+episodes rather than continuous braking. The metric now preserves and accounts
+for the retained braking status; prior stalled-agent values across sparse
+cadences are not comparable to the corrected metric.
+
+## Three-tick S2 candidate after corrected stall accounting
+
+Date: 2026-08-14
+Status: **rejected at 10K; do not use**
+
+The three-tick candidate used stable-ID-staggered S2 perception and steering every
+three ticks (100 ms maximum stale interval at 30 Hz). At 1K it completed all
+agents at 815.8 ticks/s, with 17 penetration pair-ticks, 0.063 m maximum
+penetration, 216 agents ever stalled, 4,618 stall agent-ticks, and 26 abrupt
+turns. It is the selected balance between the old four-tick contact failures
+and the two-tick candidate's heavier continuous braking. Its 10K rerun completed
+all agents at 48.96 ticks/s but recorded 3,583 pair-ticks, 0.343 m maximum
+penetration, 9,097 agents ever stalled, 4,469,568 stall agent-ticks, and 4,963
+abrupt turns. It is rejected: peak penetration and corrected stalls are worse
+than the two-tick contact candidate.
+
+## Selected two-tick S2 candidate requiring corrected-accounting 10K rerun
+
+Date: 2026-08-14
+Status: **selected for contact quality; rerun required before any acceptance decision**
+
+The active candidate is restored to the stable-ID-staggered two-tick S2
+schedule. Its earlier 10K run had the best contact evidence so far: 3,311
+pair-ticks, 0.216 m maximum penetration, and 3,767 abrupt turns at 36.62
+ticks/s. That run predates the continuous-braking accounting repair, so its
+7,805 `agents_ever_stalled` and 3,040,879 stall-agent-ticks are not comparable
+to the corrected three-tick report. Repeat the two-tick 10K run with current
+code before selecting or rejecting it on the stall gate.

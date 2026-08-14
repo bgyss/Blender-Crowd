@@ -7,7 +7,7 @@
 
 use crate::arena::NeighborArena;
 use crate::avoidance::{AvoidanceInput, AvoidanceSolver, NeighborState};
-use crate::fidelity::SimulationTier;
+use crate::fidelity::{FidelityPolicy, SimulationTier};
 use crate::geometry::{time_to_collision_disc, time_to_collision_segment, Segment};
 use crate::scene::CompiledScene;
 use crate::units::Vec2;
@@ -120,7 +120,7 @@ fn steer_with_schedule(
                 true
             }
             Some(tick) if world.simulation_tier[slot] == SimulationTier::S2 => {
-                tick.is_multiple_of(4)
+                FidelityPolicy::s2_update_due(world.agent_id[slot], tick)
             }
             Some(_) => false,
         };
@@ -133,8 +133,21 @@ fn steer_with_schedule(
                 // jitter without any new avoidance evidence.
                 world.des_vel_x[slot] = world.scheduled_target_vel_x[slot];
                 world.des_vel_y[slot] = world.scheduled_target_vel_y[slot];
+                // The retained target also retains its solver result. Marking
+                // this tick `Free` would let intermittent braking accumulate
+                // in `stall_ticks` without representing consecutive braking;
+                // conversely, preserving `Braking` without incrementing would
+                // undercount the time spent following a braking target.
+                if world.solver_status[slot] == SolverStatus::Braking {
+                    braking_agents += 1;
+                    world.stall_ticks[slot] = world.stall_ticks[slot].saturating_add(1);
+                } else {
+                    world.stall_ticks[slot] = 0;
+                }
+            } else {
+                world.solver_status[slot] = SolverStatus::Free;
+                world.stall_ticks[slot] = 0;
             }
-            world.solver_status[slot] = SolverStatus::Free;
             continue;
         }
         let position = Vec2::new(world.pos_x[slot], world.pos_y[slot]);
@@ -261,6 +274,7 @@ fn steer_with_schedule(
 mod tests {
     use super::*;
     use crate::avoidance::SampledVelocitySolver;
+    use crate::fidelity::S2_UPDATE_INTERVAL_TICKS;
     use crate::grid::UniformGrid;
     use crate::ids::AgentId;
     use crate::phases::perceive::{perceive, PerceiveConfig, PerceiveScratch};
@@ -491,6 +505,9 @@ mod tests {
         world.scheduled_target_vel_x[0] = 1.1;
         world.scheduled_target_vel_y[0] = 0.4;
         let mut scratch = SteerScratch::default();
+        let skipped_tick = (0..S2_UPDATE_INTERVAL_TICKS)
+            .find(|tick| !FidelityPolicy::s2_update_due(world.agent_id[0], *tick))
+            .unwrap();
 
         steer_scheduled(
             &mut world,
@@ -499,9 +516,36 @@ mod tests {
             &SampledVelocitySolver::default(),
             &SteerConfig::default(),
             &mut scratch,
-            1,
+            skipped_tick,
         );
 
         assert_eq!(world.desired_velocity(0), Vec2::new(1.1, 0.4));
+    }
+
+    #[test]
+    fn sparse_s2_braking_is_counted_as_continuous_not_accumulated_samples() {
+        let scene = open_scene(Vec::new());
+        let mut world = world_with(&[(1, Vec2::ZERO, Vec2::new(1.35, 0.0))]);
+        world.simulation_tier[0] = SimulationTier::S2;
+        world.solver_status[0] = SolverStatus::Braking;
+        world.stall_ticks[0] = 7;
+        let mut scratch = SteerScratch::default();
+        let skipped_tick = (0..S2_UPDATE_INTERVAL_TICKS)
+            .find(|tick| !FidelityPolicy::s2_update_due(world.agent_id[0], *tick))
+            .unwrap();
+
+        let report = steer_scheduled(
+            &mut world,
+            &NeighborArena::new(),
+            &scene,
+            &SampledVelocitySolver::default(),
+            &SteerConfig::default(),
+            &mut scratch,
+            skipped_tick,
+        );
+
+        assert_eq!(world.solver_status[0], SolverStatus::Braking);
+        assert_eq!(world.stall_ticks[0], 8);
+        assert_eq!(report.braking_agents, 1);
     }
 }
