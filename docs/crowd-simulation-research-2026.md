@@ -29,6 +29,12 @@ makes that direction interesting for experiments, but its runtime cost,
 reproducibility, explainability, and packaging requirements conflict with the
 1.0 contract.
 
+Reactive neural **animation** for a small number of promoted interaction groups
+is a distinct post-1.0 opportunity. It may generate a validated animation layer
+without replacing the deterministic brain, navigation, contact outcome, or base
+cache. ARDY and paired-interaction alternatives are assessed in the dedicated
+[reactive neural interaction animation research track](reactive-neural-interaction-animation-2026.md).
+
 ## Evidence assessment
 
 | Evidence | Strongest relevant result | Product implication | Important caveat |

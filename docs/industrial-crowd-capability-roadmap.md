@@ -64,6 +64,10 @@ from becoming unowned aspirations.
 16. Extension-first production proof is the path toward Blender integration.
     Mainline inclusion is an external maintainer decision and must never be
     represented as guaranteed.
+17. Reactive neural motion is a promoted-interaction animation option, not a
+    replacement for the crowd brain. Models propose validated, cached motion
+    behind a versioned contract while the core owns intent, roots, contacts,
+    outcomes, fallbacks, and unrelated agents.
 
 ## Product architecture
 
@@ -120,6 +124,7 @@ not authorize copying proprietary code, assets, UI, or trade dress.
 | Animation state blending is only the baseline | Validated clip sets, starts/stops/turns, phase, speed/stride warping, transition graphs, and root-motion policy | M1/M2 |
 | Terrain and foot adaptation materially affect quality | Terrain projection, slope policy, foot contacts, foot locking, stride warping, IK, and failure diagnostics | M2 foundation, M6 complete |
 | Motion and trajectory should become a feedback loop | Motion database queries future trajectory; feasible selected motion constrains subsequent locomotion | M6 |
+| Reactive interactions need more than two agents playing adjacent clips | A model-independent paired-motion request carries roots, roles, contacts, props, and outcome to an optional local worker; validated output composes as a sparse animation layer with deterministic fallback | M6 research, M8 combat pack |
 | Physical interaction and crowd-to-physics transitions are production needs | Deterministic trigger and state handoff for ragdoll/rigid-body intervals, recoverable cache layers, collision masks, and resumption policy | M4/M6 |
 | Cloth and hair are hero fidelity, not universal simulation state | Blender physics or validated external cache attaches to promoted hero agents without changing background truth | M6 |
 | Post-simulation directing is the most valuable UX differentiator | Move, hide/delete, freeze, retime, redirect, replace appearance/animation, change speed, promote, or locally resimulate stable IDs | M2 foundation, M4 complete |
@@ -167,6 +172,9 @@ not authorize copying proprietary code, assets, UI, or trade dress.
 - Adapt stride and feet to trajectory and terrain.
 - Promote selected agents into trajectory-aware motion matching, paired actions,
   IK, ragdoll, rigid body, cloth, hair, or hero-control layers.
+- For promoted interaction groups, optionally generate and validate reactive
+  paired motion in a local worker, then direct or remove the sparse animation
+  layer without changing the base crowd bake.
 
 ### Simulate, direct, and render
 

@@ -16,7 +16,7 @@ lists; they do not replace the canonical
 | M3 | [Production 1.0](M3-production-1.0.md) | Clean-install production acceptance passes on the support matrix |
 | M4 | [Layered layout and interchange](M4-layout-interchange.md) | Golaem-class post-sim direction and validated layered exchange |
 | M5 | [Scale and procedural rendering](M5-scale-rendering.md) | Earn 10K, then 100K, with declared tier mixes and reproducible evidence |
-| M6 | [Advanced agency, motion, and physics](M6-advanced-agency-motion.md) | MASSIVE-class perception/brain authoring and trajectory-aware hero motion |
+| M6 | [Advanced agency, motion, and physics](M6-advanced-agency-motion.md) | MASSIVE-class brains, trajectory-aware motion, and validated reactive-interaction research |
 | M7 | [Blender ecosystem and mainline readiness](M7-blender-integration.md) | Production evidence supports narrowly scoped upstream proposals |
 | M8 | [Semantic authoring, domain packs, and synthetic data](M8-semantic-domains-data.md) | Expansion tracks reuse stable core contracts without weakening determinism |
 
