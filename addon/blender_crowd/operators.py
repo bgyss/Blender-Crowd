@@ -20,6 +20,7 @@ from . import (
     health,
     layout_editor,
     m4_layout,
+    m5_scale,
     overrides,
     project,
     reference_assets,
@@ -1217,6 +1218,116 @@ class CROWD_OT_cancel_bake(Operator):
         return {"FINISHED"}
 
 
+
+class CROWD_OT_estimate_m5_preflight(Operator):
+    bl_idname = "crowd.estimate_m5_preflight"
+    bl_label = "Estimate M5 Scale Cost"
+    bl_description = "Preflight memory, cache, and extraction estimates for the declared population"
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        scene = context.scene
+        frames = max(1, scene.frame_end - scene.frame_start + 1)
+        agents = props.m5_s0_count + props.m5_s1_count + props.m5_s2_count + props.m5_s3_count
+        if agents <= 0:
+            self.report({"ERROR"}, "declare an S0-S3 tier mix before estimating")
+            return {"CANCELLED"}
+        try:
+            estimate = m5_scale.estimate(agents, frames)
+        except ValueError as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.m5_estimated_memory = estimate["memory"]
+        props.m5_estimated_cache = estimate["cache"]
+        props.m5_estimated_extract = estimate["extraction"]
+        # Deliberately not written into the measured fields: an estimate that
+        # can be read as a result is worse than no estimate.
+        health.record(
+            scene,
+            "INFO",
+            "M5 preflight estimated",
+            "Estimates only, for {} agents over {} frames. Attach a scale report for measurements.".format(agents, frames),
+        )
+        self.report({"INFO"}, "M5 preflight estimated (not measured)")
+        return {"FINISHED"}
+
+
+class CROWD_OT_load_m5_report(Operator):
+    bl_idname = "crowd.load_m5_report"
+    bl_label = "Attach M5 Scale Report"
+    bl_description = "Populate the scale panel from a measured crowd-bench report and its gate adjudication"
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        if not props.m5_report_path:
+            self.report({"ERROR"}, "set a scale report path first")
+            return {"CANCELLED"}
+        try:
+            report = m5_scale.load_report(props.m5_report_path)
+            counts = m5_scale.declared_tier_counts(report)
+        except (OSError, KeyError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+
+        for name in m5_scale.SIMULATION_TIERS:
+            setattr(props, "m5_{}_count".format(name.lower()), counts["simulation"][name])
+        for name in m5_scale.RENDER_TIERS:
+            setattr(props, "m5_{}_count".format(name.lower()), counts["render"][name])
+        props.m5_measured_summary = m5_scale.measured_summary(report)
+        props.m5_bottleneck = m5_scale.bottleneck(report)
+        props.m5_animation_scheduling = m5_scale.animation_scheduling_summary(report)
+
+        if props.m5_adjudication_path:
+            try:
+                adjudication = m5_scale.load_adjudication(props.m5_adjudication_path)
+            except (OSError, KeyError, ValueError) as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            props.m5_gate_result = m5_scale.gate_result(adjudication)
+        else:
+            # An unadjudicated report is measured evidence, not a passing gate,
+            # and the panel must not let the two read the same.
+            props.m5_gate_result = "Not adjudicated: attach an m5-gate adjudication"
+
+        props.m5_profile_status = "Measured report attached: {}".format(report["scene"])
+        health.record(
+            context.scene,
+            "INFO",
+            "M5 scale report attached",
+            "{}\n{}".format(props.m5_measured_summary, props.m5_gate_result),
+        )
+        self.report({"INFO"}, props.m5_measured_summary)
+        return {"FINISHED"}
+
+
+class CROWD_OT_summarize_m5_playback(Operator):
+    bl_idname = "crowd.summarize_m5_playback"
+    bl_label = "Summarize Playback Tiers"
+    bl_description = "Aggregate the attached cache's render tiers without listing individual agents"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        try:
+            histogram = m5_scale.playback_tier_histogram(playback)
+        except (KeyError, ValueError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props = context.scene.crowd_project
+        parts = [
+            "{} {}".format(name, count)
+            for name, count in histogram["tiers"].items()
+            if count
+        ]
+        if histogram["not_present"]:
+            parts.append("{} not present at this tick".format(histogram["not_present"]))
+        props.m5_playback_tiers = ", ".join(parts) or "no agents in the attached cache"
+        self.report({"INFO"}, props.m5_playback_tiers)
+        return {"FINISHED"}
+
+
 _CLASSES = (
     CROWD_OT_load_trace,
     CROWD_OT_attach_cache,
@@ -1253,6 +1364,9 @@ _CLASSES = (
     CROWD_OT_add_layout,
     CROWD_OT_remove_layout,
     CROWD_OT_materialize_layout_guides,
+    CROWD_OT_estimate_m5_preflight,
+    CROWD_OT_load_m5_report,
+    CROWD_OT_summarize_m5_playback,
     CROWD_OT_bake_cache,
     CROWD_OT_cancel_bake,
 )

@@ -1,6 +1,8 @@
 //! Tick phase: authoritative M1 locomotion clip and phase state.
 
 use crate::commuter::{CommuterState, DecisionReason};
+use crate::fidelity::{FidelityPolicy, SimulationTier};
+use crate::ids::AgentId;
 use crate::units::Vec2;
 use crate::world::World;
 
@@ -27,12 +29,54 @@ impl Default for AnimateConfig {
     }
 }
 
+/// How much presentation work a tick actually did, per simulation tier.
+///
+/// This is the measurable form of the M5 claim that camera/focus animation
+/// scheduling changes *evaluation cost*: `evaluated_by_tier` divided by the
+/// tier's agent-ticks is the share of full classifications it paid for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AnimateReport {
+    pub evaluated_by_tier: [u64; 4],
+    pub agents_by_tier: [u64; 4],
+}
+
 /// Update only commuter/animation columns from the staged integrated state.
 ///
 /// Position and orientation remain owned by `integrate`; this phase reads the
 /// staged values to select a clip and advances phase by traveled distance.
-pub fn animate(world: &mut World, config: &AnimateConfig) {
+///
+/// Every agent is re-classified every tick. Use `animate_scheduled` when a
+/// fidelity policy is active.
+pub fn animate(world: &mut World, config: &AnimateConfig) -> AnimateReport {
+    animate_inner(world, config, |_| true)
+}
+
+/// As `animate`, but re-classify each agent only on its scheduled tick.
+///
+/// Clip phase still advances every tick for every agent from the distance the
+/// agent actually covered, so a background agent whose clip choice is stale
+/// does not slide: only the choice is stale, never the motion.
+pub fn animate_scheduled(world: &mut World, config: &AnimateConfig, tick: u64) -> AnimateReport {
+    animate_inner(world, config, |(tier, id)| {
+        FidelityPolicy::animation_due(tier, id, tick)
+    })
+}
+
+fn animate_inner(
+    world: &mut World,
+    config: &AnimateConfig,
+    due: impl Fn((SimulationTier, AgentId)) -> bool,
+) -> AnimateReport {
+    let mut report = AnimateReport::default();
     for slot in 0..world.len() {
+        let tier = world.simulation_tier[slot];
+        report.agents_by_tier[tier as usize] += 1;
+        if !due((tier, world.agent_id[slot])) {
+            advance_clip_phase(world, config, slot);
+            continue;
+        }
+        report.evaluated_by_tier[tier as usize] += 1;
+
         let state = if world.arrived[slot] {
             CommuterState::Arrived
         } else if world.unrouted[slot] {
@@ -78,15 +122,7 @@ pub fn animate(world: &mut World, config: &AnimateConfig) {
             continue;
         }
 
-        let before = Vec2::new(world.pos_x[slot], world.pos_y[slot]);
-        let after = Vec2::new(world.next_pos_x[slot], world.next_pos_y[slot]);
-        let distance = before.distance_squared(after).sqrt();
-        let stride = if clip_id == JOG_CLIP_ID {
-            config.jog_stride_m
-        } else {
-            config.walk_stride_m
-        };
-        world.clip_phase[slot] = (world.clip_phase[slot] + distance / stride).rem_euclid(1.0);
+        advance_clip_phase(world, config, slot);
         let nominal_speed = if clip_id == JOG_CLIP_ID {
             config.jog_threshold_mps
         } else {
@@ -94,4 +130,26 @@ pub fn animate(world: &mut World, config: &AnimateConfig) {
         };
         world.playback_rate[slot] = (speed / nominal_speed).clamp(0.5, 2.0);
     }
+    report
+}
+
+/// Advance the clip cycle by the distance the agent actually covered.
+///
+/// Driven entirely by root displacement, so it runs every tick for every agent
+/// regardless of scheduling. Skipping it for unevaluated background agents
+/// would make their feet slide against the ground they are covering, which is
+/// the popping artifact the M5 gate forbids.
+fn advance_clip_phase(world: &mut World, config: &AnimateConfig, slot: usize) {
+    if world.clip_id[slot] == IDLE_CLIP_ID {
+        return;
+    }
+    let before = Vec2::new(world.pos_x[slot], world.pos_y[slot]);
+    let after = Vec2::new(world.next_pos_x[slot], world.next_pos_y[slot]);
+    let distance = before.distance_squared(after).sqrt();
+    let stride = if world.clip_id[slot] == JOG_CLIP_ID {
+        config.jog_stride_m
+    } else {
+        config.walk_stride_m
+    };
+    world.clip_phase[slot] = (world.clip_phase[slot] + distance / stride).rem_euclid(1.0);
 }

@@ -30,8 +30,8 @@
 //! have, so they never both yield or both push.
 
 use super::{
-    density_adjusted_preferred, sample_candidates, side_bias_cost, wall_avoidance_cost,
-    AvoidanceInput, AvoidanceOutput, AvoidanceSolver, MIN_TIME_FOR_COST, OVERLAP_URGENCY,
+    density_adjusted_preferred, sample_candidates, wall_avoidance_cost, AvoidanceInput,
+    AvoidanceOutput, AvoidanceSolver, SideBiasCache, MIN_TIME_FOR_COST, OVERLAP_URGENCY,
 };
 use crate::geometry::time_to_collision_disc;
 use crate::units::Vec2;
@@ -113,6 +113,29 @@ impl Default for SampledVelocitySolver {
 }
 
 impl SampledVelocitySolver {
+    /// Coarse preset for M5 background tiers (S2/S3).
+    ///
+    /// The M5 fidelity model gives background agents a cheaper *representation*
+    /// rather than only a sparser schedule. Cost here is dominated by the
+    /// candidate count — every candidate is scored against every neighbour —
+    /// so halving the heading ring and dropping one speed ring takes the
+    /// candidate set from 50 to 19, a little under a third of the work.
+    ///
+    /// Only sampling resolution changes. Every weight, horizon, and threshold
+    /// is left at the default, so a background agent obeys the same cost model
+    /// as a midground one and merely resolves it more coarsely; the two tiers
+    /// stay comparable rather than following different rules.
+    ///
+    /// This is deliberately not the default. Foreground agents keep the full
+    /// sampling, and no scene without a declared fidelity policy is affected.
+    pub fn background() -> Self {
+        Self {
+            speed_samples: 2,
+            heading_samples: 8,
+            ..Self::default()
+        }
+    }
+
     /// Cost of remaining stopped when a stationary queue blocks the route.
     ///
     /// The normal collision score correctly gives a zero-velocity candidate
@@ -287,6 +310,15 @@ impl AvoidanceSolver for SampledVelocitySolver {
             input.velocity.normalize_or_zero()
         };
 
+        // Resolved once and reused by every candidate below; see SideBiasCache.
+        let side_bias = SideBiasCache::build(
+            input.preferred,
+            input.position,
+            input.velocity,
+            input.neighbors,
+            self.head_on_cosine,
+        );
+
         let mut best_velocity = Vec2::ZERO;
         let mut best_cost = f32::INFINITY;
         let mut best_ttc = f32::INFINITY;
@@ -305,8 +337,7 @@ impl AvoidanceSolver for SampledVelocitySolver {
                     } else {
                         0.0
                     }
-                    + side_bias_cost(
-                        input.preferred,
+                    + side_bias.cost(
                         input.position,
                         input.velocity,
                         input.neighbors,

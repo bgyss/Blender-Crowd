@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::arena::NeighborArena;
 use crate::clock::Clock;
+use crate::fidelity::SimulationTier;
 use crate::geometry::Segment;
+use crate::phases::animate::AnimateReport;
 use crate::phases::integrate::IntegrateReport;
 use crate::phases::steer::SteerReport;
 use crate::scene::CompiledScene;
@@ -95,6 +97,53 @@ impl Default for MetricsConfig {
     }
 }
 
+/// `SimulationTier` has four variants, and per-tier accumulators are indexed
+/// by `tier as usize`. A fifth tier would have to be added here deliberately.
+const TIER_COUNT: usize = 4;
+
+const TIER_NAMES: [&str; TIER_COUNT] = ["S0", "S1", "S2", "S3"];
+
+// Indexing by `tier as usize` is only sound while the discriminants stay
+// contiguous from zero and end at S3. Adding a tier fails the build here
+// rather than silently panicking mid-run.
+const _: () = assert!(SimulationTier::S3 as usize + 1 == TIER_COUNT);
+
+/// Per-tier accumulation, so the M5 contract's requirement that quality stay
+/// "within declared thresholds for the fidelity assigned to each tier" can be
+/// adjudicated instead of inferred from a population-wide total.
+///
+/// Attribution rules, which the thresholds depend on:
+///
+/// - Every counter is attributed to the agent's tier *at the observed tick*.
+///   An agent promoted mid-run therefore contributes its early ticks to the
+///   tier that actually produced them.
+/// - `penetration_pair_ticks` is counted once per pair from the lower-ID side
+///   (as in the population-wide counter) and attributed to that agent's tier.
+///   `penetration_agent_ticks` is per-agent and so attributes cleanly to both
+///   sides; prefer it when comparing tiers.
+/// - `agents_ever_stalled` is attributed to the tier the agent held when it
+///   first stalled, so the per-tier counts sum to the population-wide count.
+/// - `agent_ticks` counts each observed, still-active agent once per tick. It
+///   is the exposure denominator that makes the derived rates comparable
+///   across 1K, 10K, and 100K runs of the same fixture.
+#[derive(Clone, Debug, Default)]
+struct TierAccumulator {
+    agent_ticks: u64,
+    arrived: u64,
+    penetration_pair_ticks: u64,
+    penetration_agent_ticks: u64,
+    max_penetration_depth: f32,
+    agents_ever_stalled: u64,
+    stall_episodes: u64,
+    stall_agent_ticks: u64,
+    heading_reversals: u64,
+    abrupt_turns: u64,
+    /// Full presentation classifications actually performed, against
+    /// `animation_agent_ticks` opportunities to perform one.
+    animation_evaluations: u64,
+    animation_agent_ticks: u64,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Metrics {
     ticks: u64,
@@ -134,6 +183,8 @@ pub struct Metrics {
     previous_gate_side: Vec<i8>,
 
     phase_nanos: [u64; 10],
+
+    tiers: [TierAccumulator; TIER_COUNT],
 }
 
 impl Metrics {
@@ -163,6 +214,18 @@ impl Metrics {
         self.time_to_collision_sum += report.time_to_collision_sum as f64;
         self.risk_samples += report.risk_samples as u64;
         self.near_miss_agent_ticks += report.near_miss_agents as u64;
+    }
+
+    /// Record what the presentation phase actually evaluated this tick.
+    ///
+    /// Counted from the phase's own report rather than re-derived in
+    /// `observe_tick`: the scheduler decides this, and a second copy of the
+    /// decision rule here could agree with the report while both were wrong.
+    pub fn record_animate(&mut self, report: &AnimateReport) {
+        for tier in 0..TIER_COUNT {
+            self.tiers[tier].animation_evaluations += report.evaluated_by_tier[tier];
+            self.tiers[tier].animation_agent_ticks += report.agents_by_tier[tier];
+        }
     }
 
     pub fn record_integrate(&mut self, report: &IntegrateReport) {
@@ -201,6 +264,10 @@ impl Metrics {
 
             let position = world.position(slot as u32);
             let velocity = world.velocity(slot as u32);
+            // Read once per slot: every per-tier counter below must attribute
+            // to the same tier, even if a later phase reschedules this agent.
+            let tier = world.simulation_tier[slot] as usize;
+            self.tiers[tier].agent_ticks += 1;
 
             // Penetration. Counted once per pair by only considering
             // neighbors with a higher agent ID, so the pair is not
@@ -216,6 +283,7 @@ impl Metrics {
                 if distance < combined {
                     let depth = combined - distance;
                     self.penetration_pair_ticks += 1;
+                    self.tiers[tier].penetration_pair_ticks += 1;
                     if depth > self.max_penetration_depth {
                         self.max_penetration_depth = depth;
                     }
@@ -223,27 +291,42 @@ impl Metrics {
             }
             // Separate pass so an agent overlapping several others still
             // contributes one agent-tick, not several.
+            //
+            // The per-tier peak depth is taken here rather than in the pair
+            // pass above: the pair pass only looks at higher-ID neighbors, so
+            // a tier whose agent was the higher-ID side of the deepest overlap
+            // would never see it. This pass is symmetric, so both tiers
+            // involved in an overlap observe its true depth.
+            let mut deepest = 0.0f32;
             for neighbor in arena.neighbors(slot) {
                 let other = neighbor.slot as usize;
                 let combined = world.radius[slot] + world.radius[other];
-                if neighbor.dist_sq.sqrt() < combined {
+                let distance = neighbor.dist_sq.sqrt();
+                if distance < combined {
                     penetrating = true;
-                    break;
+                    deepest = deepest.max(combined - distance);
                 }
             }
             if penetrating {
                 self.penetration_agent_ticks += 1;
+                self.tiers[tier].penetration_agent_ticks += 1;
+                if deepest > self.tiers[tier].max_penetration_depth {
+                    self.tiers[tier].max_penetration_depth = deepest;
+                }
             }
 
             // Stalls.
             if world.stall_ticks[slot] >= config.stall_ticks_threshold {
                 self.stall_agent_ticks += 1;
+                self.tiers[tier].stall_agent_ticks += 1;
                 if !self.counted_stall[slot] {
                     self.counted_stall[slot] = true;
                     self.stall_episodes += 1;
+                    self.tiers[tier].stall_episodes += 1;
                     if !self.ever_stalled[slot] {
                         self.ever_stalled[slot] = true;
                         self.agents_ever_stalled += 1;
+                        self.tiers[tier].agents_ever_stalled += 1;
                     }
                 }
             } else if world.solver_status[slot] != SolverStatus::Braking {
@@ -261,6 +344,7 @@ impl Metrics {
                     let delta = wrap_angle(heading - previous);
                     if delta.abs() > config.abrupt_turn_radians {
                         self.abrupt_turns += 1;
+                        self.tiers[tier].abrupt_turns += 1;
                     }
                     let sign = if delta > 1e-3 {
                         1
@@ -274,6 +358,7 @@ impl Metrics {
                             && sign != self.previous_turn_sign[slot]
                         {
                             self.heading_reversals += 1;
+                            self.tiers[tier].heading_reversals += 1;
                         }
                         self.previous_turn_sign[slot] = sign;
                     }
@@ -313,6 +398,7 @@ impl Metrics {
             if world.arrived[slot] && !self.counted_arrival[slot] {
                 self.counted_arrival[slot] = true;
                 self.arrived += 1;
+                self.tiers[world.simulation_tier[slot] as usize].arrived += 1;
                 let ticks = clock.tick().saturating_sub(world.spawn_tick[slot]);
                 self.travel_seconds
                     .push(ticks as f32 / clock.ticks_per_second() as f32);
@@ -374,6 +460,7 @@ impl Metrics {
         let (median_travel, p95_travel) = self.summarize_travel_times();
         let total = scene.total_agents().max(1) as f32;
         let phase_total: u64 = self.phase_nanos.iter().sum();
+        let per_tier = self.summarize_tiers(world);
 
         MetricsSummary {
             ticks: self.ticks,
@@ -433,7 +520,63 @@ impl Metrics {
                     },
                 })
                 .collect(),
+            per_tier,
         }
+    }
+
+    /// Per-tier rollup, one entry per tier that carried any agent.
+    ///
+    /// `agents_final` is the population holding the tier at the end of the
+    /// run. For a declared stable-ID profile — the M5 scale fixture — tier
+    /// membership never changes, so it is also the population that produced
+    /// every counter below. Under a camera-driven policy an agent can move
+    /// between tiers, so compare the exposure-weighted rates rather than
+    /// `completion_rate`, which then divides arrivals by an end-of-run
+    /// population that did not necessarily hold the tier while travelling.
+    fn summarize_tiers(&self, world: &World) -> Vec<TierMetrics> {
+        let mut agents_final = [0u64; TIER_COUNT];
+        for slot in 0..world.len() {
+            agents_final[world.simulation_tier[slot] as usize] += 1;
+        }
+
+        (0..TIER_COUNT)
+            .filter(|tier| agents_final[*tier] > 0 || self.tiers[*tier].agent_ticks > 0)
+            .map(|tier| {
+                let accumulated = &self.tiers[tier];
+                // Rates are per agent-tick of actual exposure, which is what
+                // makes one threshold file valid at 1K, 10K, and 100K.
+                let exposure = accumulated.agent_ticks.max(1) as f32;
+                let population = agents_final[tier].max(1) as f32;
+                TierMetrics {
+                    tier: TIER_NAMES[tier].to_string(),
+                    agents_final: agents_final[tier],
+                    agents_arrived: accumulated.arrived,
+                    completion_rate: accumulated.arrived as f32 / population,
+                    agent_ticks: accumulated.agent_ticks,
+                    penetration_pair_ticks: accumulated.penetration_pair_ticks,
+                    penetration_agent_ticks: accumulated.penetration_agent_ticks,
+                    penetration_agent_ticks_per_agent_tick: accumulated.penetration_agent_ticks
+                        as f32
+                        / exposure,
+                    max_penetration_depth: accumulated.max_penetration_depth,
+                    agents_ever_stalled: accumulated.agents_ever_stalled,
+                    stalled_agent_share: accumulated.agents_ever_stalled as f32 / population,
+                    stall_episodes: accumulated.stall_episodes,
+                    stall_agent_ticks: accumulated.stall_agent_ticks,
+                    stall_agent_ticks_per_agent_tick: accumulated.stall_agent_ticks as f32
+                        / exposure,
+                    heading_reversals: accumulated.heading_reversals,
+                    heading_reversals_per_agent_tick: accumulated.heading_reversals as f32
+                        / exposure,
+                    abrupt_turns: accumulated.abrupt_turns,
+                    abrupt_turns_per_agent_tick: accumulated.abrupt_turns as f32 / exposure,
+                    animation_evaluations: accumulated.animation_evaluations,
+                    animation_agent_ticks: accumulated.animation_agent_ticks,
+                    animation_evaluation_share: accumulated.animation_evaluations as f32
+                        / accumulated.animation_agent_ticks.max(1) as f32,
+                }
+            })
+            .collect()
     }
 }
 
@@ -461,6 +604,50 @@ fn gate_side(gate: &Segment, p: Vec2) -> i8 {
     } else {
         0
     }
+}
+
+/// One tier's slice of the quality metrics.
+///
+/// The M5 10K gate requires quality to stay within declared thresholds "for
+/// the fidelity assigned to each tier", so a background S2 agent evaluated on
+/// a sparse cadence is judged against a different bar than an S1 agent
+/// evaluated every tick. The `_per_agent_tick` rates are the scale-independent
+/// form: the same checked-in threshold applies at 1K, 10K, and 100K.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TierMetrics {
+    /// `S0`..`S3`.
+    pub tier: String,
+    /// Agents holding this tier at the end of the run.
+    pub agents_final: u64,
+    pub agents_arrived: u64,
+    pub completion_rate: f32,
+    /// Observed active agent-ticks; the denominator for every rate here.
+    pub agent_ticks: u64,
+
+    pub penetration_pair_ticks: u64,
+    pub penetration_agent_ticks: u64,
+    pub penetration_agent_ticks_per_agent_tick: f32,
+    pub max_penetration_depth: f32,
+
+    pub agents_ever_stalled: u64,
+    pub stalled_agent_share: f32,
+    pub stall_episodes: u64,
+    pub stall_agent_ticks: u64,
+    pub stall_agent_ticks_per_agent_tick: f32,
+
+    pub heading_reversals: u64,
+    pub heading_reversals_per_agent_tick: f32,
+    pub abrupt_turns: u64,
+    pub abrupt_turns_per_agent_tick: f32,
+
+    /// Full presentation classifications performed for this tier.
+    pub animation_evaluations: u64,
+    /// Opportunities to perform one: agents in this tier, summed over ticks.
+    pub animation_agent_ticks: u64,
+    /// Share of those opportunities that were paid for. 1.0 means every agent
+    /// was re-classified every tick; a lower value is the measured saving from
+    /// camera/focus animation scheduling.
+    pub animation_evaluation_share: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -520,6 +707,13 @@ pub struct MetricsSummary {
     pub peak_allocated_bytes: u64,
 
     pub phase_time_shares: Vec<PhaseShare>,
+
+    /// Quality broken down by simulation tier, in `S0`..`S3` order, omitting
+    /// tiers no agent ever held. Defaulted on read so reports written before
+    /// per-tier accounting existed still parse — they are simply not eligible
+    /// for a per-tier gate.
+    #[serde(default)]
+    pub per_tier: Vec<TierMetrics>,
 }
 
 #[cfg(test)]
@@ -606,6 +800,120 @@ mod tests {
             clock.advance();
         }
         assert_eq!(metrics.penetration_agent_ticks(), 6, "2 agents x 3 ticks");
+    }
+
+    /// Overlapping pair split across tiers, which is the M5 city-flow case:
+    /// a background S2 agent brushing a midground S1 agent.
+    fn mixed_tier_overlap() -> World {
+        let mut world = world_at(&[Vec2::ZERO, Vec2::new(0.4, 0.0)], 0.3);
+        world.simulation_tier[0] = SimulationTier::S1;
+        world.simulation_tier[1] = SimulationTier::S2;
+        world
+    }
+
+    fn tier<'a>(summary: &'a [TierMetrics], name: &str) -> &'a TierMetrics {
+        summary
+            .iter()
+            .find(|entry| entry.tier == name)
+            .unwrap_or_else(|| panic!("{name} missing from {summary:?}"))
+    }
+
+    #[test]
+    fn per_tier_penetration_attributes_to_each_agents_own_tier() {
+        let world = mixed_tier_overlap();
+        let mut metrics = Metrics::new();
+        observe(&world, &mut metrics, &Clock::default());
+
+        let summary = metrics.summarize_tiers(&world);
+        assert_eq!(tier(&summary, "S1").penetration_agent_ticks, 1);
+        assert_eq!(tier(&summary, "S2").penetration_agent_ticks, 1);
+        assert_eq!(
+            tier(&summary, "S1").penetration_agent_ticks
+                + tier(&summary, "S2").penetration_agent_ticks,
+            metrics.penetration_agent_ticks(),
+            "per-tier agent-ticks must sum to the population total"
+        );
+    }
+
+    #[test]
+    fn per_tier_peak_penetration_is_visible_to_the_higher_id_side() {
+        // Pair-ticks are counted only from the lower-ID side. If peak depth
+        // were taken from that same pass, S2 here — holding the higher ID —
+        // would report a 0 m peak while actually overlapping by 0.2 m.
+        let world = mixed_tier_overlap();
+        let mut metrics = Metrics::new();
+        observe(&world, &mut metrics, &Clock::default());
+
+        let summary = metrics.summarize_tiers(&world);
+        assert_eq!(tier(&summary, "S1").penetration_pair_ticks, 1);
+        assert_eq!(
+            tier(&summary, "S2").penetration_pair_ticks,
+            0,
+            "the pair is counted once, from the lower-ID side"
+        );
+        for name in ["S1", "S2"] {
+            assert!(
+                (tier(&summary, name).max_penetration_depth - 0.2).abs() < 1e-5,
+                "{name} must observe the true overlap depth"
+            );
+        }
+    }
+
+    #[test]
+    fn per_tier_agent_ticks_are_the_exposure_denominator() {
+        let world = mixed_tier_overlap();
+        let mut metrics = Metrics::new();
+        let mut clock = Clock::default();
+        for _ in 0..4 {
+            observe(&world, &mut metrics, &clock);
+            clock.advance();
+        }
+
+        let summary = metrics.summarize_tiers(&world);
+        for name in ["S1", "S2"] {
+            let entry = tier(&summary, name);
+            assert_eq!(entry.agent_ticks, 4, "one agent observed over four ticks");
+            assert!(
+                (entry.penetration_agent_ticks_per_agent_tick - 1.0).abs() < 1e-6,
+                "{name} overlapped on every observed tick"
+            );
+        }
+    }
+
+    #[test]
+    fn tiers_no_agent_holds_are_omitted() {
+        let world = mixed_tier_overlap();
+        let mut metrics = Metrics::new();
+        observe(&world, &mut metrics, &Clock::default());
+
+        let names: Vec<String> = metrics
+            .summarize_tiers(&world)
+            .into_iter()
+            .map(|entry| entry.tier)
+            .collect();
+        assert_eq!(names, ["S1".to_string(), "S2".to_string()]);
+    }
+
+    #[test]
+    fn per_tier_stall_counts_sum_to_the_population_total() {
+        let mut world = mixed_tier_overlap();
+        let config = MetricsConfig::default();
+        world.stall_ticks[0] = config.stall_ticks_threshold;
+        world.stall_ticks[1] = config.stall_ticks_threshold;
+
+        let mut metrics = Metrics::new();
+        observe(&world, &mut metrics, &Clock::default());
+
+        let summary = metrics.summarize_tiers(&world);
+        assert_eq!(tier(&summary, "S1").agents_ever_stalled, 1);
+        assert_eq!(tier(&summary, "S2").agents_ever_stalled, 1);
+        assert_eq!(
+            summary
+                .iter()
+                .map(|entry| entry.agents_ever_stalled)
+                .sum::<u64>(),
+            metrics.agents_ever_stalled()
+        );
     }
 
     #[test]

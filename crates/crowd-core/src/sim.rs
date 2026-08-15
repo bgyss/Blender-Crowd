@@ -22,7 +22,7 @@ use crate::geometry::Segment;
 use crate::grid::UniformGrid;
 use crate::metrics::{Metrics, MetricsConfig, Phase};
 use crate::nav::{PortalId, TileGraph};
-use crate::phases::animate::{animate, AnimateConfig};
+use crate::phases::animate::{animate, animate_scheduled, AnimateConfig};
 use crate::phases::decide::{decide, DecideConfig};
 use crate::phases::integrate::{integrate, IntegrateConfig, IntegrateScratch};
 use crate::phases::perceive::{perceive, perceive_scheduled, PerceiveConfig, PerceiveScratch};
@@ -75,6 +75,13 @@ pub struct Simulation {
     metrics: Metrics,
     authorable_behavior: Option<RuntimeBehaviorController>,
     fidelity_pins: Vec<FidelityPin>,
+    /// Coarse solver for background tiers. Only consulted when a fidelity
+    /// policy is active, so a scene without a declared tier mix is unaffected.
+    background_solver: Option<Box<dyn AvoidanceSolver>>,
+    /// Whether presentation classification follows the tier cadence. On by
+    /// default whenever a fidelity policy is active; `set_animation_scheduling`
+    /// turns it off to measure the saving against an otherwise identical run.
+    animation_scheduling: bool,
 }
 
 impl Simulation {
@@ -125,6 +132,8 @@ impl Simulation {
             metrics: Metrics::new(),
             authorable_behavior: None,
             fidelity_pins: Vec::new(),
+            background_solver: None,
+            animation_scheduling: true,
         }
     }
 
@@ -182,6 +191,35 @@ impl Simulation {
 
     pub fn enable_authorable_behavior(&mut self, controller: RuntimeBehaviorController) {
         self.authorable_behavior = Some(controller);
+    }
+
+    /// Move the fidelity policy mid-run.
+    ///
+    /// The camera is part of the policy, and in Blender it moves every frame,
+    /// so a policy fixed at construction could only ever describe a still.
+    /// This changes scheduling only; it cannot touch identity or root motion.
+    pub fn set_fidelity_policy(&mut self, policy: FidelityPolicy) {
+        debug_assert!(policy.validate().is_ok());
+        self.config.fidelity = Some(policy);
+    }
+
+    /// Use a cheaper solver for background tiers.
+    ///
+    /// Takes effect only alongside a fidelity policy: without declared tiers
+    /// there is no background population to apply it to. The assignment is a
+    /// pure function of the committed tier, so results stay reproducible.
+    pub fn set_background_solver(&mut self, solver: Box<dyn AvoidanceSolver>) {
+        self.background_solver = Some(solver);
+    }
+
+    /// Turn camera/focus animation scheduling off, re-classifying every agent
+    /// every tick.
+    ///
+    /// Exists so the saving can be measured against a like-for-like run rather
+    /// than asserted: the same declared tier mix, differing only in whether
+    /// presentation classification is scheduled.
+    pub fn set_animation_scheduling(&mut self, enabled: bool) {
+        self.animation_scheduling = enabled;
     }
 
     /// Replace pins atomically. Sorting makes lookup and results independent
@@ -561,6 +599,7 @@ impl Simulation {
                 &self.neighbors,
                 &self.scene,
                 self.solver.as_ref(),
+                self.background_solver.as_deref(),
                 &self.config.steer,
                 &mut self.steer_scratch,
                 self.clock.tick(),
@@ -590,7 +629,14 @@ impl Simulation {
             .record_phase(Phase::Integrate, start.elapsed().as_nanos() as u64);
 
         let start = Instant::now();
-        animate(&mut self.world, &self.animate_config);
+        // Presentation scheduling follows the same rule as perception and
+        // steering: it runs only when a fidelity policy declares the tiers it
+        // should key off. Without one, every agent is classified every tick.
+        let animate_report = if self.config.fidelity.is_some() && self.animation_scheduling {
+            animate_scheduled(&mut self.world, &self.animate_config, self.clock.tick())
+        } else {
+            animate(&mut self.world, &self.animate_config)
+        };
         self.world.commit();
         self.schedule_fidelity();
         self.metrics
@@ -599,6 +645,7 @@ impl Simulation {
         let start = Instant::now();
         self.metrics.record_steer(&steer_report);
         self.metrics.record_integrate(&integrate_report);
+        self.metrics.record_animate(&animate_report);
         self.metrics.observe_tick(
             &self.world,
             &self.neighbors,

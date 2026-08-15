@@ -42,13 +42,19 @@ pub use commuter::{
 };
 pub use concourse::compile_concourse;
 pub use fidelity::{FidelityPin, FidelityPolicy, RenderTier, SimulationTier};
-pub use field::{CpuSpatialField, FieldConfig, FieldSample, FieldValue, SpatialFieldKernel};
+pub use field::{
+    compare_kernels, select_backend, BackendSelection, CpuSpatialField, FieldBackend, FieldConfig,
+    FieldSample, FieldValue, KernelComparison, KernelTolerance, SpatialFieldKernel,
+};
 pub use geometry::Segment;
 pub use grid::{SegmentIndex, UniformGrid};
 pub use ids::{derive_agent_id, AgentId};
 pub use metrics::{Metrics, MetricsConfig, MetricsSummary, Phase};
 pub use nav::{NavMeshDef, PortalId, TileGraph};
-pub use phases::{animate, AnimateConfig, IDLE_CLIP_ID, JOG_CLIP_ID, WALK_CLIP_ID};
+pub use phases::{
+    animate, animate_scheduled, AnimateConfig, AnimateReport, IDLE_CLIP_ID, JOG_CLIP_ID,
+    WALK_CLIP_ID,
+};
 pub use project::{
     compile_project, CompiledAgentSpawn, CompiledProject, Diagnostic, DiagnosticCode, ProjectIrV1,
     PROJECT_IR_SCHEMA_VERSION,

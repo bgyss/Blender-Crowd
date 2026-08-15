@@ -21,7 +21,10 @@ use crate::frames::FrameWriter;
 use crate::svg::TrajectoryRecorder;
 
 /// Bumped whenever the report schema changes incompatibly.
-pub const REPORT_SCHEMA_VERSION: u32 = 4;
+///
+/// v5 adds `metrics.per_tier`, without which a report cannot be adjudicated
+/// against the M5 per-tier thresholds.
+pub const REPORT_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SolverKind {
@@ -254,6 +257,14 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
         ..SimConfig::default()
     };
 
+    // The coarse background preset is deliberately NOT enabled here. Measured
+    // 2026-08-14 at 1,000 agents it bought 1.57x throughput (663 -> 1041
+    // ticks/s) but regressed contact quality past the gate: S2 penetration
+    // rate 4.3e-7 -> 1.4e-5 and peak depth 0.00087 m -> 0.0576 m, failing
+    // three checks the full-resolution solver passes with wide headroom.
+    // Angular sampling resolution converts directly into contact quality, and
+    // quality is the scarce resource at scale. The preset stays available via
+    // `set_background_solver` for callers who want that trade explicitly.
     let mut sim = Simulation::new(scene, options.solver.build(), config);
 
     // PEAK/LIVE are process-wide (see alloc::measurement_lock), so exclude
@@ -482,6 +493,40 @@ mod tests {
         );
         assert!(profile.s2_agents > profile.s1_agents);
     }
+
+    /// The gate reads reports through `m5_gate::GatedReport`, a deliberate
+    /// subset of this schema that lives in the library rather than the binary.
+    /// This is what keeps the two definitions in step: rename or retype a
+    /// gated field here and the round trip stops parsing.
+    #[test]
+    fn a_produced_report_parses_as_the_gate_sees_it() {
+        let report = run_scene(&options("m5_city_flow", 100)).unwrap();
+        let json = serde_json::to_string(&report).unwrap();
+        let gated: crowd_bench::m5_gate::GatedReport = serde_json::from_str(&json)
+            .unwrap_or_else(|error| panic!("the gate cannot read a current report: {error}"));
+
+        assert_eq!(gated.schema_version, report.schema_version);
+        assert_eq!(gated.scene, report.scene);
+        assert_eq!(gated.requested_agents, report.requested_agents);
+        assert_eq!(
+            gated
+                .fidelity_profile
+                .expect("profile lost in round trip")
+                .mode,
+            report.fidelity_profile.unwrap().mode
+        );
+        assert!(
+            !gated.metrics.per_tier.is_empty(),
+            "a current report must carry per-tier metrics for the gate to read"
+        );
+    }
+
+    /// A report the gate cannot adjudicate is worthless as M5 evidence, so
+    /// the schema version and the gate's minimum must not drift apart.
+    ///
+    /// A const block rather than a runtime assertion: both operands are
+    /// constants, so this fails the build instead of a test run.
+    const _: () = assert!(REPORT_SCHEMA_VERSION >= crowd_bench::m5_gate::MINIMUM_REPORT_SCHEMA);
 
     #[test]
     fn civil_from_days_matches_a_known_date() {

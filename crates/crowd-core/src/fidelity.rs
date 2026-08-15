@@ -15,6 +15,12 @@ use crate::units::Vec2;
 /// S1's every-tick work. The per-agent phase below distributes it evenly.
 pub const S2_UPDATE_INTERVAL_TICKS: u64 = 2;
 
+/// Distant S3 agents re-select their clip every eighth tick — 266.7 ms at
+/// 30 Hz. They are drawn as proxies or aggregates at that range, so a gait
+/// change is not readable; their clip phase still advances every tick from
+/// root displacement, so they do not slide.
+pub const S3_ANIMATION_INTERVAL_TICKS: u64 = 8;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum SimulationTier {
@@ -123,6 +129,35 @@ impl FidelityPolicy {
     pub fn s2_update_due(id: AgentId, tick: u64) -> bool {
         let phase = mix64(id.0 ^ 0x9e37_79b9_7f4a_7c15) % S2_UPDATE_INTERVAL_TICKS;
         tick % S2_UPDATE_INTERVAL_TICKS == phase
+    }
+
+    /// Whether this agent's presentation state is re-evaluated on this tick.
+    ///
+    /// Camera-focused agents (S0/S1) are re-evaluated every tick because a
+    /// viewer reads their gait directly. Background agents are re-evaluated on
+    /// a stable-ID-staggered cadence, which is what makes animation evaluation
+    /// cost scale with focus rather than with population.
+    ///
+    /// This schedules only the *classification* — state, clip choice, playback
+    /// rate. Clip phase keeps advancing from actual root displacement every
+    /// tick for every agent, so a background agent's feet still track the
+    /// ground it covers between evaluations. The M5 contract permits animation
+    /// scheduling to change evaluation cost, never cached root trajectories,
+    /// and root motion is owned by `integrate` and never written here.
+    pub fn animation_due(tier: SimulationTier, id: AgentId, tick: u64) -> bool {
+        let interval = match tier {
+            SimulationTier::S0 | SimulationTier::S1 => 1,
+            SimulationTier::S2 => S2_UPDATE_INTERVAL_TICKS,
+            SimulationTier::S3 => S3_ANIMATION_INTERVAL_TICKS,
+        };
+        if interval <= 1 {
+            return true;
+        }
+        // A separate mixing constant from `s2_update_due`, so an agent's
+        // animation refresh does not land on the same tick as its steering
+        // refresh and concentrate both costs on one frame.
+        let phase = mix64(id.0 ^ 0x5851_f42d_4c95_7f2d) % interval;
+        tick % interval == phase
     }
 
     pub fn target(&self, position: Vec2, current: SimulationTier) -> SimulationTier {

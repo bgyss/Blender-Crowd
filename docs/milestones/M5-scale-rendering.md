@@ -85,9 +85,16 @@ support boundary, not evidence that an unimplemented backend has passed M5.
 Use the [10K and 100K scale-gate runbook](../runbooks/m5-scale-gates.md) for
 the exact long-running command-line procedure and evidence checklist.
 
-The first [10K failed baseline](../benchmarks/2026-08-13-m5-10k-failed-baseline.md)
-is retained as optimization evidence. It is not an accepted gate and blocks
-100K work.
+The [10K gate report](../benchmarks/2026-08-14-m5-10k.md) is the accepted
+result. Per-tier quality is adjudicated against fixed thresholds in
+`benchmarks/thresholds/m5-city-flow.json`, compiled into `crowd-bench` and
+applied by `crowd-bench m5-gate`. The same file gates 1K, 10K, and 100K,
+because its limits are rates per observed agent-tick rather than counts.
+
+The earlier [10K failed baseline](../benchmarks/2026-08-13-m5-10k-failed-baseline.md)
+is retained as optimization evidence. It is not an accepted gate, and its
+rejected candidates are replayed through the threshold file as a test that the
+bar still discriminates.
 
 ## 10K acceptance gate
 
@@ -101,6 +108,25 @@ is retained as optimization evidence. It is not an accepted gate and blocks
    trajectories or required contacts.
 5. CPU fallback produces contract-compatible output, with documented numeric
    tolerance where bitwise parity is not demonstrated.
+
+The 10K gate passed on 2026-08-14. Its five items map to checked-in evidence:
+`crowd-bench m5-gate` for items 1 and 2, `crates/crowd-core/tests/m5_tier_transitions.rs`
+for items 3 and 4, `crates/crowd-core/tests/m5_cpu_fallback.rs` for item 5, and
+`scripts/m5-blender-test.sh` for the viewport/playback and render budgets.
+
+The M5 UI gate's artist task — configuring the mix, identifying an injected
+bottleneck, cancelling and resuming a long operation, and explaining the active
+fallback from the interface, with responsiveness and time-on-task captured —
+has **not** been conducted. The panel now carries the information that task
+needs; the task itself remains outstanding for both scales.
+
+The first 100K attempt failed; see
+[2026-08-14-m5-100k-failed.md](../benchmarks/2026-08-14-m5-100k-failed.md). It
+completed all 100,000 agents but missed the throughput budget (5.27 ticks/s
+against 10) and two per-tier quality limits. That report also records the
+optimisation round it prompted — a 3.08x measured speedup with bitwise-identical
+results — and raises a specification defect in two of the threshold file's
+limits that needs a contract decision rather than an edit.
 
 ## 100K acceptance gate
 

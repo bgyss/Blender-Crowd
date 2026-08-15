@@ -7,6 +7,8 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::units::Vec2;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,6 +61,184 @@ pub trait SpatialFieldKernel {
     fn backend_name(&self) -> &'static str;
     fn build(&mut self, samples: &[FieldSample], config: FieldConfig) -> Result<(), &'static str>;
     fn sample(&self, position: Vec2) -> FieldValue;
+}
+
+/// A backend a caller can ask for.
+///
+/// Asking for one is not the same as getting it. The M5 backend support matrix
+/// is the authoritative boundary, and `select` below is the single place that
+/// decides — so an unimplemented backend degrades to the CPU reference with a
+/// recorded reason rather than failing at render time or, worse, silently
+/// producing nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldBackend {
+    #[default]
+    CpuReference,
+    Metal,
+    Cuda,
+    Vulkan,
+}
+
+impl FieldBackend {
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "cpu_reference" => Ok(Self::CpuReference),
+            "metal" => Ok(Self::Metal),
+            "cuda" => Ok(Self::Cuda),
+            "vulkan" => Ok(Self::Vulkan),
+            other => Err(format!(
+                "unknown field backend: {other}; known backends: cpu_reference, metal, cuda, vulkan"
+            )),
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::CpuReference => "cpu_reference",
+            Self::Metal => "metal",
+            Self::Cuda => "cuda",
+            Self::Vulkan => "vulkan",
+        }
+    }
+
+    /// Whether an implementation exists and is tested.
+    ///
+    /// Only `cpu_reference` is. Flipping one of the others here without an
+    /// implementation and a measured parity comparison would make the support
+    /// matrix a claim rather than a record.
+    pub const fn is_implemented(self) -> bool {
+        matches!(self, Self::CpuReference)
+    }
+}
+
+/// What a caller actually got, and why.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BackendSelection {
+    pub requested: FieldBackend,
+    pub active: FieldBackend,
+    pub fell_back: bool,
+    /// Present only on a fallback, so a report says why rather than leaving a
+    /// reader to infer it from the two names.
+    pub reason: Option<String>,
+}
+
+/// Resolve a requested backend to one that exists.
+///
+/// The only fallback target is the CPU reference, which is always available:
+/// there is no configuration in which this returns nothing, so a caller never
+/// has to carry a "no backend" path.
+pub fn select_backend(requested: FieldBackend) -> (Box<dyn SpatialFieldKernel>, BackendSelection) {
+    let active = if requested.is_implemented() {
+        requested
+    } else {
+        FieldBackend::CpuReference
+    };
+    let selection = BackendSelection {
+        requested,
+        active,
+        fell_back: active != requested,
+        reason: (active != requested).then(|| {
+            format!(
+                "{} is not implemented in this build; see docs/backend-support-matrix.md",
+                requested.name()
+            )
+        }),
+    };
+    let kernel: Box<dyn SpatialFieldKernel> = match active {
+        FieldBackend::CpuReference => Box::new(CpuSpatialField::default()),
+        // Unreachable while `is_implemented` admits only the CPU reference.
+        // Written as an explicit arm rather than a catch-all so adding a
+        // backend has to come here and say what it constructs.
+        FieldBackend::Metal | FieldBackend::Cuda | FieldBackend::Vulkan => {
+            Box::new(CpuSpatialField::default())
+        }
+    };
+    (kernel, selection)
+}
+
+/// Numeric agreement a candidate backend must show against the CPU reference.
+///
+/// Density is an integer count of agents in a cell and carries no tolerance:
+/// a backend that puts an agent in a different cell has changed the meaning of
+/// the field, not its precision. Mean velocity is a float reduction whose
+/// result depends on summation order, so it carries a declared tolerance.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KernelTolerance {
+    pub max_mean_velocity_error_mps: f32,
+}
+
+impl Default for KernelTolerance {
+    fn default() -> Self {
+        // One millimetre per second. Far below any velocity a presentation or
+        // coarse-perception consumer can act on, and far above the rounding a
+        // reordered float sum introduces at these magnitudes.
+        Self {
+            max_mean_velocity_error_mps: 1e-3,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct KernelComparison {
+    pub reference_backend: String,
+    pub candidate_backend: String,
+    pub probes: u64,
+    /// Probes where the two backends disagreed on the integer agent count.
+    /// Must be zero: this is a meaning difference, not a precision one.
+    pub density_mismatches: u64,
+    pub max_mean_velocity_error_mps: f32,
+    pub tolerance_mean_velocity_error_mps: f32,
+    /// True only when every probe agreed bit for bit. When false, the
+    /// comparison stands on `max_mean_velocity_error_mps` against the declared
+    /// tolerance, which is what the M5 gate asks a report to document.
+    pub bitwise_identical: bool,
+    pub within_tolerance: bool,
+}
+
+/// Compare two built kernels at a fixed set of probe positions.
+///
+/// Probes are supplied by the caller and visited in the given order, so the
+/// comparison is reproducible rather than depending on either backend's
+/// internal cell iteration order.
+pub fn compare_kernels(
+    reference: &dyn SpatialFieldKernel,
+    candidate: &dyn SpatialFieldKernel,
+    probes: &[Vec2],
+    tolerance: KernelTolerance,
+) -> KernelComparison {
+    let mut density_mismatches = 0u64;
+    let mut max_error = 0.0f32;
+    let mut bitwise_identical = true;
+
+    for probe in probes {
+        let expected = reference.sample(*probe);
+        let actual = candidate.sample(*probe);
+        if expected.density != actual.density {
+            density_mismatches += 1;
+        }
+        let error = (actual.mean_velocity - expected.mean_velocity).length();
+        if error > max_error {
+            max_error = error;
+        }
+        if expected.mean_velocity.x.to_bits() != actual.mean_velocity.x.to_bits()
+            || expected.mean_velocity.y.to_bits() != actual.mean_velocity.y.to_bits()
+        {
+            bitwise_identical = false;
+        }
+    }
+
+    KernelComparison {
+        reference_backend: reference.backend_name().to_string(),
+        candidate_backend: candidate.backend_name().to_string(),
+        probes: probes.len() as u64,
+        density_mismatches,
+        max_mean_velocity_error_mps: max_error,
+        tolerance_mean_velocity_error_mps: tolerance.max_mean_velocity_error_mps,
+        bitwise_identical,
+        within_tolerance: density_mismatches == 0
+            && max_error <= tolerance.max_mean_velocity_error_mps,
+    }
 }
 
 #[derive(Clone, Debug, Default)]

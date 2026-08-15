@@ -19,6 +19,7 @@ use crowd_bench::m1_bench::{
     bake_reference_strict, cancel_reference_bake, compare_cache_paths, probe_reference_completion,
     read_selected_trace, validate_reference, StrictBakeOptions,
 };
+use crowd_bench::m5_gate;
 use crowd_core::scenes;
 
 use crate::report::{run_scene, RunOptions};
@@ -40,6 +41,7 @@ fn usage() -> &'static str {
   crowd-bench compare [--scene NAME] [--out DIR]
   crowd-bench nav-reroute [--agents N] [--seed N] [--out DIR] [--svg]
   crowd-bench cache-experiment [--agents N] [--seed N] [--cache-frames N] [--out DIR]
+  crowd-bench m5-gate --report FILE [--out FILE]
   crowd-bench m1 validate [--out FILE]
   crowd-bench m1 bake --cache DIR [--out FILE]
   crowd-bench m1 compare --first DIR --second DIR [--out FILE]
@@ -496,6 +498,56 @@ fn required_path(raw: &[String], name: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("{name} needs a path"))
 }
 
+/// Adjudicate a saved scale report against the checked-in per-tier thresholds.
+///
+/// Kept separate from `run` deliberately. The 10K and 100K simulations are
+/// multi-minute, and an operator must be able to re-adjudicate an archived
+/// report — after a threshold review, or on another machine — without paying
+/// for the run again.
+fn command_m5_gate(raw: &[String]) -> Result<bool, String> {
+    let mut report_path: Option<PathBuf> = None;
+    let mut out_path: Option<PathBuf> = None;
+    let mut index = 0;
+    while index < raw.len() {
+        match raw[index].as_str() {
+            "--report" => {
+                index += 1;
+                report_path = Some(PathBuf::from(
+                    raw.get(index).ok_or("--report needs a value")?,
+                ));
+            }
+            "--out" => {
+                index += 1;
+                out_path = Some(PathBuf::from(raw.get(index).ok_or("--out needs a value")?));
+            }
+            other => return Err(format!("unknown m5-gate argument: {other}")),
+        }
+        index += 1;
+    }
+    let report_path = report_path.ok_or("m5-gate needs --report FILE")?;
+
+    let text = std::fs::read_to_string(&report_path)
+        .map_err(|e| format!("cannot read {}: {e}", report_path.display()))?;
+    let report: m5_gate::GatedReport =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", report_path.display()))?;
+
+    let adjudication = m5_gate::adjudicate(&report, &m5_gate::city_flow_thresholds());
+    print!("{}", m5_gate::render(&adjudication));
+
+    if let Some(out) = out_path {
+        // The adjudication is archivable evidence in its own right: it records
+        // which thresholds a report was judged against, which the report alone
+        // does not say.
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let json = serde_json::to_string_pretty(&adjudication).map_err(|e| e.to_string())?;
+        std::fs::write(&out, json).map_err(|e| format!("cannot write {}: {e}", out.display()))?;
+        println!("adjudication: {}", out.display());
+    }
+    Ok(adjudication.passed)
+}
+
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let Some((command, rest)) = argv.split_first() else {
@@ -506,6 +558,19 @@ fn main() -> ExitCode {
     if command == "m1" {
         return match command_m1(rest) {
             Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
+    // Handled before `parse_args`, like `m1`: it takes a report path rather
+    // than the scene/agent flags every simulating command shares.
+    if command == "m5-gate" {
+        return match command_m5_gate(rest) {
+            Ok(true) => ExitCode::SUCCESS,
+            Ok(false) => ExitCode::FAILURE,
             Err(error) => {
                 eprintln!("error: {error}");
                 ExitCode::FAILURE

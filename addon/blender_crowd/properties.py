@@ -191,6 +191,23 @@ class CrowdProjectProperties(PropertyGroup):
     m5_estimated_extract: StringProperty(name="Estimated Extraction", default="Not estimated")
     m5_measured_summary: StringProperty(name="Measured Result", default="No scale measurement attached")
     m5_bottleneck: StringProperty(name="Bottleneck", default="No bottleneck selected")
+    m5_report_path: StringProperty(
+        name="Scale Report",
+        description="Path to a crowd-bench scale report (schema 5 or later)",
+        subtype="FILE_PATH",
+    )
+    m5_adjudication_path: StringProperty(
+        name="Gate Adjudication",
+        description="Path to the crowd-bench m5-gate adjudication for that report",
+        subtype="FILE_PATH",
+    )
+    m5_gate_result: StringProperty(name="Gate Result", default="No adjudication attached")
+    m5_animation_scheduling: StringProperty(
+        name="Animation Scheduling", default="No scale report attached"
+    )
+    m5_playback_tiers: StringProperty(
+        name="Playback Tiers", default="Attach a cache and summarize"
+    )
     m5_profile_status: StringProperty(name="M5 Profile Status", default="Declare a tier mix and attach a complete cache")
     diagnostics: CollectionProperty(type=CrowdDiagnosticProperties)
     active_diagnostic_index: IntProperty(default=0, min=0)

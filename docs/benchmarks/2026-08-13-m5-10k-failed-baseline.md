@@ -295,10 +295,22 @@ ticks/s (748.16 s wall time for 45,000 ticks).
 
 This is the first valid 10K result for the scaled-lane fixture, and it meets
 the existing 10 ticks/s engineering budget with low measured contact error.
-It is not yet a passing M5 10K report: the governing contract requires fixed
+It is not itself a passing M5 10K report: the governing contract requires fixed
 per-tier thresholds for destination, penetration, stall, oscillation, and group
-metrics. These measurements are the required checked-in baseline from which
-those thresholds can be set; a subjective reading of the improvement cannot
-replace them. Cache, Blender playback/render and UI evidence, tier-transition
-evidence, and CPU-fallback compatibility evidence also remain required before
-100K work begins.
+metrics, and a subjective reading of the improvement cannot replace them.
+
+## Resolution
+
+This document is closed. Per-tier metrics were added in report schema v5, and
+the thresholds were set from the v5 1K and 10K baselines and checked in at
+`benchmarks/thresholds/m5-city-flow.json`. The 10K gate then passed; see
+[2026-08-14-m5-10k.md](2026-08-14-m5-10k.md).
+
+The candidates rejected above are not merely history. The fixed-lane two-tick
+candidate's numbers are replayed through the checked-in threshold file by
+`m5_gate::tests::the_rejected_fixed_lane_candidate_fails_these_thresholds`, so
+a future loosening that would have admitted it fails the build.
+
+None of the runs recorded above may be quoted as acceptance evidence: they
+predate schema v5, so they carry no per-tier metrics and the gate rejects them
+outright rather than adjudicating their population-wide totals.

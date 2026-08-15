@@ -58,13 +58,46 @@ restated target counts while classifying lane-local ordinals incorrectly.
 Do not compare the schema-v4 result directly with the pre-profile failed
 baseline except as an optimization reference.
 
-The scaled-lane fixture has now completed its first 10K simulation run: 10,000
-/ 10,000 arrived at 60.15 ticks/s, with 49 penetration pair-ticks and 0.0183 m
-maximum penetration. It is a successful simulation measurement, but not a full
-10K acceptance report and does not authorize the 100K gate. Fix and check in
-per-tier quality thresholds before adjudicating it; then collect the cache,
-Blender playback/render and UI, tier-transition, and CPU-fallback evidence
-listed below.
+**The 10K gate now passes.** See
+[2026-08-14-m5-10k.md](../benchmarks/2026-08-14-m5-10k.md) for the accepted
+report. Rerun the sequence here to reproduce it, or to re-adjudicate after a
+change; do not treat an older 10K report as evidence for current code.
+
+Adjudicate the report against the checked-in per-tier thresholds. The gate
+exits non-zero on failure, so it can be chained:
+
+```sh
+cargo run --release -p crowd-bench -- m5-gate \
+  --report "$HOME/blender-crowd-m5/10k/simulation/m5_city_flow-10000.json" \
+  --out "$HOME/blender-crowd-m5/10k/adjudication.json"
+```
+
+The thresholds live in `benchmarks/thresholds/m5-city-flow.json` and are
+compiled into the binary, so a run cannot be judged against a loosened copy on
+disk. They are stated as rates per observed agent-tick, which is what lets one
+file gate 1K, 10K, and 100K. Changing a threshold is a reviewable change to
+that file with its `basis` field updated, not a per-run adjustment.
+
+A report older than schema v5 carries no `metrics.per_tier` and is rejected by
+the gate rather than adjudicated on its population-wide totals. Rerun it.
+
+Then collect the Blender playback, render, and scale/profiling UI evidence:
+
+```sh
+M5_BLENDER_AGENTS=10000 \
+M5_ARTIFACT_DIR="$HOME/blender-crowd-m5/10k/blender" \
+M5_REPORT="$HOME/blender-crowd-m5/10k/simulation/m5_city_flow-10000.json" \
+M5_ADJUDICATION="$HOME/blender-crowd-m5/10k/adjudication.json" \
+  scripts/m5-blender-test.sh
+```
+
+This needs Blender 5.2 LTS with normal host Metal access. It bakes at the
+declared `m5_background_10_90` profile and asserts the population stays
+procedural — one attached scene object carrying every agent as point data —
+rather than expanding into per-agent objects.
+
+Tier-transition and CPU-fallback evidence is produced by
+`scripts/m5-foundation-test.sh`.
 
 The current fixture scales the count of one-way route lanes with linear scene
 scale (six per direction at 100 agents and sixty per direction at 10K). This
@@ -72,19 +105,16 @@ keeps per-lane linear density comparable as population grows. Do not compare a
 report from the older fixed twelve-lane fixture with this revised fixture as
 acceptance evidence; retain it only as a diagnostic baseline.
 
-S2 uses a stable-ID-staggered two-tick perception and steering interval. Verify
+S2 uses a stable-ID-staggered two-tick perception and steering interval, and
+presentation classification follows the same cadence. Verify
 `s2_perception_interval_ticks` and `s2_steering_interval_ticks` in the report
-before comparing it with an older four-tick result; cadence is part of the
-quality/performance tradeoff.
+before comparing it with an older four-tick result. The gate rejects a run at a
+different cadence rather than scoring it, because cadence is part of the
+quality/cost tradeoff the thresholds were set against.
 
 The `run` command is the complete simulation measurement. Do not substitute
 the shorter `--cache-frames 8` preflight for it. The cache matrix proves cache
 size, range-read throughput, encoding error, and cancellation recovery only.
-
-Before accepting 10K, also capture Blender playback/render, profiling-panel,
-tier-transition, and CPU-fallback comparisons. The repository does not yet
-package a single M5 Blender acceptance runner, so these artifacts must remain
-explicitly pending rather than inferred from the Rust benchmark.
 
 Create a dated `docs/benchmarks/YYYY-MM-DD-m5-10k.md` only after reviewing the
 declared S/R counts; simulation/quality/memory/cache metrics; stable-ID/contact
@@ -94,7 +124,31 @@ failed report and stop: do not begin 100K.
 
 ## 100K gate
 
-Begin only with an accepted dated 10K report. Preserve 10K evidence unchanged:
+The 10K gate passed on 2026-08-14, so 100K work is authorized. Read that
+report's "What this report does not establish" section first — it bounds what
+the 10K result licenses.
+
+`scripts/m5-100k-gate.sh` runs every stage below in the right order, in one
+command, with a per-stage log. Prefer it over running the stages by hand:
+
+```sh
+tmux new -s blender-crowd-m5-100k
+cd /path/to/Blender-Crowd
+scripts/m5-100k-gate.sh
+```
+
+Budget most of a day. The fixture's duration scales with the square root of
+population, so 100,000 agents run 142,302 ticks against the 10K gate's 45,000,
+at roughly a tenth of its per-tick throughput. Use `tmux`: a disconnected
+terminal must not take the run with it.
+
+The script adjudicates the simulation before gathering Blender evidence and
+stops on a failed gate, because the milestone says to publish a failed report
+rather than accumulate supporting evidence for a failed run. `M5_RESUME=1`
+reuses a simulation report that is already present, so a later stage can be
+rerun without repeating the multi-hour simulation.
+
+To run the stages individually instead, preserve the 10K evidence unchanged:
 
 ```sh
 tmux new -s blender-crowd-m5-100k
@@ -107,10 +161,25 @@ cargo run --release -p crowd-bench -- run \
 cargo run --release -p crowd-bench -- cache-experiment \
   --agents 100000 --cache-frames 120 \
   --out "$HOME/blender-crowd-m5/100k/cache"
+cargo run --release -p crowd-bench -- m5-gate \
+  --report "$HOME/blender-crowd-m5/100k/simulation/m5_city_flow-100000.json" \
+  --out "$HOME/blender-crowd-m5/100k/adjudication.json"
+M5_BLENDER_AGENTS=100000 \
+M5_ARTIFACT_DIR="$HOME/blender-crowd-m5/100k/blender" \
+M5_REPORT="$HOME/blender-crowd-m5/100k/simulation/m5_city_flow-100000.json" \
+M5_ADJUDICATION="$HOME/blender-crowd-m5/100k/adjudication.json" \
+  scripts/m5-blender-test.sh
 ```
 
+The 100K run is adjudicated against the *same* threshold file. That is the
+point of expressing the limits as per-agent-tick rates: if 100K needs looser
+numbers than 10K, that is a finding to report, not a threshold to relax.
+
 The 100K report must prove streaming/procedural extraction does not create
-100,000 Blender character objects. State tier mix, hardware, tick/frame rate,
+100,000 Blender character objects. The Blender runner asserts exactly that —
+persistent scene objects added by attaching the cache, against the whole
+population carried as point data — so run it and quote its numbers rather than
+arguing the property from the architecture. State tier mix, hardware, tick/frame rate,
 cache size, render path, and quality limits in any headline. Do not claim fully
 autonomous skinned heroes or cross-vendor GPU parity.
 
