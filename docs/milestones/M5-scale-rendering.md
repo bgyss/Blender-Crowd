@@ -128,13 +128,49 @@ optimisation round it prompted — a 3.08x measured speedup with bitwise-identic
 results — and raises a specification defect in two of the threshold file's
 limits that needs a contract decision rather than an edit.
 
+That decision was taken, and resolving it uncovered two further defects in the
+metrics rather than in the solver. All three are recorded in
+[2026-08-15-m5-100k-scale-invariance.md](../benchmarks/2026-08-15-m5-100k-scale-invariance.md):
+two gated figures were not scale-invariant and are now reported rather than
+gated; background-tier contact was undercounted 2x because a skipped perception
+tick counted as clean exposure; and the solver fix the first report proposed is
+refuted by measurement and ships disabled. Every metric change is
+behaviour-neutral — `final_state_hash` is unchanged at both scales — so no M0-M4
+evidence was invalidated.
+
 ## 100K acceptance gate
+
+**The 100K gate passed on 2026-08-18.** See
+[2026-08-18-m5-100k.md](../benchmarks/2026-08-18-m5-100k.md).
 
 The 100K work starts only after the 10K report passes. It repeats the same proof
 categories with a declared tier mix and must show that streaming and procedural
 extraction avoid expanding all characters into Blender scene objects. Any public
 headline states the number of S0/S1/S2/S3 and R0-R4 agents, hardware, frame/tick
 rates, quality limitations, cache size, and render path.
+
+The disclosure that rule requires, for the accepted run:
+
+| Field | Value |
+| --- | --- |
+| Population | 100,000: 10,029 S1/R1 and 89,971 S2/R2; no S0, S3, R0, R3, or R4 |
+| Hardware | Apple M1 Max, 64 GiB, macOS aarch64; Blender 5.2 LTS |
+| Simulation rate | 13.696 ticks/s against a 30 tick/s scene — **about 0.46x real time**, a bake-and-cache workflow, not interactive |
+| Completion | 100,000 of 100,000 agents arrive |
+| Cache | 0.67 GiB for 120 frames (5.7 MiB/frame), f32, 120-tick chunks, 0.0 m position error, cancellation recovered |
+| Render path | Procedural. One scene object carries all 100,000 agents as point data; at the inspected frame 1,200 agents were present and evaluated as 1,200 procedural instances (R1 128, R2 1,072). Render 1.381 s, bake 72.197 s |
+| Quality | Every per-tier limit met with 1.7x-3.0x margin |
+
+Two limitations belong with any citation of that headline. The render evidence
+proves the population is **not** expanded into per-agent scene objects; it does
+not show 100,000 agents drawn in one frame, because the reference scene emits
+over time and 1,200 were present at the frame inspected. And the residual scale
+trend is unexplained: both tiers' contact rates rise ~1.74x from 40K to 100K,
+which points at fixture geometry rather than the solver, so a 1M claim would
+need its own calibration rather than an extrapolation.
+
+The M5 UI gate's artist task remains outstanding at both scales, so M5 is
+functionally accepted but not operator-validated.
 
 ## Validation and proof
 

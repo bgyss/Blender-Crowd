@@ -34,11 +34,50 @@ integration proposal backed by production evidence.
 
 ## Status
 
-M0 through M3 are accepted. Blender Crowd 1.0 is narrowed to Blender 5.2 LTS
-on macOS 11+ Apple Silicon. The implemented system includes a
+M0 through M5 are accepted, with one qualification on M5: both scale gates
+pass, but the M5 UI gate's artist task has not been conducted, so M5 is
+functionally accepted and not operator-validated. Blender Crowd 1.0 is narrowed
+to Blender 5.2 LTS on macOS 11+ Apple Silicon. The implemented system includes a
 headless deterministic Rust kernel, selected navigation and avoidance, a
 recoverable versioned cache, an abi3 native facade, a clean-install Blender
 extension, and cache-only Geometry Nodes presentation.
+
+### M5: 100,000 agents
+
+The [100K scale gate](docs/benchmarks/2026-08-18-m5-100k.md) passed on
+2026-08-18, after the [10K gate](docs/benchmarks/2026-08-14-m5-10k.md) on
+2026-08-14. The contract requires a public headline to state the tier mix,
+hardware, rates, quality limitations, cache size, and render path, so:
+
+| Field | Value |
+| --- | --- |
+| Population | 100,000: 10,029 S1/R1 and 89,971 S2/R2; no S0, S3, R0, R3, or R4 |
+| Hardware | Apple M1 Max, 64 GiB, macOS aarch64; Blender 5.2 LTS |
+| Simulation rate | 13.696 ticks/s against a 30 tick/s scene — about **0.46x real time** |
+| Completion | 100,000 of 100,000 agents reach their destination |
+| Cache | 0.67 GiB for 120 frames (5.7 MiB/frame), f32, 120-tick chunks, 0.0 m position error |
+| Render path | Procedural: one scene object carries all 100,000 agents as point data |
+| Quality | Every per-tier limit met with 1.7x-3.0x margin |
+
+This is a **bake-and-cache workflow, not interactive playback** at this
+population. Two further limits belong with any citation: the render evidence
+proves the population is not expanded into per-agent scene objects, but does not
+show 100,000 agents drawn in a single frame (the scene emits over time, and
+1,200 agents were present at the frame inspected); and the residual scale trend
+is unexplained, so a 1M claim would need its own calibration rather than an
+extrapolation from this one.
+
+Getting there took three metric fixes and no solver fix. Two gated figures
+were not scale-invariant, background-tier contact was undercounted 2x, and the
+solver change the failure analysis first proposed was refuted by measurement and
+ships disabled. The
+[scale-invariance report](docs/benchmarks/2026-08-15-m5-100k-scale-invariance.md)
+records all of it, including the discarded designs and a wrong measurement that
+briefly looked like supporting evidence.
+
+M4 adds layered post-sim layout editing, physics handoff, schema migration, and
+a narrow OpenUSD interchange profile; see the
+[M4 acceptance evidence](docs/benchmarks/2026-08-12-m4-foundation.md).
 
 M2 adds typed behavior, semantic environments, groups and queues, production
 variation, cached selected-agent evidence, terrain presentation, and sparse
@@ -145,7 +184,10 @@ M5_BLENDER_AGENTS=10000 scripts/m5-blender-test.sh    # the same proof at the 10
 cargo run --release -p crowd-bench -- cache-experiment --agents 10000 --cache-frames 8 --out /tmp/blender-crowd-m5-cache-10k # M5 bounded cache preflight, not acceptance
 scripts/m5-100k-gate.sh                               # every M5 100K stage in one command; multi-hour, run it under tmux
 # Full 10K/100K procedure: docs/runbooks/m5-scale-gates.md
-# Accepted 10K gate report: docs/benchmarks/2026-08-14-m5-10k.md
+# Accepted 10K gate report:  docs/benchmarks/2026-08-14-m5-10k.md
+# Accepted 100K gate report: docs/benchmarks/2026-08-18-m5-100k.md
+cargo test --release -p crowd-core --test m5_crowding_distribution -- --ignored --nocapture # crowding census, 10K vs 100K
+cargo test --release -p crowd-core --test m5_density_floor_sweep -- --ignored --nocapture   # density-floor trade sweep
 scripts/m4-blender-test.sh                            # M4 1K/5K-tick layer UI, seven-agent correction, physics, procedural render, USD, reload proof
 M4_ARTIFACT_DIR=/tmp/blender-crowd-m4-captures scripts/m4-blender-test.sh # retain M4 before/after and scale PNGs
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress
@@ -204,7 +246,9 @@ explicitly outside the Blender Crowd 1.0 support contract.
 Generated cache directories are intentionally not versioned. See the
 [artifact storage policy](docs/release/artifact-storage-policy.md) for the
 future 100-agent GitHub demo-fixture path and external hosting policy for
-1,000-agent evidence and future 10K/100K artifacts.
+1,000-agent evidence and the 10K/100K scale artifacts. The 10K and 100K gate
+runs write outside the worktree (`~/blender-crowd-m5/...`) and are not
+versioned; the reports under `docs/benchmarks/` are the durable record.
 
 `--svg` and `--frames` sample the simulation every tick, so a run recorded with
 either reports a `ticks_per_second` that is not a performance measurement.

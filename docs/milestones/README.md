@@ -51,8 +51,22 @@ production evaluation. M8 consumes stable outputs from M4 through M6.
 
 ## Current baseline
 
-As of 2026-08-12, **M0 through M4 are accepted**. M4's layer, physics-handoff,
-procedural-render, migration, and narrow OpenUSD profile evidence is recorded
+As of 2026-08-18, **M0 through M5 are accepted**, with one qualification on M5:
+both scale gates pass, but the M5 UI gate's artist task has not been conducted,
+so M5 is functionally accepted and not operator-validated.
+
+M5's two scale gates are recorded in the
+[10K report](../benchmarks/2026-08-14-m5-10k.md) (2026-08-14) and the
+[100K report](../benchmarks/2026-08-18-m5-100k.md) (2026-08-18). Read the 100K
+report's "Exactly one threshold change is load-bearing" section before citing
+the result: the pass turns on a single recalibrated limit, and the reasoning is
+set out there rather than asserted. The
+[scale-invariance report](../benchmarks/2026-08-15-m5-100k-scale-invariance.md)
+records the three metric defects found on the way and the solver theory that
+measurement refuted.
+
+M4's layer, physics-handoff, procedural-render, migration, and narrow OpenUSD
+profile evidence is recorded
 in the [M4 acceptance evidence](../benchmarks/2026-08-12-m4-foundation.md).
 The complete
 M0 ordered runner and criterion-by-criterion result are in the
