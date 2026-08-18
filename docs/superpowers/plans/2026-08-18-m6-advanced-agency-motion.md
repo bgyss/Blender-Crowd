@@ -349,3 +349,334 @@ git commit -m "Compose removable M6 interaction animation layers"
 - [x] **Step 4: Run the foundation runner, full release workspace tests, clippy, formatting, Python tests, and available Blender runner.**
 - [ ] **Step 5: Perform a requirement-by-requirement audit against all M6 contract items and write only evidence-backed statuses.**
 - [ ] **Step 6: Mark the goal complete only if every deterministic M6 acceptance criterion and automated Blender gate has authoritative evidence; otherwise leave the goal active and list the exact remaining M6 gates. M9 gates never block M6.**
+
+### Task 10: Complete automated debugger navigation and reusable graph authoring
+
+**Files:**
+- Create: `schemas/brain-library-v1.schema.json`
+- Create: `assets/reference/m6/brain-library-v1.json`
+- Create: `addon/blender_crowd/m6_library.py`
+- Modify: `addon/blender_crowd/m6_debugger.py`
+- Modify: `addon/blender_crowd/behavior_editor.py`
+- Modify: `addon/blender_crowd/properties.py`
+- Modify: `addon/blender_crowd/operators.py`
+- Modify: `addon/blender_crowd/panels.py`
+- Create: `tests/test_m6_debugger_navigation.py`
+- Create: `tests/test_m6_library.py`
+- Modify: `tests/blender/test_m6_debugger.py`
+
+**Interfaces:**
+- `m6_debugger.build_navigation_index(trace, graph)` returns stable records with
+  `target_kind`, `target_id`, `agent_id`, `tick`, `graph_node_id`, `action_id`,
+  `motion_clip_id`, `contact_id`, `layer_id`, and `correction_id`. Target kinds
+  are `agent`, `event`, `node`, `action`, `clip`, `contact`, `layer`, and
+  `correction`.
+- `m6_debugger.resolve_navigation(index, target_kind, target_id)` returns the
+  complete linked record or raises `ValueError`; callers never paste a stable
+  ID to move among linked contexts.
+- `m6_library.validate_library(value)` validates version 1, unique action,
+  subgraph, and preset IDs, declared typed parameters, bounded node kinds, and
+  all references.
+- `m6_library.instantiate_preset(value, preset_id, instance_id, parameters)`
+  returns a deterministic bounded graph with namespaced node/action IDs and no
+  runtime callback or source-code field.
+- Blender operator `crowd.navigate_m6_context` resolves the selected target and
+  updates scene selection, graph highlight, clip/contact/layer/correction
+  context, and readable status. `crowd.apply_m6_brain_preset` instantiates the
+  selected checked preset into the bounded behavior editor.
+
+- [ ] **Step 1: Write failing pure-Python navigation and library tests.**
+
+```python
+def test_navigation_resolves_every_context_without_copied_ids():
+    index = m6_debugger.build_navigation_index(TRACE, GRAPH)
+    node = m6_debugger.resolve_navigation(index, "node", "hold")
+    assert node == {
+        "target_kind": "node",
+        "target_id": "hold",
+        "agent_id": 7,
+        "tick": 12,
+        "graph_node_id": "hold",
+        "action_id": "hold_position",
+        "motion_clip_id": "idle_ready",
+        "contact_id": "right_hand_guard",
+        "layer_id": "interaction-pair-7-9",
+        "correction_id": "mute-pair-7-9",
+    }
+
+def test_preset_instantiation_is_namespaced_and_deterministic():
+    first = m6_library.instantiate_preset(LIBRARY, "guarded_exit", "north", {"destination": "exit_n"})
+    second = m6_library.instantiate_preset(LIBRARY, "guarded_exit", "north", {"destination": "exit_n"})
+    assert first == second
+    assert first["entry_id"] == "north::root"
+    assert {node["id"] for node in first["nodes"]} == {"north::root", "north::leave", "north::hold"}
+```
+
+- [ ] **Step 2: Run the focused tests and verify the APIs are absent.**
+
+Run: `python3 -m unittest -q tests/test_m6_debugger_navigation.py tests/test_m6_library.py`
+
+Expected: FAIL because `build_navigation_index`, `resolve_navigation`, and
+`m6_library` do not exist.
+
+- [ ] **Step 3: Add the versioned library fixture/schema and implement the pure
+  navigation/library functions.**
+
+Reject duplicate IDs, missing references, unknown parameters, unsupported node
+kinds, empty instance IDs, source-code fields, and namespace collisions. Sort
+all emitted actions/nodes by namespaced ID.
+
+- [ ] **Step 4: Add Blender properties/operators/panel controls and extend the
+  headless test.**
+
+The Blender test must navigate from node to agent, event, action, clip, contact,
+layer, and correction in both directions, instantiate a preset, serialize it
+through `behavior_editor.graph_from_tree`, and assert no copied-ID field is used.
+
+- [ ] **Step 5: Run pure Python, Blender, schema, and regression checks.**
+
+Run:
+
+```bash
+python3 -m unittest -q tests/test_m6_debugger.py tests/test_m6_debugger_navigation.py tests/test_m6_library.py
+M6_RUN_BLENDER=1 M6_ALLOW_OPEN=1 scripts/m6-acceptance.sh
+git diff --check
+```
+
+Expected: all focused tests and the Blender lane pass; the audit no longer lists
+the two debugger/library gates as open.
+
+- [ ] **Step 6: Commit.**
+
+```bash
+git add schemas/brain-library-v1.schema.json assets/reference/m6/brain-library-v1.json addon/blender_crowd tests scripts/m6-acceptance.sh
+git commit -m "Complete M6 debugger navigation and graph presets"
+```
+
+### Task 11: Ingest licensed CMU motion and measure motion/terrain thresholds
+
+**Files:**
+- Create: `assets/reference/m6/cmu-motion-source-v1.json`
+- Create: `scripts/m6_fetch_cmu_motion.py`
+- Create: `scripts/m6_cmu_motion_ingest.py`
+- Modify: `scripts/m6_motion_build.py`
+- Modify: `scripts/m6_motion_evaluate.py`
+- Modify: `docs/m6-motion-data-policy.md`
+- Create: `tests/fixtures/m6/cmu-mini.asf`
+- Create: `tests/fixtures/m6/cmu-mini.amc`
+- Create: `tests/test_m6_cmu_motion.py`
+- Modify: `tests/test_m6_motion_database.py`
+- Modify: `tests/test_m6_motion_evaluation.py`
+
+**Interfaces and fixed sources:**
+- `m6_fetch_cmu_motion.fetch_manifest(manifest, output_dir)` downloads only the
+  five declared files, verifies exact SHA-256 before rename, and refuses unknown
+  hosts, redirects away from `mocap.cs.cmu.edu`, hash mismatch, or extra files.
+- Fixed official sources and hashes:
+  - `http://mocap.cs.cmu.edu/subjects/35/35.asf` — `2a8e2eda3c0d7d828566b2a9a8ab36b2b8b3864110574e8b73c8f069fded416c`
+  - `http://mocap.cs.cmu.edu/subjects/35/35_01.amc` — `0743f4ea48e7e199cd56b2810b5ce81f8ede08d32ff79aa4e363c44cc4fe33aa`
+  - `http://mocap.cs.cmu.edu/subjects/35/35_24.amc` — `29059fb2c15493983e4dccdf45453a495fb567dd28ff36cc1a0dbc02ad409445`
+  - `http://mocap.cs.cmu.edu/subjects/36/36.asf` — `05e190867ead216b5dcdc94b210aa19b2eaaf383df44f1d9bb247e64fbf1c02b`
+  - `http://mocap.cs.cmu.edu/subjects/36/36_01.amc` — `882e9f8c35622c2e10e9a3f578b5e0e7033ceb53232f415640b47fc05f3c2fac`
+- The source manifest records `license_id: CMU-Mocap-Free-All-Uses`,
+  `redistribution_allowed: false` for raw/converted files, the official terms
+  URL, required attribution, subject/trial descriptions, source frame rate 120,
+  and the exact hashes above. Raw or converted CMU motion is never committed.
+- `m6_cmu_motion_ingest.ingest(asf_path, amc_paths, manifest)` parses Acclaim
+  units, hierarchy, root order, bone axes/DOFs, and frames; computes world-space
+  root and foot positions; downsamples deterministically from 120 Hz to 30 Hz;
+  derives root velocity, facing, left/right contact windows, foot slide, joint
+  limits, and source-frame provenance; and emits the existing version-1 motion
+  database input shape.
+
+- [ ] **Step 1: Write failing parser, downloader-boundary, and metric tests from
+  hand-checked mini ASF/AMC fixtures.**
+
+```python
+def test_ingest_uses_declared_units_and_world_space_feet():
+    database = m6_cmu_motion_ingest.ingest(ASF, [AMC], MANIFEST)
+    assert database["clips"][0]["samples"][1]["velocity_millimeters_per_second"] == [1000, 0]
+    assert database["clips"][0]["left_foot_contacts"] == [[0, 1]]
+
+def test_fetch_rejects_a_hash_mismatch_before_publish():
+    with self.assertRaisesRegex(ValueError, "SHA-256"):
+        m6_fetch_cmu_motion.verify_download(b"wrong", "0" * 64)
+```
+
+- [ ] **Step 2: Run tests and verify the importer/fetcher are absent.**
+
+Run: `python3 -m unittest -q tests/test_m6_cmu_motion.py`
+
+Expected: FAIL with import errors for both scripts.
+
+- [ ] **Step 3: Implement strict parsing, fixed-source fetching, provenance,
+  retarget metadata, contact inference, and deterministic reports.**
+
+Foot contact is declared only when foot height is at most 45 mm above its local
+support minimum and horizontal foot speed is at most 120 mm/s for at least two
+30 Hz samples. The report records root-speed error, foot slide during declared
+contacts, turn discontinuity, joint-limit violations, retarget failures, source
+hashes, and rejected frames. Do not silently smooth or repair source data.
+
+- [ ] **Step 4: Fetch the five fixed files into a temporary artifact directory,
+  ingest all three trials, and write dated derived reports only.**
+
+Run:
+
+```bash
+python3 scripts/m6_fetch_cmu_motion.py assets/reference/m6/cmu-motion-source-v1.json /tmp/blender-crowd-m6-cmu
+python3 scripts/m6_cmu_motion_ingest.py assets/reference/m6/cmu-motion-source-v1.json /tmp/blender-crowd-m6-cmu /tmp/blender-crowd-m6-cmu/database.json
+python3 scripts/m6_motion_build.py /tmp/blender-crowd-m6-cmu/database.json /tmp/blender-crowd-m6-cmu/build-report.json
+python3 scripts/m6_motion_evaluate.py /tmp/blender-crowd-m6-cmu/database.json /tmp/blender-crowd-m6-cmu/evaluation.json
+```
+
+Expected: three clips (`35_01_walk`, `35_24_run`, `36_01_uneven_walk`), exact
+source hashes, nonzero samples, declared contacts, and no raw/converted source
+file added to Git.
+
+- [ ] **Step 5: Set and adjudicate checked M6 thresholds from the derived report.**
+
+Create the threshold file only after the baseline report exists. It must retain
+hard zero limits for root teleportation, undeclared contact, source-hash drift,
+cross-cache mutation, and joint-limit violations; measured soft limits for foot
+slide, trajectory deviation, turn discontinuity, and rejected-frame rate are
+recorded with the baseline values and cannot be loosened without a new dated
+adjudication report.
+
+- [ ] **Step 6: Run focused and existing motion tests, then commit code,
+  manifests, policy, tests, thresholds, and derived reports only.**
+
+Run: `python3 -m unittest -q tests/test_m6_cmu_motion.py tests/test_m6_motion_database.py tests/test_m6_motion_evaluation.py && cargo test -p crowd-core --test m6_motion_matching --test m6_motion_feedback --test m6_provenance`
+
+### Task 12: Realize the integrated deterministic M6 reference scenes
+
+**Files:**
+- Create: `schemas/m6-acceptance-scenes-v1.schema.json`
+- Create: `assets/reference/m6/acceptance-scenes-v1.json`
+- Create: `crates/crowd-bench/src/bin/m6-acceptance-scenes.rs`
+- Create: `crates/crowd-bench/tests/m6_acceptance_scenes.rs`
+- Create: `scripts/m6-reference-scenes-test.sh`
+- Create: `docs/benchmarks/2026-08-18-m6-reference-scenes.md`
+
+**Interfaces:**
+- `m6-acceptance-scenes` accepts `--fixture`, `--motion-report`, and `--out`.
+  It executes `scheduled_cafe`, `family_split_regroup`,
+  `terrain_motion_feedback`, `paired_handoff`, `ragdoll_recovery`, and
+  `mixed_tier_diagnostics` with stable seeds and emits schema version 1.
+- Every scene report contains exact fixture/source hashes, tick range, agent and
+  promoted-group counts, deterministic replay hash, hard-safety result,
+  scene-specific metrics, fallback count, unrelated-agent mutation count, and
+  pass/fail reasons. A schema-valid report with a failed criterion exits 1.
+
+- [ ] **Step 1: Write failing binary tests for each scene and one combined
+  deterministic report.**
+
+```rust
+#[test]
+fn integrated_scenes_are_repeatable_and_preserve_unrelated_agents() {
+    let first = run_fixture("assets/reference/m6/acceptance-scenes-v1.json");
+    let second = run_fixture("assets/reference/m6/acceptance-scenes-v1.json");
+    assert_eq!(first.deterministic_replay_hash, second.deterministic_replay_hash);
+    assert_eq!(first.unrelated_agent_mutations, 0);
+    assert!(first.scenes.iter().all(|scene| scene.passed));
+}
+```
+
+- [ ] **Step 2: Run `cargo test -p crowd-bench --test m6_acceptance_scenes` and
+  verify the fixture/binary are absent.**
+- [ ] **Step 3: Implement the smallest integrated runner by composing the
+  existing M6 runtimes; do not duplicate their decision logic in the binary.**
+- [ ] **Step 4: Run the runner twice and require identical hashes and metrics.**
+
+Run: `scripts/m6-reference-scenes-test.sh`
+
+- [ ] **Step 5: Check in the fixture, schema, runner, tests, and dated report;
+  keep generated caches outside Git.**
+
+### Task 13: Prove Blender physics/hero layers and mixed-tier performance
+
+**Files:**
+- Modify: `addon/blender_crowd/m6_physics.py`
+- Modify: `addon/blender_crowd/m6_interaction.py`
+- Modify: `addon/blender_crowd/properties.py`
+- Modify: `addon/blender_crowd/operators.py`
+- Modify: `addon/blender_crowd/panels.py`
+- Create: `tests/blender/test_m6_layers.py`
+- Create: `scripts/m6-performance-test.sh`
+- Create: `crates/crowd-bench/tests/m6_mixed_tier.rs`
+- Create: `docs/benchmarks/2026-08-18-m6-blender-layers.md`
+- Create: `docs/benchmarks/2026-08-18-m6-mixed-tier.md`
+- Modify: `scripts/m6-blender-test.sh`
+
+**Interfaces:**
+- Blender loads the deterministic paired-interaction and physics-transition
+  artifacts, composes them against a complete base-cache hash, exposes owner,
+  interval, contacts, solver/cache provenance, recovery/failure policy, and hero
+  support boundaries, then mutes/removes/reloads them without changing base or
+  unrelated agents.
+- The mixed-tier gate runs 10,000 agents at the checked M5 distribution with a
+  fixed promoted subset: 10 S0 hero, 990 S1 promoted, and 9,000 S2 background.
+  It measures perception/brain/activity/group/motion/interaction phases
+  separately and requires at least 10 ticks/s, zero hard-safety failures, zero
+  unrelated-agent mutations, deterministic replay hashes, and explicit fallback
+  accounting. Debug evidence is full for S0, reduced for S1, aggregate-only for
+  S2, and never inferred when absent.
+
+- [ ] **Step 1: Write failing Blender layer and Rust mixed-tier tests.**
+- [ ] **Step 2: Run focused tests and verify layer UI/runtime and mixed-tier
+  report are absent.**
+- [ ] **Step 3: Implement coarse Blender layer attachment/inspection and the
+  backend-neutral mixed-tier benchmark without per-agent Python loops.**
+- [ ] **Step 4: Run host Blender with normal Metal access and the optimized
+  mixed-tier gate.**
+
+Run:
+
+```bash
+scripts/m6-blender-test.sh
+scripts/m6-performance-test.sh
+```
+
+- [ ] **Step 5: Record environment, separate phase timings, memory/cache size,
+  tier counts, unsupported solver claims, and exact evidence paths; commit.**
+
+### Task 14: Add external examples and close the requirement-level audit
+
+**Files:**
+- Create: `examples/m6-extension-rust.rs`
+- Create: `examples/m6_extension_python.py`
+- Create: `tests/test_m6_extension_examples.py`
+- Create: `docs/benchmarks/2026-08-18-m6-acceptance.md`
+- Modify: `scripts/m6-foundation-test.sh`
+- Modify: `scripts/m6-acceptance.sh`
+- Modify: `docs/benchmarks/2026-08-18-m6-foundation.md`
+- Modify: `docs/milestones/M6-advanced-agency-motion.md`
+- Modify: `docs/milestones/README.md`
+- Modify: `README.md`
+- Modify: `CLAUDE.md`
+- Modify: `AGENTS.md`
+
+**Interfaces:**
+- The Rust and Python examples declare version, input/output channels, fixed
+  cost budget, deterministic mode, and failure isolation; run one accepted call,
+  one over-budget fallback, one undeclared-channel rejection, and one version
+  mismatch. No C/C++ API is claimed unless a real wrapper and matching example
+  are implemented in this task.
+- `scripts/m6-acceptance.sh` executes foundation, debugger/library, CMU-derived
+  motion thresholds, integrated scenes, host Blender layer/debugger proof when
+  `M6_RUN_BLENDER=1`, mixed-tier performance, extension examples, report-schema
+  checks, and release workspace tests. It exits 0 without `M6_ALLOW_OPEN` only
+  when every deterministic M6 criterion passes. M9 lines remain informational
+  `DEFERRED`, never M6 failures.
+
+- [ ] **Step 1: Write failing example execution and acceptance-contract tests.**
+- [ ] **Step 2: Run them and verify examples and closed-audit behavior are absent.**
+- [ ] **Step 3: Implement the two claimed-language examples and wire all
+  deterministic gates into the acceptance runner.**
+- [ ] **Step 4: Run the full release workspace, clippy, formatting, Python,
+  motion, scene, Blender, mixed-tier, extension, and acceptance commands.**
+- [ ] **Step 5: Write the dated criterion-by-criterion report with environment,
+  inputs/hashes, results, known failures, unsupported claims, and M9 deferrals.**
+- [ ] **Step 6: Mark M6 accepted only after the unmodified acceptance runner
+  exits 0 and the report contains direct evidence for all ten criteria.**
+- [ ] **Step 7: Commit the final audit and documentation.**
