@@ -552,6 +552,25 @@ report at `docs/benchmarks/2026-08-18-m6-cmu-motion.json`, and its environment,
 license, method, result, limitation, and unsupported-claim interpretation at
 `docs/benchmarks/2026-08-18-m6-cmu-motion.md`.
 
+Use these exact deterministic definitions:
+
+- local support minimum is the per-foot world-height minimum over ±15 retained
+  30 Hz samples;
+- foot slide is the maximum world-horizontal displacement within each declared
+  contact window, reported as integer millimeters;
+- trajectory deviation is the maximum world-root position error between every
+  parsed 120 Hz source frame and the piecewise-linear reconstruction from the
+  retained 30 Hz root samples, reported as integer millimeters;
+- turn discontinuity is the maximum absolute wrapped facing-angle change
+  between adjacent retained samples, reported as integer microradians;
+- rejected-frame rate is `ceil(rejected_frames * 1_000_000 / parsed_frames)`;
+- each soft threshold is the integer ceiling of the maximum observed baseline
+  value in its recorded unit, with no additional headroom and with the exact
+  source hashes embedded in the threshold artifact; and
+- malformed or incomplete source frames are recorded as rejected without
+  smoothing/repair, and a clip fails ingestion when fewer than two retained
+  30 Hz samples remain.
+
 - [ ] **Step 6: Run focused and existing motion tests, then commit code,
   manifests, policy, tests, thresholds, and derived reports only.**
 
