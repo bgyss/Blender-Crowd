@@ -456,7 +456,10 @@ git commit -m "Complete M6 debugger navigation and graph presets"
 ### Task 11: Ingest licensed CMU motion and measure motion/terrain thresholds
 
 **Files:**
+- Create: `schemas/cmu-motion-source-v1.schema.json`
+- Create: `schemas/motion-thresholds-v1.schema.json`
 - Create: `assets/reference/m6/cmu-motion-source-v1.json`
+- Create: `assets/reference/m6/motion-thresholds-v1.json`
 - Create: `scripts/m6_fetch_cmu_motion.py`
 - Create: `scripts/m6_cmu_motion_ingest.py`
 - Modify: `scripts/m6_motion_build.py`
@@ -467,6 +470,8 @@ git commit -m "Complete M6 debugger navigation and graph presets"
 - Create: `tests/test_m6_cmu_motion.py`
 - Modify: `tests/test_m6_motion_database.py`
 - Modify: `tests/test_m6_motion_evaluation.py`
+- Create: `docs/benchmarks/2026-08-18-m6-cmu-motion.json`
+- Create: `docs/benchmarks/2026-08-18-m6-cmu-motion.md`
 
 **Interfaces and fixed sources:**
 - `m6_fetch_cmu_motion.fetch_manifest(manifest, output_dir)` downloads only the
@@ -541,7 +546,11 @@ hard zero limits for root teleportation, undeclared contact, source-hash drift,
 cross-cache mutation, and joint-limit violations; measured soft limits for foot
 slide, trajectory deviation, turn discontinuity, and rejected-frame rate are
 recorded with the baseline values and cannot be loosened without a new dated
-adjudication report.
+adjudication report. Store the versioned thresholds at
+`assets/reference/m6/motion-thresholds-v1.json`, the complete derived machine
+report at `docs/benchmarks/2026-08-18-m6-cmu-motion.json`, and its environment,
+license, method, result, limitation, and unsupported-claim interpretation at
+`docs/benchmarks/2026-08-18-m6-cmu-motion.md`.
 
 - [ ] **Step 6: Run focused and existing motion tests, then commit code,
   manifests, policy, tests, thresholds, and derived reports only.**
