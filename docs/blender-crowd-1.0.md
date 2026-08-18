@@ -1088,10 +1088,9 @@ The recommended order is driven by dependency and product value:
    cache, and trajectory contracts.
 7. **Interaction and hero physics.** Add paired actions, ragdoll/recovery,
    rigid-body layers, and promoted hero cloth/hair behind the stable cache and
-   fidelity-tier contracts. Research reactive neural motion for promoted
-   interaction groups only through a model-independent request/response
-   boundary, validation, sparse animation layers, and deterministic fallbacks;
-   see the [research track](reactive-neural-interaction-animation-2026.md).
+   fidelity-tier contracts. Establish the model-independent R0 interaction
+   request/response boundary, validation, sparse animation layers, and
+   deterministic fallbacks before considering learned backends.
 8. **Blender ecosystem and mainline readiness.** Turn real extension evidence
    into narrowly scoped, generally useful host proposals while retaining a
    supported extension fallback.
@@ -1105,6 +1104,11 @@ The recommended order is driven by dependency and product value:
     provenance for explicitly scoped downstream tasks.
 12. **100K background gate.** Earned after shared navigation and GPU presentation
    are proven at 10K.
+13. **Neural animation and independent operator validation.** After M6 is
+    accepted, evaluate R1–R4 learned motion behind its stable boundary and run
+    the deferred debugger/motion-authoring study; see the
+    [research track](reactive-neural-interaction-animation-2026.md) and
+    [M9 contract](milestones/M9-neural-animation-operator-validation.md).
 
 This ordering is expanded into independently executable contracts in
 [the milestone suite](milestones/README.md). The suite additionally schedules

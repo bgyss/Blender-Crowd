@@ -37,8 +37,8 @@ The implementation must therefore:
   channels, version mismatches, and cross-cache layer attachment;
 - keep semantic domain packs and combat-specific meaning in M8; M6 provides
   generic interaction roles, contact constraints, and extension points;
-- report local proof separately from production, licensed-data, hardware, and
-  independent-user evidence that has not been run.
+- report local proof separately from production, licensed-data, and hardware
+  evidence; independent-user and learned-model claims are deferred to M9.
 
 ## Architecture
 
@@ -105,10 +105,15 @@ After R0 is green, the remaining M6 work proceeds in this order:
    foot locking, and navigation feedback;
 5. interaction-to-physics/recovery layers and declared hero solver boundaries;
 6. Blender brain/motion debugger, extension-boundary examples, scale evidence,
-   and the independent-user UI gate.
+   bidirectional navigation, reusable subgraph/action/preset authoring, and
+   automated trace/search/diagnostic/degraded-evidence verification.
 
 Each slice must leave the earlier slices runnable and must add a dated report
 or update the active M6 evidence ledger.
+
+The current debugger foundation proves trace summary, graph search/highlight,
+and degraded-evidence text. Bidirectional navigation and reusable
+subgraph/action/preset authoring remain pending M6 work.
 
 ## Failure and recovery policy
 
@@ -133,8 +138,16 @@ The implementation must provide:
 - dated reports that distinguish accepted criteria, missing evidence, and
   unsupported claims.
 
-No neural or physics quality claim is accepted from a render or reel alone.
-The full milestone is complete only when the M6 acceptance criteria and UI
-gate have requirement-level evidence; otherwise the report must name the exact
-remaining gates.
+No physics quality claim is accepted from a render or reel alone. Neural quality
+and independent-user claims belong to M9. The full milestone is complete only
+when the deterministic M6 acceptance criteria and automated Blender verification
+have requirement-level evidence; otherwise the report must name the exact
+remaining M6 gates.
 
+## Scope migration
+
+The approved 2026-08-18 milestone split moved R1–R4 neural animation and the
+independent-user debugger/motion-authoring study to
+[M9](../../milestones/M9-neural-animation-operator-validation.md). R0 remains
+M6 because it is model-independent and supplies the deterministic boundary that
+future backends must consume.

@@ -64,10 +64,10 @@ from becoming unowned aspirations.
 16. Extension-first production proof is the path toward Blender integration.
     Mainline inclusion is an external maintainer decision and must never be
     represented as guaranteed.
-17. Reactive neural motion is a promoted-interaction animation option, not a
-    replacement for the crowd brain. Models propose validated, cached motion
-    behind a versioned contract while the core owns intent, roots, contacts,
-    outcomes, fallbacks, and unrelated agents.
+17. Future M9 reactive neural motion is a promoted-interaction animation option,
+    not a replacement for the crowd brain. Models propose validated, cached
+    motion behind a versioned contract while the core owns intent, roots,
+    contacts, outcomes, fallbacks, and unrelated agents.
 
 ## Product architecture
 
@@ -124,7 +124,7 @@ not authorize copying proprietary code, assets, UI, or trade dress.
 | Animation state blending is only the baseline | Validated clip sets, starts/stops/turns, phase, speed/stride warping, transition graphs, and root-motion policy | M1/M2 |
 | Terrain and foot adaptation materially affect quality | Terrain projection, slope policy, foot contacts, foot locking, stride warping, IK, and failure diagnostics | M2 foundation, M6 complete |
 | Motion and trajectory should become a feedback loop | Motion database queries future trajectory; feasible selected motion constrains subsequent locomotion | M6 |
-| Reactive interactions need more than two agents playing adjacent clips | A model-independent paired-motion request carries roots, roles, contacts, props, and outcome to an optional local worker; validated output composes as a sparse animation layer with deterministic fallback | M6 research, M8 combat pack |
+| Reactive interactions need more than two agents playing adjacent clips | M6 supplies a model-independent paired-motion request, deterministic worker baseline, validation, sparse layers, and fallback; M9 evaluates learned backends, while M8 owns combat semantics | M6 R0, M8 combat pack, M9 neural research |
 | Physical interaction and crowd-to-physics transitions are production needs | Deterministic trigger and state handoff for ragdoll/rigid-body intervals, recoverable cache layers, collision masks, and resumption policy | M4/M6 |
 | Cloth and hair are hero fidelity, not universal simulation state | Blender physics or validated external cache attaches to promoted hero agents without changing background truth | M6 |
 | Post-simulation directing is the most valuable UX differentiator | Move, hide/delete, freeze, retime, redirect, replace appearance/animation, change speed, promote, or locally resimulate stable IDs | M2 foundation, M4 complete |
@@ -214,12 +214,14 @@ interaction state.
 | [M6](milestones/M6-advanced-agency-motion.md) | Multi-sensory brains, activities, motion matching, interactions, and hero physics | MASSIVE-class agency and modern motion |
 | [M7](milestones/M7-blender-integration.md) | Ecosystem adoption evidence and narrowly scoped mainline proposals | Blender integration readiness |
 | [M8](milestones/M8-semantic-domains-data.md) | Reviewed semantic AI, domain packs, and synthetic-data outputs | Expansion tracks |
+| [M9](milestones/M9-neural-animation-operator-validation.md) | Optional neural animation plus independent operator verification | Learned-motion and human-evidence promotion |
 
 M0 through M3 are ordered release gates. M4 through M6 depend on the stable 1.0
 data/cache contracts and may use separate implementation tracks only when their
 shared schema changes are coordinated. M7 begins evidence collection at M0 but
 cannot pass until production adoption exists. M8 follows the stable semantic,
-motion, and interchange contracts it consumes.
+motion, and interchange contracts it consumes. M9 starts only after M6
+acceptance; its combat research also depends on the relevant M8 domain pack.
 
 ## Blender ecosystem and mainline strategy
 

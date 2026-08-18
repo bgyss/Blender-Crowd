@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
 # M6 R0 foundation: versioned contracts, deterministic interaction validation,
 # out-of-process paired-clip worker, removable cache layers, and Python-side
-# persistence. This is not full M6 acceptance or the independent-user UI gate.
+# persistence. This is not full M6 acceptance; independent-user verification is
+# deferred to M9.
 set -eu
 
 for fixture in \

@@ -75,13 +75,15 @@ panel presents most of it as one long form. The principal UX failures are:
 | M3 | The workflow is installable, recoverable, accessible, and trustworthy across the support matrix | Clean-install studies, save/reload drills, keyboard and contrast audit, actionable-error fixtures |
 | M4 | Layered corrections and interchange are visible, reversible, and conflict-aware | Seven-agent correction study, layer/conflict screenshots, before/after and base-cache proof |
 | M5 | Scale and resource costs remain understandable at 10K and 100K agents | Profiling dashboard captures, responsive-cancel tests, tier/culling explanations |
-| M6 | Advanced agency and motion remain traceable despite graph and motion complexity | Graph-debugger studies, trace-to-node proof, motion/contact diagnostic fixtures |
+| M6 | Advanced agency and motion diagnostics execute coherently despite graph and motion complexity | Automated Blender smoke, trace-to-node proof, motion/contact diagnostic fixtures |
 | M7 | Blender integration feels native and survives host conventions and lifecycle boundaries | Host-version UX matrix, theme/keymap/accessibility checks, extension workflow study |
 | M8 | Generated semantic proposals and datasets remain reviewable, attributable, and safely approved | Proposal/diff usability study, provenance views, rejection paths, dataset review/export evidence |
+| M9 | Independent operators can direct deterministic and optional neural motion workflows | Task-based debugger study, neural proposal/rejection/fallback study, timings, recovery evidence |
 
 ## Evidence standard
 
-Every milestone with UI scope must include:
+Every milestone that makes usability, discoverability, or operator-readiness
+claims must include:
 
 - a dated task-based evaluation using a clean artifact rather than a developer
   checkout alone;
@@ -95,6 +97,11 @@ Every milestone with UI scope must include:
 
 An automated operator pass proves that controls execute; it does not prove that
 an artist can discover, understand, or recover the workflow.
+
+M6 makes an automated execution and diagnostics claim only, so its automated
+gate does not invoke this human-evidence standard. M9 owns the deferred M6
+usability, discoverability, repair, and optional neural-control claims and must
+satisfy the full standard above.
 
 ## Deferred UI/UX TODO
 
@@ -116,7 +123,7 @@ Unchecked items are intentionally incomplete.
   components using the existing variables and Inter styles.
 - [ ] Compose the Shot Dashboard, Authoring Workspace, Bake & Cache, and Review
   & Correct screens on the `01 — Proposed UI` page.
-- [ ] Add the M2–M8 roadmap board with milestone ownership, UI gates, evidence,
+- [ ] Add the M2–M9 roadmap board with milestone ownership, UI gates, evidence,
   and dependency notes.
 - [ ] Validate every major frame at readable and full-board scales for clipped
   text, overlap, contrast, hierarchy, font family, and incomplete placeholders.
@@ -171,8 +178,8 @@ Figma file:
   and explicit reduced-evidence states by tier.
 - [ ] Add reusable subgraphs/actions and presets.
 
-The independent-user M6 study must follow the [debugger study protocol](user/m6-debugger-study.md);
-automated Blender smoke is explicitly not sufficient for this gate.
+M6 closes on automated execution evidence. Independent discovery, authoring, and
+repair claims are deferred to M9 and do not reopen M6.
 
 ### M7 — native Blender integration
 
@@ -191,3 +198,12 @@ automated Blender smoke is explicitly not sufficient for this gate.
 - [ ] Build synthetic-data sensor, annotation, taxonomy, split, license, bias,
   preview, progress, resume, manifest, rejected-sample, and consumer-validation
   workflows.
+
+### M9 — neural animation and independent operator verification
+
+- [ ] Run the [M9 debugger study protocol](user/m9-debugger-study.md) with clean
+  release artifacts and participants who did not implement the workflow.
+- [ ] Add inspect, compare, reject, correct, fallback, provenance, and
+  model-absent replay controls for every neural backend actually claimed.
+- [ ] Record discovery/repair timings, wrong turns, intervention, degraded-tier
+  understanding, base-cache preservation, and unrelated-agent isolation.

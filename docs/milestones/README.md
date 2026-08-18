@@ -16,15 +16,18 @@ lists; they do not replace the canonical
 | M3 | [Production 1.0](M3-production-1.0.md) | Clean-install production acceptance passes on the support matrix |
 | M4 | [Layered layout and interchange](M4-layout-interchange.md) | Golaem-class post-sim direction and validated layered exchange |
 | M5 | [Scale and procedural rendering](M5-scale-rendering.md) | Earn 10K, then 100K, with declared tier mixes and reproducible evidence |
-| M6 | [Advanced agency, motion, and physics](M6-advanced-agency-motion.md) | MASSIVE-class brains, trajectory-aware motion, and validated reactive-interaction research |
+| M6 | [Advanced agency, motion, and physics](M6-advanced-agency-motion.md) | Deterministic MASSIVE-class brains, trajectory-aware motion, interactions, and hero boundaries |
 | M7 | [Blender ecosystem and mainline readiness](M7-blender-integration.md) | Production evidence supports narrowly scoped upstream proposals |
 | M8 | [Semantic authoring, domain packs, and synthetic data](M8-semantic-domains-data.md) | Expansion tracks reuse stable core contracts without weakening determinism |
+| M9 | [Neural animation and operator validation](M9-neural-animation-operator-validation.md) | Optional learned motion and independent-user claims pass their own evidence gates |
 
 M0 through M3 are strict ordered gates. Do not start a later gate to avoid an
 unmet earlier exit condition. M4 through M6 may be staffed as coordinated tracks
 after M3, but their schema and cache changes must remain compatible. M7 collects
 evidence throughout the project but cannot claim readiness before M3 and real
 production evaluation. M8 consumes stable outputs from M4 through M6.
+M9 begins only after M6 is accepted; its R3 combat work also consumes the
+relevant M8 domain pack.
 
 ## Rules shared by every milestone
 
@@ -83,7 +86,10 @@ UI/UX and Figma work is deliberately deferred and tracked in the
 M6's deterministic foundation and model-independent R0 interaction evidence are
 recorded in the [2026-08-18 foundation report](../benchmarks/2026-08-18-m6-foundation.md).
 That report is intentionally partial: it does not promote the full M6 gate,
-the R1-R4 research track, or the independent-user UI gate.
+whose remaining work is deterministic production motion, terrain, physics,
+reference-scene, bidirectional-debugger, reusable-subgraph/action/preset, and
+acceptance evidence. R1–R4 research and independent-user verification are
+deferred to M9 and do not block M6.
 
 Implemented: a Rust workspace of five crates (`crowd-core`, `crowd-cache`,
 `crowd-trace`, `crowd-blender`, and `crowd-bench`); versioned project/cache

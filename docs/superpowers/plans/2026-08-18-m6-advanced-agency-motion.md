@@ -10,6 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-18-m6-advanced-agency-motion-design.md`
 
+**Scope note:** R1–R4 neural animation and independent-user verification moved
+to `docs/milestones/M9-neural-animation-operator-validation.md`. M6 retains the
+model-independent R0 boundary and automated Blender debugger proof.
+
 ## Global Constraints
 
 - Preserve stable IDs, fixed-step simulation, deterministic event ordering, versioned schemas, and Rust/Python/Geometry Nodes ownership boundaries.
@@ -18,6 +22,7 @@
 - Accepted promoted outputs are adjacent, content-addressed, editable, removable, and playable without a worker, model, or accelerator.
 - Every behavior change has a test that fails before its implementation; performance claims require a checked-in fixture, runner, report, and environment.
 - M8 owns semantic domain packs and combat meaning; M6 exposes generic roles, contacts, and extension points.
+- M9 owns learned animation backends, perceptual claims, and independent-user verification.
 
 ---
 
@@ -319,8 +324,11 @@ git commit -m "Compose removable M6 interaction animation layers"
 - [x] **Step 1: Write failing pure-Python summary tests and Rust extension contract tests.**
 - [x] **Step 2: Run focused tests and verify the debugger/extension APIs are absent.**
 - [x] **Step 3: Implement the pure summary model, Blender properties/operators/panel, and channel declarations; keep Blender calls coarse-grained.**
-- [ ] **Step 4: Run Python tests, the clean Blender M2 runner, and a new M6 debugger headless runner when host Blender is available.**
-- [x] **Step 5: Record trace-to-node and degraded-evidence behavior as a separate UI evidence item; do not infer the independent-user gate from automated tests.**
+- [x] **Step 4: Run Python tests and the M6 debugger headless runner with normal host Metal access.**
+- [x] **Step 5: Record trace-to-node and degraded-evidence behavior as automated M6 evidence; defer independent-user claims to M9.**
+- [ ] **Step 6: Implement and test bidirectional navigation among viewport agent, event, node, action, clip, contact, owning layer, and correction without copied IDs.**
+- [ ] **Step 7: Implement and test reusable subgraphs/actions and presets through the bounded typed graph surface.**
+- [ ] **Step 8: Extend the Blender smoke so every M6 automated UI goal has an observable assertion.**
 
 ### Task 9: Add the M6 runners, reports, documentation, and completion audit
 
@@ -337,7 +345,7 @@ git commit -m "Compose removable M6 interaction animation layers"
 
 - [ ] **Step 1: Write runner contract tests that assert every command is checked in and each report criterion has an evidence status.**
 - [ ] **Step 2: Run the runner test and verify it fails before the runners/report exist.**
-- [ ] **Step 3: Add copy-ready foundation and acceptance runners with separated local, Blender, performance, licensed-data, and human-study lanes.**
-- [ ] **Step 4: Run the foundation runner, full workspace tests, clippy, formatting, Python tests, and available Blender runners.**
+- [x] **Step 3: Add copy-ready foundation and acceptance runners with separated local, Blender, performance, and licensed-data lanes plus an explicit M9 deferral.**
+- [x] **Step 4: Run the foundation runner, full release workspace tests, clippy, formatting, Python tests, and available Blender runner.**
 - [ ] **Step 5: Perform a requirement-by-requirement audit against all M6 contract items and write only evidence-backed statuses.**
-- [ ] **Step 6: Mark the goal complete only if every M6 acceptance criterion and UI gate has authoritative evidence; otherwise leave the goal active and list the exact remaining gates.**
+- [ ] **Step 6: Mark the goal complete only if every deterministic M6 acceptance criterion and automated Blender gate has authoritative evidence; otherwise leave the goal active and list the exact remaining M6 gates. M9 gates never block M6.**
