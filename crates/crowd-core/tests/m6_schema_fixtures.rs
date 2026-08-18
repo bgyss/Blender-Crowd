@@ -138,6 +138,23 @@ fn m6_brain_library_schema_rejects_a_source_code_field() {
 }
 
 #[test]
+fn m6_brain_library_schema_rejects_an_unrepresentable_reserve_template() {
+    let root = repository_root();
+    let schema = read_json(&root.join("schemas/brain-library-v1.schema.json"));
+    let mut fixture = read_json(&root.join("assets/reference/m6/brain-library-v1.json"));
+    fixture["actions"][0]["node"] = serde_json::json!({
+        "type": "reserve",
+        "resource_id": "seat_a",
+        "priority": 0,
+    });
+
+    validator_for(&schema)
+        .expect("brain library schema")
+        .validate(&fixture)
+        .expect_err("reserve has no representable brain-library node shape");
+}
+
+#[test]
 fn m6_golden_fixtures_also_round_trip_through_rust_contract_types() {
     let root = repository_root();
     let _: PerceptionSnapshotV1 = serde_json::from_value(read_json(

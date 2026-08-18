@@ -14,6 +14,42 @@ import blender_crowd_native
 EXTENSION = "bl_ext.user_default.blender_crowd"
 
 
+def all_terminal_templates_library():
+    templates = {
+        "navigate": {"type": "navigate", "destination_id": "exit_n"},
+        "wait": {"type": "wait", "ticks": 1},
+        "queue": {"type": "queue", "queue_id": "east_queue"},
+        "action": {"type": "action", "action_id": "wave"},
+        "follow_lane": {"type": "follow_lane", "lane_id": "east_lane"},
+        "hold_position": {"type": "hold_position"},
+    }
+    return {
+        "schema_version": 1,
+        "id": "all-terminal-templates",
+        "actions": [
+            {"id": action_id, "channel": "test", "parameters": [], "node": node}
+            for action_id, node in templates.items()
+        ],
+        "subgraphs": [{
+            "id": "all_terminal_templates",
+            "entry_id": "root",
+            "parameters": [],
+            "nodes": [
+                {"id": "root", "type": "selector", "children": list(templates)},
+                *[
+                    {"id": action_id, "type": "action", "action_id": action_id}
+                    for action_id in templates
+                ],
+            ],
+        }],
+        "presets": [{
+            "id": "all_terminal_templates",
+            "subgraph_id": "all_terminal_templates",
+            "parameters": {},
+        }],
+    }
+
+
 def fail(message):
     print("FAIL: {}".format(message))
     sys.exit(1)
@@ -122,6 +158,20 @@ def main():
         )
         compiled = blender_crowd_native.compile_behavior_graph(json.dumps(serialized, sort_keys=True))
         require(compiled["node_count"] == 3, "preset graph did not compile through Rust")
+        all_templates_path = os.path.join(directory, "all-terminal-templates.json")
+        with open(all_templates_path, "w", encoding="utf-8") as handle:
+            json.dump(all_terminal_templates_library(), handle)
+        props.m6_brain_library_path = all_templates_path
+        props.m6_brain_preset_id = "all_terminal_templates"
+        props.m6_brain_instance_id = "all"
+        props.m6_brain_parameters_json = "{}"
+        require(
+            bpy.ops.crowd.apply_m6_brain_preset() == {"FINISHED"},
+            "all supported M6 action templates did not apply",
+        )
+        all_serialized = behavior_editor.graph_from_tree()
+        all_compiled = blender_crowd_native.compile_behavior_graph(json.dumps(all_serialized, sort_keys=True))
+        require(all_compiled["node_count"] == 7, "all supported action templates did not compile through Rust")
     print("M6 debugger Blender smoke: PASS")
     bpy.ops.wm.quit_blender()
 

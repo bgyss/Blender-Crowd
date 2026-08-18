@@ -28,7 +28,7 @@ NODE_TYPES = {
     "follow_lane",
     "hold_position",
 }
-ACTION_TEMPLATE_TYPES = {"navigate", "wait", "queue", "reserve", "action", "follow_lane", "hold_position"}
+ACTION_TEMPLATE_TYPES = {"navigate", "wait", "queue", "action", "follow_lane", "hold_position"}
 _FORBIDDEN_FIELD_NAMES = {"callback", "runtime_callback", "source_code", "source-code", "script"}
 
 
@@ -87,7 +87,6 @@ def instantiate_preset(value, preset_id, instance_id, parameters):
         _namespace_node_references(emitted, instance_id)
         _substitute_node_parameters(emitted, resolved_parameters)
         emitted.pop("parameters", None)
-        emitted.pop("action_id", None)
         namespaced_nodes.append(emitted)
 
     namespaced_nodes.sort(key=lambda node: node["id"])
@@ -216,7 +215,6 @@ def _validate_action_template(template, parameters, action_id):
         "navigate": {"type", "destination_id"},
         "wait": {"type", "ticks"},
         "queue": {"type", "queue_id"},
-        "reserve": {"type", "resource_id", "priority"},
         "action": {"type", "action_id"},
         "follow_lane": {"type", "lane_id"},
         "hold_position": {"type"},
@@ -227,8 +225,6 @@ def _validate_action_template(template, parameters, action_id):
             raise ValueError("action {} references undeclared parameter {}".format(action_id, value[1:]))
     if template_type == "wait" and (not isinstance(template["ticks"], int) or template["ticks"] < 1):
         raise ValueError("action {} wait template requires positive ticks".format(action_id))
-    if template_type == "reserve" and not isinstance(template["priority"], int):
-        raise ValueError("action {} reserve template requires integer priority".format(action_id))
 
 
 def _validate_parameters(parameters, owner):

@@ -25,6 +25,7 @@ _NODE_TYPES = (
     ("navigate", "Navigate", "Set a named destination"),
     ("wait", "Wait", "Hold for ticks"),
     ("queue", "Queue", "Reserve an authored queue slot"),
+    ("action", "Action", "Emit a declared deterministic action"),
     ("follow_lane", "Follow Lane", "Follow an authored lane"),
     ("hold_position", "Hold Position", "Stop desired velocity"),
 )
