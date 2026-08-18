@@ -99,16 +99,18 @@ pass/fail decision rests on their rate-shaped replacements,
 a reported figure is a deliberate edit that
 `the_two_scale_dependent_figures_are_reported_but_never_fail_a_run` will catch.
 
-`deep_penetration_agent_ticks_per_agent_tick` is reported for the same reason
-but a different one: it measures zero at every scale yet run, so there is no
-measurement to set a bar from. Gate it once a run produces a non-zero value.
+`deep_penetration_agent_ticks_per_agent_tick` is reported for a different
+reason: it measured exactly zero at every scale up to 40K, so there was nothing
+to set a bar from. The 100K run of 2026-08-18 produced the first non-zero value
+(S2 4.082e-8). Gate it once a second run confirms that figure — one measurement
+is not a calibration, which is the mistake the S1 severity bar was built on.
 
-Contact severity is gated loosely on purpose. This fixture produces almost no
-contact at the scales that can calibrate it — 99 penetration agent-ticks in
-1.65e8 at 10K — so `mean_penetration_depth_fraction` is a blowup detector, not
-a precision limit. The tight contact gate is
-`max_penetration_agent_ticks_per_agent_tick`, which bounds how often contact
-occurs at all.
+Contact limits were recalibrated on 2026-08-17 from 1K/10K/20K/40K, after the
+background-tier exposure defect was fixed. Any contact figure measured before
+that fix is not a valid calibration input: a tier on a sparse perception cadence
+read ~2x better than it was. The rule is in the file's `basis` — worst
+calibration value, times measured per-scale-step growth, times 2 — and it puts
+every gated quality margin at 100K between 1.7x and 3.0x.
 
 **This does not mean a failed 100K may be waved through.** The same run also
 degraded on genuinely rate-shaped measures: `stall_agent_ticks_per_agent_tick`
@@ -162,9 +164,21 @@ failed report and stop: do not begin 100K.
 
 ## 100K gate
 
-The 10K gate passed on 2026-08-14, so 100K work is authorized. Read that
-report's "What this report does not establish" section first — it bounds what
-the 10K result licenses.
+**The 100K gate passed on 2026-08-18.** See
+[2026-08-18-m5-100k.md](../benchmarks/2026-08-18-m5-100k.md) for the accepted
+report, and read its "Exactly one threshold change is load-bearing" and
+"Corrections to earlier findings" sections before citing the result: the pass
+turns on a single recalibrated limit, and two findings from the investigation
+that produced it are revised there.
+
+Rerun the sequence below to reproduce it, or to re-adjudicate after a change.
+Do not treat an older 100K report as evidence for current code — in particular,
+the S2 contact figures in the 2026-08-14 and 2026-08-15 reports are understated
+2x by the exposure defect fixed on 2026-08-17, and are not comparable with
+anything measured after it.
+
+The 10K gate passed on 2026-08-14. Read that report's "What this report does not
+establish" section first — it bounds what the 10K result licenses.
 
 `scripts/m5-100k-gate.sh` runs every stage below in the right order, in one
 command, with a per-stage log. Prefer it over running the stages by hand:

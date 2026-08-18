@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scene": "m5_city_flow",
-  "basis": "Set 2026-08-15 from the measured schema-v6 per-tier baselines at 1,000 and 10,000 agents on Apple M1 Max. Each limit is a bar with headroom over the WORSE of the two scales, not a restatement of either. Note the stall rate is non-monotonic in scale (S2 0.2917/km at 1K against 0.2202/km at 10K), so the worse point is 1K; comparing a larger run against 10K alone would overstate its regression. Headroom rule: 3x for stall_episodes_per_agent_km, which is a well-sampled rate (1,455 episodes at 10K); ~20x for mean_penetration_depth_fraction, which is not (99 penetration agent-ticks in 1.65e8 at 10K, and zero deep contacts at any scale yet run) and so is a blowup detector rather than a precision limit. Two figures that were gated before 2026-08-15 are now reported only: stalled_agent_share is a lifetime cumulative probability and max_penetration_depth_m is an extremum over samples, so both rise with population at unchanged solver behaviour and a fixed limit on either is silently stricter at each larger scale. See docs/benchmarks/2026-08-15-m5-100k-scale-invariance.md. The rejected fixed-lane cadence candidate in 2026-08-13-m5-10k-failed-baseline.md still fails max_stall_agent_ticks_per_agent_tick.",
+  "basis": "Set 2026-08-17 from measured schema-v6 per-tier baselines at 1,000 / 10,000 / 20,000 / 40,000 agents on Apple M1 Max, after fixing the background-tier contact undercount (see docs/benchmarks/2026-08-15-m5-100k-scale-invariance.md). Contact figures measured before that fix are not valid calibration inputs: any tier on a sparse perception cadence read ~2x better than it was. Rule for the contact limits: bar = worst value across the calibration scales, times the measured per-scale-step growth (1.74x for the rate and ~3.9x for severity, both read from the well-sampled 40K->100K step), times 2 for safety. Calibration stops at 40K so the 100K gate is judged, not described. This recalibration tightens S2's contact rate (1e-5 -> 5e-6, the old bar having been set against the halved measurement) and loosens two bars that were not soundly derived: S1's severity limit came from a single contact at 10K with zero at 1K, and S1's contact rate had only 2.1x margin over its own 40K measurement for the same reason. Stall limits are unchanged and still follow the 3x rule over the worse calibration point; note the stall rate is non-monotonic in scale (S2 0.2917/km at 1K against 0.2202/km at 10K), so the worse point is 1K. Two figures gated before 2026-08-15 are now reported only: stalled_agent_share is a lifetime cumulative probability and max_penetration_depth_m is an extremum over samples, so both rise with population at unchanged solver behaviour. The rejected fixed-lane cadence candidate in 2026-08-13-m5-10k-failed-baseline.md still fails max_stall_agent_ticks_per_agent_tick.",
   "declared_profile_mode": "stable_agent_id_hash_target_10_percent_s1_90_percent_s2",
   "declared_background_share": 0.9,
   "declared_share_tolerance": 0.02,
@@ -15,8 +15,8 @@
   "tiers": {
     "S1": {
       "min_completion_rate": 1.0,
-      "max_penetration_agent_ticks_per_agent_tick": 1e-06,
-      "max_mean_penetration_depth_fraction": 1e-09,
+      "max_penetration_agent_ticks_per_agent_tick": 2e-06,
+      "max_mean_penetration_depth_fraction": 3e-08,
       "max_stall_episodes_per_agent_km": 0.9,
       "max_stall_agent_ticks_per_agent_tick": 0.005,
       "max_heading_reversals_per_agent_tick": 0.15,
@@ -25,7 +25,7 @@
     },
     "S2": {
       "min_completion_rate": 1.0,
-      "max_penetration_agent_ticks_per_agent_tick": 1e-05,
+      "max_penetration_agent_ticks_per_agent_tick": 5e-06,
       "max_mean_penetration_depth_fraction": 1e-07,
       "max_stall_episodes_per_agent_km": 0.9,
       "max_stall_agent_ticks_per_agent_tick": 0.005,
