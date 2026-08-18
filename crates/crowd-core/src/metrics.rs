@@ -409,7 +409,13 @@ impl Metrics {
                 if deepest > self.tiers[tier].max_penetration_depth {
                     self.tiers[tier].max_penetration_depth = deepest;
                 }
-            } else {
+            } else if contact_observed {
+                // Only a tick that actually looked can end an episode. On a
+                // skipped tick the agent merely *appears* clear, and resetting
+                // here would split one contact into a fresh episode per
+                // observed tick — which made S2 report exactly 1.00 ticks per
+                // episode at every scale, by construction rather than by
+                // behaviour.
                 self.counted_penetration[slot] = false;
             }
             if deep {
@@ -1280,6 +1286,56 @@ mod tests {
             (sparse.mean_penetration_depth_fraction - dense.mean_penetration_depth_fraction).abs()
                 < 1e-6,
             "severity changed with cadence alone"
+        );
+    }
+
+    /// A contact spanning a skipped perception tick is one episode, not two.
+    ///
+    /// The episode flag may only be cleared by a tick that actually observed
+    /// the agent. Clearing it on a skipped tick splits a single sustained
+    /// contact into one episode per observed tick, which is how S2 came to
+    /// report exactly 1.00 ticks per episode at every scale.
+    #[test]
+    fn a_contact_spanning_a_skipped_tick_counts_as_one_episode() {
+        let mut world = world_at(&[Vec2::ZERO, Vec2::new(0.4, 0.0)], 0.3);
+        for slot in 0..2 {
+            world.simulation_tier[slot] = SimulationTier::S2;
+        }
+        let mut grid = UniformGrid::new(
+            Aabb::new(Vec2::new(-50.0, -50.0), Vec2::new(50.0, 50.0)),
+            5.0,
+        );
+        grid.rebuild(&world.pos_x, &world.pos_y);
+
+        // Six consecutive ticks of unbroken overlap. The pair is observed on
+        // roughly half of them and never actually separates.
+        let mut metrics = Metrics::new();
+        for tick in 0..6u64 {
+            let mut scratch = PerceiveScratch::default();
+            let mut arena = NeighborArena::new();
+            perceive_scheduled(
+                &world,
+                &grid,
+                &PerceiveConfig::default(),
+                &mut scratch,
+                &mut arena,
+                tick,
+            );
+            metrics.begin_tick();
+            metrics.observe_tick(&world, &arena, &Clock::default(), &MetricsConfig::default());
+        }
+
+        let summary = metrics.summarize_tiers(&world);
+        let s2 = tier(&summary, "S2");
+        assert!(
+            s2.penetration_agent_ticks > s2.penetration_episodes,
+            "sustained contact must span more observed ticks ({}) than episodes ({})",
+            s2.penetration_agent_ticks,
+            s2.penetration_episodes
+        );
+        assert_eq!(
+            s2.penetration_episodes, 2,
+            "one unbroken contact per agent, not one per observed tick"
         );
     }
 
