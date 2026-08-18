@@ -6,8 +6,9 @@ import json
 import math
 import re
 import sys
-import urllib.parse
 from pathlib import Path
+
+from m6_cmu_motion_source import validate_fixed_manifest, validate_parser_fixture_manifest
 
 
 SOURCE_RATE = 120
@@ -16,6 +17,20 @@ DOWNSAMPLE_STEP = SOURCE_RATE // TARGET_RATE
 SUPPORT_RADIUS = 15
 CONTACT_HEIGHT_MM = 45.0
 CONTACT_SPEED_MMPS = 120.0
+NOT_APPLICABLE_EVIDENCE = {
+    "retarget_failures": {
+        "status": "not_applicable",
+        "reason": "source ingestion does not execute target-skeleton retargeting",
+    },
+    "root_teleportations": {
+        "status": "not_applicable",
+        "reason": "source ingestion does not execute runtime root transitions",
+    },
+    "cross_cache_mutations": {
+        "status": "not_applicable",
+        "reason": "source ingestion does not read or write runtime caches",
+    },
+}
 
 
 def _identity():
@@ -53,7 +68,7 @@ def _euler(values, order, degrees=True):
     matrix = _identity()
     for axis, value in zip(order, values):
         angle = math.radians(value) if degrees else value
-        matrix = _matmul(matrix, _rotation(axis, angle))
+        matrix = _matmul(_rotation(axis, angle), matrix)
     return matrix
 
 
@@ -70,7 +85,7 @@ def _distance(left, right):
 
 
 def _ceil_metric(value):
-    return int(math.ceil(max(0.0, value - 1e-9)))
+    return int(math.ceil(max(0.0, value)))
 
 
 def _clean_lines(path):
@@ -259,10 +274,11 @@ def _frame_world(skeleton, frame):
     root_values = dict(zip(skeleton["root_order"], frame["channels"]["root"]))
     translation = tuple(root_values["T" + axis] * skeleton["length_scale_mm"] for axis in "XYZ")
     root_position = _add(skeleton["root_position"], translation)
-    motion_angles = [root_values["R" + axis] for axis in skeleton["root_axis"]]
+    motion_order = "".join(channel[1] for channel in skeleton["root_order"] if channel.startswith("R"))
+    motion_angles = [root_values["R" + axis] for axis in motion_order]
     root_rotation = _matmul(
         _euler(skeleton["root_orientation"], skeleton["root_axis"]),
-        _euler(motion_angles, skeleton["root_axis"]),
+        _euler(motion_angles, motion_order),
     )
     endpoints = {}
     rotations = {"root": root_rotation}
@@ -299,6 +315,10 @@ def _wrap_angle(angle):
     return (angle + math.pi) % (2.0 * math.pi) - math.pi
 
 
+def _turn_discontinuity_microradians(previous, current):
+    return int(math.ceil(abs(_wrap_angle(current - previous)) * 1_000_000))
+
+
 def _contact_windows(samples, key):
     positions = [sample[key] for sample in samples]
     speeds = [0.0]
@@ -333,6 +353,20 @@ def _max_foot_slide(samples, key, windows):
     return _ceil_metric(maximum)
 
 
+def _count_undeclared_contacts(samples, left_windows, right_windows):
+    left_ticks = {tick for start, end in left_windows for tick in range(start, end + 1)}
+    right_ticks = {tick for start, end in right_windows for tick in range(start, end + 1)}
+    mismatches = 0
+    for sample in samples:
+        tick = sample["tick"]
+        left = tick in left_ticks
+        right = tick in right_ticks
+        expected = "both_feet" if left and right else "left_foot" if left else "right_foot" if right else "none"
+        if sample.get("contact") != expected:
+            mismatches += 1
+    return mismatches
+
+
 def _reconstructed_position(source_frame, retained):
     if len(retained) < 2:
         raise ValueError("piecewise-linear reconstruction requires two retained samples")
@@ -353,17 +387,7 @@ def _sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def ingest(asf_path, amc_paths, manifest):
-    if manifest.get("schema_version") != 1 or manifest.get("license_id") != "CMU-Mocap-Free-All-Uses":
-        raise ValueError("ingestion requires the versioned CMU license manifest")
-    if manifest.get("redistribution_allowed") is not False:
-        raise ValueError("raw and converted CMU redistribution must remain disabled")
-    if manifest.get("source_host") != "mocap.cs.cmu.edu" or urllib.parse.urlsplit(manifest.get("terms_url", "")).hostname != "mocap.cs.cmu.edu":
-        raise ValueError("ingestion requires official CMU source and terms hosts")
-    if not isinstance(manifest.get("required_attribution"), str) or not manifest["required_attribution"].strip():
-        raise ValueError("ingestion requires CMU attribution")
-    if manifest.get("source_frame_rate_hz") != SOURCE_RATE or manifest.get("target_frame_rate_hz") != TARGET_RATE:
-        raise ValueError("ingestion requires declared 120 Hz source and 30 Hz target rates")
+def _ingest_validated(asf_path, amc_paths, manifest):
     profile = manifest.get("retarget_profile", {})
     left_foot = profile.get("left_foot_bone")
     right_foot = profile.get("right_foot_bone")
@@ -427,7 +451,10 @@ def ingest(asf_path, amc_paths, manifest):
                 horizontal = _distance_horizontal(frame["root_position"], previous["root_position"])
                 vertical = abs(frame["root_position"][1] - previous["root_position"][1])
                 slope = int(round(vertical * 1_000_000 / horizontal)) if horizontal else 0
-                max_turn = max(max_turn, abs(int(round(_wrap_angle(frame["facing_radians"] - previous["facing_radians"]) * 1_000_000))))
+                max_turn = max(
+                    max_turn,
+                    _turn_discontinuity_microradians(previous["facing_radians"], frame["facing_radians"]),
+                )
             samples.append(
                 {
                     "tick": index,
@@ -449,6 +476,7 @@ def ingest(asf_path, amc_paths, manifest):
             left = sample["tick"] in left_ticks
             right = sample["tick"] in right_ticks
             sample["contact"] = "both_feet" if left and right else "left_foot" if left else "right_foot" if right else "none"
+        undeclared_contacts = _count_undeclared_contacts(samples, left_windows, right_windows)
         trajectory_deviation = 0.0
         for frame in world_frames:
             reconstructed = _reconstructed_position(frame["source_frame"], retained)
@@ -478,15 +506,13 @@ def ingest(asf_path, amc_paths, manifest):
                     "max_trajectory_deviation_millimeters": _ceil_metric(trajectory_deviation),
                     "max_turn_discontinuity_microradians": max_turn,
                     "joint_limit_violations": joint_violations,
-                    "retarget_failures": 0,
                     "rejected_frames": len(rejected),
                     "parsed_frames": parsed_count,
                     "rejected_frame_rate_ppm": rejected_rate,
-                    "root_teleportations": 0,
-                    "undeclared_contacts": 0,
+                    "undeclared_contacts": undeclared_contacts,
                     "source_hash_drift": 0,
-                    "cross_cache_mutations": 0,
                 },
+                "evidence": {name: dict(evidence) for name, evidence in NOT_APPLICABLE_EVIDENCE.items()},
             }
         )
     return {
@@ -500,8 +526,20 @@ def ingest(asf_path, amc_paths, manifest):
     }
 
 
+def ingest(asf_path, amc_paths, manifest):
+    """Ingest only the five fixed production CMU sources."""
+    validate_fixed_manifest(manifest)
+    return _ingest_validated(asf_path, amc_paths, manifest)
+
+
+def ingest_parser_fixture(asf_path, amc_paths, manifest):
+    """Exercise parser/kinematics fixtures without granting CMU provenance."""
+    validate_parser_fixture_manifest(manifest)
+    return _ingest_validated(asf_path, amc_paths, manifest)
+
+
 def ingest_manifest(manifest, source_dir):
-    files = manifest.get("files", [])
+    files = validate_fixed_manifest(manifest)
     skeletons = [entry for entry in files if entry.get("kind") == "skeleton"]
     databases = []
     for skeleton in skeletons:

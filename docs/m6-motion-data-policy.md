@@ -20,12 +20,15 @@ aggregate reports may be committed.
 
 CMU acquisition is allowed only through the versioned five-file source
 manifest. The fetcher must refuse unknown hosts, off-host redirects, changed or
-extra files, and hash mismatch before publication. Evidence runs use a
-temporary artifact directory and never Blender's user profile. This exception
-does not authorize other motion corpora, neural checkpoints, game assets, or
-paid/cloud data. A permissively licensed code repository is not by itself
-evidence that its datasets, checkpoints, or source animations may be used or
-redistributed.
+extra files, changed IDs or clip/subject/trial/skeleton relationships, and hash
+mismatch before publication. Production ingest applies the same fixed manifest
+validator. Hand-authored mini ASF/AMC parser tests use a separate explicitly
+non-production fixture entry point and cannot confer CMU provenance. Evidence
+runs use a temporary artifact directory and never Blender's user profile. This
+exception does not authorize other motion corpora, neural checkpoints, game
+assets, or paid/cloud data. A permissively licensed code repository is not by
+itself evidence that its datasets, checkpoints, or source animations may be
+used or redistributed.
 
 An asset without a valid manifest must be rejected before database build,
 retargeting, worker invocation, Blender packaging, or cache publication. A

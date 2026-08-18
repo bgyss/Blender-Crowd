@@ -19,14 +19,13 @@ MAXIMUM_METRICS = (
     "max_turn_discontinuity_microradians",
     "rejected_frame_rate_ppm",
 )
-HARD_METRICS = (
-    "root_teleportations",
+HARD_MEASURED_METRICS = (
     "undeclared_contacts",
     "source_hash_drift",
-    "cross_cache_mutations",
     "joint_limit_violations",
 )
-SUM_METRICS = HARD_METRICS + ("retarget_failures", "rejected_frames", "parsed_frames")
+SUM_METRICS = HARD_MEASURED_METRICS + ("rejected_frames", "parsed_frames")
+NOT_APPLICABLE_EVIDENCE = ("retarget_failures", "root_teleportations", "cross_cache_mutations")
 SOFT_METRICS = (
     "max_foot_slide_millimeters",
     "max_trajectory_deviation_millimeters",
@@ -48,6 +47,23 @@ def _validated_metrics(clip):
     return {key: metrics[key] for key in MAXIMUM_METRICS + SUM_METRICS}
 
 
+def _validated_evidence(clip, required):
+    evidence = clip.get("evidence")
+    if evidence is None and not required:
+        return None
+    if not isinstance(evidence, dict) or set(evidence) != set(NOT_APPLICABLE_EVIDENCE):
+        raise ValueError("motion clip {} evidence statuses do not match the M6 contract".format(clip.get("id", "<unknown>")))
+    normalized = {}
+    for key in NOT_APPLICABLE_EVIDENCE:
+        item = evidence[key]
+        if not isinstance(item, dict) or item.get("status") not in ("not_applicable", "not_measured"):
+            raise ValueError("motion clip evidence {} must be explicitly unmeasured".format(key))
+        if not isinstance(item.get("reason"), str) or not item["reason"]:
+            raise ValueError("motion clip evidence {} requires a reason".format(key))
+        normalized[key] = {"status": item["status"], "reason": item["reason"]}
+    return normalized
+
+
 def evaluate_database(database):
     if database.get("schema_version") != 1:
         raise ValueError("unsupported motion database schema version")
@@ -62,6 +78,7 @@ def evaluate_database(database):
     contacts = 0
     sample_count = 0
     clip_metrics = []
+    clip_evidence = []
     for clip in sorted(database.get("clips", []), key=lambda item: item.get("id", "")):
         clip_id = clip.get("id")
         if not isinstance(clip_id, str) or not clip_id:
@@ -90,6 +107,10 @@ def evaluate_database(database):
         if metrics is not None:
             normalized_clip["metrics"] = metrics
             clip_metrics.append({"id": clip_id, **metrics})
+        evidence = _validated_evidence(clip, required=metrics is not None)
+        if evidence is not None:
+            normalized_clip["evidence"] = evidence
+            clip_evidence.append(evidence)
         canonical_clips.append(normalized_clip)
     if not sample_count:
         raise ValueError("motion database has no samples to evaluate")
@@ -143,7 +164,17 @@ def evaluate_database(database):
         }
         report["clip_metrics"] = clip_metrics
         report["quality_metrics"] = quality_metrics
-        report["hard_limit_observations"] = {key: quality_metrics[key] for key in HARD_METRICS}
+        if any(evidence != clip_evidence[0] for evidence in clip_evidence[1:]):
+            raise ValueError("motion clip evidence statuses must agree across the database")
+        report["hard_limit_observations"] = {key: quality_metrics[key] for key in HARD_MEASURED_METRICS}
+        report["hard_limit_evidence"] = {
+            "root_teleportations": clip_evidence[0]["root_teleportations"],
+            "undeclared_contacts": {"status": "measured", "observed": quality_metrics["undeclared_contacts"]},
+            "source_hash_drift": {"status": "measured", "observed": quality_metrics["source_hash_drift"]},
+            "cross_cache_mutations": clip_evidence[0]["cross_cache_mutations"],
+            "joint_limit_violations": {"status": "measured", "observed": quality_metrics["joint_limit_violations"]},
+        }
+        report["retarget_evidence"] = clip_evidence[0]["retarget_failures"]
         report["threshold_baseline"] = {key: quality_metrics[key] for key in SOFT_METRICS}
     return report
 

@@ -73,6 +73,14 @@ const FIXTURES: &[(&str, &str)] = &[
         "schemas/motion-provenance-v1.schema.json",
         "assets/reference/m6/motion-provenance-v1.json",
     ),
+    (
+        "schemas/cmu-motion-source-v1.schema.json",
+        "assets/reference/m6/cmu-motion-source-v1.json",
+    ),
+    (
+        "schemas/motion-thresholds-v1.schema.json",
+        "assets/reference/m6/motion-thresholds-v1.json",
+    ),
 ];
 
 fn repository_root() -> PathBuf {
@@ -128,7 +136,10 @@ fn m6_brain_library_schema_rejects_a_source_code_field() {
     fixture["actions"][0]
         .as_object_mut()
         .expect("brain library action")
-        .insert("source_code".to_owned(), Value::String("print('no')".to_owned()));
+        .insert(
+            "source_code".to_owned(),
+            Value::String("print('no')".to_owned()),
+        );
 
     let error = validator_for(&schema)
         .expect("brain library schema")

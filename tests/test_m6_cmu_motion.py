@@ -2,12 +2,15 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
+import sys
 import tempfile
 from pathlib import Path
 import unittest
 
 
 ROOT = Path(__file__).parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 ASF = ROOT / "tests" / "fixtures" / "m6" / "cmu-mini.asf"
 AMC = ROOT / "tests" / "fixtures" / "m6" / "cmu-mini.amc"
 
@@ -92,6 +95,56 @@ class FakeOpener:
 
 
 class M6CmuMotionTest(unittest.TestCase):
+    def test_forward_kinematics_honors_fixed_axis_and_declared_rotation_order(self):
+        ingest = load_script("m6_cmu_motion_ingest")
+        skeleton = {
+            "length_scale_mm": 1.0,
+            "root_order": ["TX", "TY", "TZ", "RZ", "RX", "RY"],
+            "root_axis": "YZX",
+            "root_position": (0.0, 0.0, 0.0),
+            "root_orientation": (5.0, 10.0, 15.0),
+            "bones": {
+                "foot": {
+                    "direction": (1.0, 0.0, 0.0),
+                    "length_mm": 10.0,
+                    "axis": (30.0, 20.0, 10.0),
+                    "axis_order": "ZXY",
+                    "dof": ["rz", "rx", "ry"],
+                    "limits": [],
+                }
+            },
+            "children": {"root": ["foot"]},
+        }
+        frame = {
+            "source_frame": 1,
+            "channels": {
+                "root": [0.0, 0.0, 0.0, 25.0, 35.0, 15.0],
+                "foot": [40.0, 50.0, 60.0],
+            },
+        }
+        _, root_rotation, endpoints, _ = ingest._frame_world(skeleton, frame)
+        expected_root = (
+            (0.8602446943023864, -0.3449214726185835, 0.3755106438587611),
+            (0.5073393335340475, 0.5055825889928195, -0.6978488707138145),
+            (0.05085141663535128, 0.7908321082467159, 0.6099169697526315),
+        )
+        expected_endpoint = (0.06474872005615889, 9.92821845960343, 1.1942720886133016)
+        for actual_row, expected_row in zip(root_rotation, expected_root):
+            for actual, expected in zip(actual_row, expected_row):
+                self.assertAlmostEqual(actual, expected, places=12)
+        for actual, expected in zip(endpoints["foot"], expected_endpoint):
+            self.assertAlmostEqual(actual, expected, places=12)
+
+    def test_metric_ceilings_have_no_epsilon_or_rounding_headroom(self):
+        ingest = load_script("m6_cmu_motion_ingest")
+        self.assertEqual(ingest._ceil_metric(1.0), 1)
+        self.assertEqual(ingest._ceil_metric(1.0000000001), 2)
+        self.assertEqual(ingest._turn_discontinuity_microradians(0.0, 0.00000125), 2)
+        self.assertEqual(
+            ingest._turn_discontinuity_microradians(math.pi - 0.000001, -math.pi + 0.0000010001),
+            3,
+        )
+
     def test_fetch_rejects_a_hash_mismatch_before_publish(self):
         fetch = load_script("m6_fetch_cmu_motion")
         with self.assertRaisesRegex(ValueError, "SHA-256"):
@@ -99,24 +152,24 @@ class M6CmuMotionTest(unittest.TestCase):
 
     def test_fetch_refuses_off_host_redirects_and_extra_manifest_files(self):
         fetch = load_script("m6_fetch_cmu_motion")
-        manifest = fixture_manifest()
+        manifest = json.loads((ROOT / "assets" / "reference" / "m6" / "cmu-motion-source-v1.json").read_text())
         opener = FakeOpener(
             {
-                entry["url"]: (Path(ROOT / "tests" / "fixtures" / "m6" / entry["filename"]).read_bytes(), "http://example.com/stolen")
+                entry["url"]: (b"not published", "http://example.com/stolen")
                 for entry in manifest["files"]
             }
         )
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, "redirect"):
-                fetch.fetch_manifest(manifest, directory, opener=opener, require_fixed_sources=False)
+                fetch.fetch_manifest(manifest, directory, opener=opener)
             self.assertEqual(list(Path(directory).iterdir()), [])
         manifest["files"].append(dict(manifest["files"][-1], id="extra", filename="extra.amc"))
         with self.assertRaisesRegex(ValueError, "extra"):
-            fetch.validate_manifest(manifest, require_fixed_sources=False)
+            fetch.validate_manifest(manifest)
 
     def test_ingest_uses_declared_units_world_space_feet_and_fixed_downsampling(self):
         ingest = load_script("m6_cmu_motion_ingest")
-        database = ingest.ingest(ASF, [AMC], fixture_manifest())
+        database = ingest.ingest_parser_fixture(ASF, [AMC], fixture_manifest())
         clip = database["clips"][0]
         self.assertEqual(clip["samples"][1]["velocity_millimeters_per_second"], [1000, 0])
         self.assertEqual(clip["left_foot_contacts"], [[0, 1]])
@@ -125,7 +178,7 @@ class M6CmuMotionTest(unittest.TestCase):
         self.assertAlmostEqual(clip["samples"][0]["left_foot_position_millimeters"][0], 16.667, places=3)
         self.assertAlmostEqual(clip["samples"][1]["left_foot_position_millimeters"][0], 16.667, places=3)
         self.assertEqual(clip["metrics"]["max_foot_slide_millimeters"], 0)
-        self.assertEqual(clip["metrics"]["max_trajectory_deviation_millimeters"], 0)
+        self.assertEqual(clip["metrics"]["max_trajectory_deviation_millimeters"], 1)
         self.assertEqual(clip["metrics"]["rejected_frame_rate_ppm"], 0)
 
     def test_ingest_records_malformed_frames_and_requires_two_retained_samples(self):
@@ -136,7 +189,7 @@ class M6CmuMotionTest(unittest.TestCase):
             path.write_text(malformed)
             manifest = fixture_manifest()
             manifest["files"][1]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-            database = ingest.ingest(ASF, [path], manifest)
+            database = ingest.ingest_parser_fixture(ASF, [path], manifest)
             clip = database["clips"][0]
             self.assertEqual(clip["rejected_frames"], [{"source_frame": 3, "reason": "missing bone rfoot"}])
             self.assertEqual(clip["metrics"]["rejected_frame_rate_ppm"], 111112)
@@ -145,7 +198,7 @@ class M6CmuMotionTest(unittest.TestCase):
             path.write_text(too_short)
             manifest["files"][1]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
             with self.assertRaisesRegex(ValueError, "two retained"):
-                ingest.ingest(ASF, [path], manifest)
+                ingest.ingest_parser_fixture(ASF, [path], manifest)
 
     def test_ingest_rejects_weakened_license_boundaries_and_malformed_channels(self):
         ingest = load_script("m6_cmu_motion_ingest")
@@ -164,7 +217,7 @@ class M6CmuMotionTest(unittest.TestCase):
                 path.write_text(AMC.read_text().replace(original, replacement, 1))
                 manifest = fixture_manifest()
                 manifest["files"][1]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-                database = ingest.ingest(ASF, [path], manifest)
+                database = ingest.ingest_parser_fixture(ASF, [path], manifest)
                 self.assertEqual(database["clips"][0]["rejected_frames"][0], {"source_frame": 1, "reason": reason})
 
     def test_source_manifest_contains_only_the_fixed_official_sources(self):
@@ -185,6 +238,85 @@ class M6CmuMotionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "motion metadata"):
             fetch.validate_manifest(source)
 
+    def test_production_manifest_rejects_every_fixed_identity_mutation(self):
+        fetch = load_script("m6_fetch_cmu_motion")
+        source_path = ROOT / "assets" / "reference" / "m6" / "cmu-motion-source-v1.json"
+
+        def mutate_skeleton_identity(manifest):
+            manifest["files"][0]["id"] = "renamed_skeleton"
+            manifest["files"][1]["skeleton_id"] = "renamed_skeleton"
+            manifest["files"][2]["skeleton_id"] = "renamed_skeleton"
+
+        mutations = (
+            ("skeleton id", mutate_skeleton_identity),
+            ("clip id", lambda manifest: manifest["files"][1].__setitem__("clip_id", "renamed_walk")),
+            ("subject", lambda manifest: manifest["files"][1].__setitem__("subject", 36)),
+            ("trial", lambda manifest: manifest["files"][1].__setitem__("trial", 24)),
+            ("skeleton association", lambda manifest: manifest["files"][1].__setitem__("skeleton_id", "36_skeleton")),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                manifest = json.loads(source_path.read_text())
+                mutate(manifest)
+                with self.assertRaisesRegex(ValueError, "fixed identity"):
+                    fetch.validate_manifest(manifest)
+
+    def test_parser_fixtures_use_an_explicit_non_production_entry_point(self):
+        ingest = load_script("m6_cmu_motion_ingest")
+        with self.assertRaisesRegex(ValueError, "fixed"):
+            ingest.ingest(ASF, [AMC], fixture_manifest())
+        database = ingest.ingest_parser_fixture(ASF, [AMC], fixture_manifest())
+        self.assertEqual([clip["id"] for clip in database["clips"]], ["mini_walk"])
+
+    def test_manifest_cli_path_uses_the_shared_fixed_validator_first(self):
+        ingest = load_script("m6_cmu_motion_ingest")
+        manifest = json.loads((ROOT / "assets" / "reference" / "m6" / "cmu-motion-source-v1.json").read_text())
+        manifest["files"] = []
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "fixed|non-empty"):
+                ingest.ingest_manifest(manifest, directory)
+
+    def test_hard_evidence_distinguishes_measured_from_not_applicable(self):
+        ingest = load_script("m6_cmu_motion_ingest")
+        evaluate = load_script("m6_motion_evaluate")
+        database = ingest.ingest_parser_fixture(ASF, [AMC], fixture_manifest())
+        clip = database["clips"][0]
+        self.assertEqual(
+            set(clip["metrics"]),
+            {
+                "max_root_speed_error_millimeters_per_second",
+                "max_foot_slide_millimeters",
+                "max_trajectory_deviation_millimeters",
+                "max_turn_discontinuity_microradians",
+                "joint_limit_violations",
+                "rejected_frames",
+                "parsed_frames",
+                "rejected_frame_rate_ppm",
+                "undeclared_contacts",
+                "source_hash_drift",
+            },
+        )
+        self.assertEqual(
+            {name: evidence["status"] for name, evidence in clip["evidence"].items()},
+            {
+                "retarget_failures": "not_applicable",
+                "root_teleportations": "not_applicable",
+                "cross_cache_mutations": "not_applicable",
+            },
+        )
+        mismatched = [{"tick": 0, "contact": "left_foot"}, {"tick": 1, "contact": "none"}]
+        self.assertEqual(ingest._count_undeclared_contacts(mismatched, [], []), 1)
+
+        report = evaluate.evaluate_database(database)
+        self.assertEqual(
+            set(report["hard_limit_observations"]),
+            {"undeclared_contacts", "source_hash_drift", "joint_limit_violations"},
+        )
+        self.assertEqual(report["hard_limit_evidence"]["undeclared_contacts"], {"status": "measured", "observed": 0})
+        self.assertEqual(report["hard_limit_evidence"]["root_teleportations"]["status"], "not_applicable")
+        self.assertNotIn("observed", report["hard_limit_evidence"]["root_teleportations"])
+        self.assertEqual(report["retarget_evidence"]["status"], "not_applicable")
+
     def test_checked_thresholds_equal_the_dated_observed_baseline(self):
         source = json.loads((ROOT / "assets" / "reference" / "m6" / "cmu-motion-source-v1.json").read_text())
         thresholds = json.loads((ROOT / "assets" / "reference" / "m6" / "motion-thresholds-v1.json").read_text())
@@ -192,7 +324,24 @@ class M6CmuMotionTest(unittest.TestCase):
         expected_hashes = {entry["id"]: entry["sha256"] for entry in source["files"]}
         self.assertEqual(thresholds["source_hashes"], expected_hashes)
         self.assertEqual(report["source_hashes"], expected_hashes)
-        self.assertEqual(set(thresholds["hard_limits"].values()), {0})
+        measured = {"undeclared_contacts", "source_hash_drift", "joint_limit_violations"}
+        unmeasured = {"root_teleportations", "cross_cache_mutations"}
+        self.assertEqual(set(report["hard_limit_observations"]), measured)
+        for name in measured:
+            self.assertEqual(
+                thresholds["hard_limits"][name],
+                {
+                    "limit": 0,
+                    "evidence_status": "measured",
+                    "baseline": report["hard_limit_observations"][name],
+                },
+            )
+            self.assertEqual(report["hard_limit_evidence"][name]["status"], "measured")
+        for name in unmeasured:
+            self.assertEqual(thresholds["hard_limits"][name]["limit"], 0)
+            self.assertEqual(thresholds["hard_limits"][name]["evidence_status"], "not_applicable")
+            self.assertNotIn("baseline", thresholds["hard_limits"][name])
+            self.assertNotIn("observed", report["hard_limit_evidence"][name])
         self.assertGreater(report["hard_limit_observations"]["joint_limit_violations"], 0)
         for metric, observed in report["threshold_baseline"].items():
             self.assertEqual(thresholds["soft_limits"][metric], {"baseline": observed, "limit": observed})

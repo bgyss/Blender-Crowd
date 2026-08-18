@@ -17,11 +17,11 @@
       "additionalProperties": false,
       "required": ["root_teleportations", "undeclared_contacts", "source_hash_drift", "cross_cache_mutations", "joint_limit_violations"],
       "properties": {
-        "root_teleportations": { "const": 0 },
-        "undeclared_contacts": { "const": 0 },
-        "source_hash_drift": { "const": 0 },
-        "cross_cache_mutations": { "const": 0 },
-        "joint_limit_violations": { "const": 0 }
+        "root_teleportations": { "$ref": "#/$defs/hard_limit" },
+        "undeclared_contacts": { "$ref": "#/$defs/hard_limit" },
+        "source_hash_drift": { "$ref": "#/$defs/hard_limit" },
+        "cross_cache_mutations": { "$ref": "#/$defs/hard_limit" },
+        "joint_limit_violations": { "$ref": "#/$defs/hard_limit" }
       }
     },
     "soft_limits": {
@@ -48,6 +48,30 @@
   },
   "$defs": {
     "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hard_limit": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["limit", "evidence_status", "baseline"],
+          "properties": {
+            "limit": { "const": 0 },
+            "evidence_status": { "const": "measured" },
+            "baseline": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["limit", "evidence_status", "reason"],
+          "properties": {
+            "limit": { "const": 0 },
+            "evidence_status": { "enum": ["not_applicable", "not_measured"] },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
     "measured_limit": {
       "type": "object",
       "additionalProperties": false,

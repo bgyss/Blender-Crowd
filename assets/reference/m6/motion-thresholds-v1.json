@@ -12,16 +12,24 @@
     "36_skeleton": "05e190867ead216b5dcdc94b210aa19b2eaaf383df44f1d9bb247e64fbf1c02b"
   },
   "hard_limits": {
-    "root_teleportations": 0,
-    "undeclared_contacts": 0,
-    "source_hash_drift": 0,
-    "cross_cache_mutations": 0,
-    "joint_limit_violations": 0
+    "root_teleportations": {
+      "limit": 0,
+      "evidence_status": "not_applicable",
+      "reason": "source ingestion does not execute runtime root transitions"
+    },
+    "undeclared_contacts": { "limit": 0, "evidence_status": "measured", "baseline": 0 },
+    "source_hash_drift": { "limit": 0, "evidence_status": "measured", "baseline": 0 },
+    "cross_cache_mutations": {
+      "limit": 0,
+      "evidence_status": "not_applicable",
+      "reason": "source ingestion does not read or write runtime caches"
+    },
+    "joint_limit_violations": { "limit": 0, "evidence_status": "measured", "baseline": 3587 }
   },
   "soft_limits": {
-    "max_foot_slide_millimeters": { "baseline": 25, "limit": 25 },
+    "max_foot_slide_millimeters": { "baseline": 21, "limit": 21 },
     "max_trajectory_deviation_millimeters": { "baseline": 3, "limit": 3 },
-    "max_turn_discontinuity_microradians": { "baseline": 61911, "limit": 61911 },
+    "max_turn_discontinuity_microradians": { "baseline": 60005, "limit": 60005 },
     "rejected_frame_rate_ppm": { "baseline": 0, "limit": 0 }
   },
   "policy": {

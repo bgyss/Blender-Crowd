@@ -22,14 +22,12 @@ MAXIMUM_METRICS = (
 )
 SUM_METRICS = (
     "joint_limit_violations",
-    "retarget_failures",
     "rejected_frames",
     "parsed_frames",
-    "root_teleportations",
     "undeclared_contacts",
     "source_hash_drift",
-    "cross_cache_mutations",
 )
+NOT_APPLICABLE_EVIDENCE = ("retarget_failures", "root_teleportations", "cross_cache_mutations")
 
 
 def _validated_metrics(clip):
@@ -47,6 +45,23 @@ def _validated_metrics(clip):
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise ValueError("motion clip {} metric {} must be a non-negative integer".format(clip["id"], key))
         normalized[key] = value
+    return normalized
+
+
+def _validated_evidence(clip, required):
+    evidence = clip.get("evidence")
+    if evidence is None and not required:
+        return None
+    if not isinstance(evidence, dict) or set(evidence) != set(NOT_APPLICABLE_EVIDENCE):
+        raise ValueError("motion clip {} evidence statuses do not match the M6 contract".format(clip["id"]))
+    normalized = {}
+    for key in NOT_APPLICABLE_EVIDENCE:
+        item = evidence[key]
+        if not isinstance(item, dict) or item.get("status") not in ("not_applicable", "not_measured"):
+            raise ValueError("motion clip {} evidence {} must be explicitly unmeasured".format(clip["id"], key))
+        if not isinstance(item.get("reason"), str) or not item["reason"]:
+            raise ValueError("motion clip {} evidence {} requires a reason".format(clip["id"], key))
+        normalized[key] = {"status": item["status"], "reason": item["reason"]}
     return normalized
 
 
@@ -78,6 +93,9 @@ def build_database(database):
         metrics = _validated_metrics(clip)
         if metrics is not None:
             normalized_clip["metrics"] = metrics
+        evidence = _validated_evidence(clip, required=metrics is not None)
+        if evidence is not None:
+            normalized_clip["evidence"] = evidence
         normalized.append(normalized_clip)
     normalized.sort(key=lambda clip: clip["id"])
     canonical = {
@@ -113,6 +131,10 @@ def build_database(database):
             **{key: max(metrics[key] for metrics in measured) for key in MAXIMUM_METRICS},
             **{key: sum(metrics[key] for metrics in measured) for key in SUM_METRICS},
         }
+        evidence_records = [clip["evidence"] for clip in normalized]
+        if any(evidence != evidence_records[0] for evidence in evidence_records[1:]):
+            raise ValueError("motion clip evidence statuses must agree across the database")
+        report["evidence"] = evidence_records[0]
     return report
 
 
