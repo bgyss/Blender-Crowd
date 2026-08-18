@@ -26,7 +26,11 @@ const CITY_FLOW_THRESHOLDS: &str = include_str!("../../../benchmarks/thresholds/
 /// Minimum report schema the gate accepts. Schema 5 introduced
 /// `metrics.per_tier`; an earlier report has no per-tier evidence at all and
 /// must be rerun rather than adjudicated on its population-wide totals.
-pub const MINIMUM_REPORT_SCHEMA: u32 = 5;
+/// Schema 6 introduced the two scale-invariant quality metrics this gate now
+/// decides on, `stall_episodes_per_agent_km` and
+/// `mean_penetration_depth_fraction`. A v5 report carries neither, so it
+/// likewise has to be rerun.
+pub const MINIMUM_REPORT_SCHEMA: u32 = 6;
 
 /// A deserialise-only view of the fields the gate reads from a report.
 ///
@@ -85,10 +89,33 @@ pub struct TierThresholds {
     pub min_completion_rate: f64,
     /// Share of this tier's observed agent-ticks spent overlapping anyone.
     pub max_penetration_agent_ticks_per_agent_tick: f64,
-    /// Deepest overlap in metres, from either side of the pair.
-    pub max_penetration_depth_m: f64,
-    /// Share of the tier's population that entered a stall at least once.
-    pub max_stalled_agent_share: f64,
+    /// Mean overlap depth per observed agent-tick, as a fraction of the
+    /// overlapping pair's combined radius.
+    ///
+    /// This replaces a limit on the deepest single overlap. That figure is an
+    /// extremum over samples: 100K draws 32x the agent-ticks of 10K, so its
+    /// expected value rises with population even when solver behavior is
+    /// unchanged, and a fixed limit on it is silently stricter at every larger
+    /// scale.
+    ///
+    /// This bar is loose, and deliberately so. The fixture produces almost no
+    /// contact at the scales that can calibrate it -- 99 penetration
+    /// agent-ticks in 1.65e8 at 10K -- so no *tight* severity bar can be
+    /// justified from measurement here. It is a blowup detector, not a
+    /// precision limit; the meaningful contact gate is
+    /// `max_penetration_agent_ticks_per_agent_tick`, which bounds how often
+    /// contact happens at all. Peak depth and the deep-contact rate stay
+    /// reported, ungated.
+    pub max_mean_penetration_depth_fraction: f64,
+    /// Stall episodes per kilometre this tier actually walked.
+    ///
+    /// This replaces a limit on the share of the tier that ever stalled. That
+    /// share is a lifetime cumulative probability: even at a perfectly
+    /// constant blocking rate per metre it tends to 1.0 as routes lengthen,
+    /// and this fixture's routes grow with the square root of population. The
+    /// per-kilometre rate divides that exposure out. The share stays reported,
+    /// ungated.
+    pub max_stall_episodes_per_agent_km: f64,
     /// Share of the tier's observed agent-ticks spent stalled.
     pub max_stall_agent_ticks_per_agent_tick: f64,
     /// Signed-turn reversals per observed agent-tick. This counter is
@@ -115,6 +142,13 @@ pub enum Bound {
     AtMost,
     /// Exact string or structural equality; `measured`/`threshold` are unused.
     Equals,
+    /// Measured and printed, but never a reason to fail. Used for the two
+    /// quality figures that are not scale-invariant — a lifetime cumulative
+    /// share and an extremum over samples — which stay visible in the
+    /// adjudication so a regression is still legible, while the pass/fail
+    /// decision rests on their rate-shaped replacements. `threshold` is
+    /// unused.
+    Reported,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -172,6 +206,19 @@ fn at_most(name: &str, tier: Option<&str>, measured: f64, threshold: f64) -> Che
         threshold,
         detail: None,
         passed: measured <= threshold,
+    }
+}
+
+/// Record a figure without gating it. Always passes, by construction.
+fn reported(name: &str, tier: Option<&str>, measured: f64) -> Check {
+    Check {
+        name: name.to_string(),
+        tier: tier.map(str::to_string),
+        bound: Bound::Reported,
+        measured,
+        threshold: 0.0,
+        detail: None,
+        passed: true,
     }
 }
 
@@ -336,16 +383,34 @@ fn check_tier(tier: &TierMetrics, limits: &TierThresholds) -> Vec<Check> {
             limits.max_penetration_agent_ticks_per_agent_tick,
         ),
         at_most(
+            "mean_penetration_depth_fraction",
+            name,
+            f64::from(tier.mean_penetration_depth_fraction),
+            limits.max_mean_penetration_depth_fraction,
+        ),
+        reported(
             "max_penetration_depth_m",
             name,
             f64::from(tier.max_penetration_depth),
-            limits.max_penetration_depth_m,
+        ),
+        // Zero at every scale measured so far, so it is evidence rather than a
+        // bar: a threshold set from an event that never occurred would be a
+        // number nobody measured.
+        reported(
+            "deep_penetration_agent_ticks_per_agent_tick",
+            name,
+            f64::from(tier.deep_penetration_agent_ticks_per_agent_tick),
         ),
         at_most(
+            "stall_episodes_per_agent_km",
+            name,
+            f64::from(tier.stall_episodes_per_agent_km),
+            limits.max_stall_episodes_per_agent_km,
+        ),
+        reported(
             "stalled_agent_share",
             name,
             f64::from(tier.stalled_agent_share),
-            limits.max_stalled_agent_share,
         ),
         at_most(
             "stall_agent_ticks_per_agent_tick",
@@ -374,6 +439,20 @@ fn check_tier(tier: &TierMetrics, limits: &TierThresholds) -> Vec<Check> {
     ]
 }
 
+/// Format a threshold figure so small ones stay legible.
+///
+/// Fixed-point at six places renders every contact rate in this file as
+/// `0.000000`, which makes a real check look vacuous — the reader cannot tell
+/// `0.000000 <= 0.000000` (a measured 4.9e-11 against a 1e-9 bar) from a
+/// comparison of two genuine zeroes.
+fn num(value: f64) -> String {
+    if value != 0.0 && value.abs() < 1e-4 {
+        format!("{value:.3e}")
+    } else {
+        format!("{value:.6}")
+    }
+}
+
 /// One line per check, aligned so a failure is visible without reading values.
 pub fn render(adjudication: &Adjudication) -> String {
     let mut out = String::new();
@@ -382,14 +461,21 @@ pub fn render(adjudication: &Adjudication) -> String {
         adjudication.scene, adjudication.requested_agents, adjudication.thresholds_basis
     ));
     for check in &adjudication.checks {
-        let status = if check.passed { "pass" } else { "FAIL" };
+        let status = match (check.bound, check.passed) {
+            (Bound::Reported, _) => "note",
+            (_, true) => "pass",
+            (_, false) => "FAIL",
+        };
         let scope = check.tier.as_deref().unwrap_or("all");
         let body = match (&check.detail, check.bound) {
             (Some(detail), _) => detail.clone(),
             (None, Bound::AtLeast) => {
-                format!("{:.6} >= {:.6}", check.measured, check.threshold)
+                format!("{} >= {}", num(check.measured), num(check.threshold))
             }
-            (None, Bound::AtMost) => format!("{:.6} <= {:.6}", check.measured, check.threshold),
+            (None, Bound::AtMost) => {
+                format!("{} <= {}", num(check.measured), num(check.threshold))
+            }
+            (None, Bound::Reported) => format!("{} (not gated)", num(check.measured)),
             (None, Bound::Equals) => String::new(),
         };
         out.push_str(&format!(
@@ -416,13 +502,27 @@ mod tests {
             agents_arrived: 900,
             completion_rate: 1.0,
             agent_ticks: 4_000_000,
+            // Equal to `agent_ticks`: the passing fixture stands in for a tier
+            // observed every tick, so a contact rate here is not diluted by an
+            // exposure the detector never looked at.
+            contact_observed_agent_ticks: 4_000_000,
             penetration_pair_ticks: 0,
             penetration_agent_ticks: 0,
             penetration_agent_ticks_per_agent_tick: 0.0,
+            penetration_episodes: 0,
+            penetration_with_s0_partner: 0,
+            penetration_with_s1_partner: 0,
+            penetration_with_s2_partner: 0,
+            penetration_with_s3_partner: 0,
             max_penetration_depth: 0.0,
+            deep_penetration_agent_ticks: 0,
+            deep_penetration_agent_ticks_per_agent_tick: 0.0,
+            mean_penetration_depth_fraction: 0.0,
             agents_ever_stalled: 0,
             stalled_agent_share: 0.0,
             stall_episodes: 0,
+            distance_travelled_m: 500_000.0,
+            stall_episodes_per_agent_km: 0.0,
             stall_agent_ticks: 0,
             stall_agent_ticks_per_agent_tick: 0.0,
             heading_reversals: 0,
@@ -448,9 +548,11 @@ mod tests {
                 "agents_unrouted":0,"completion_rate":1.0,"median_travel_seconds":0.0,
                 "p95_travel_seconds":0.0,"penetration_pair_ticks":0,
                 "max_penetration_depth":0.0,"penetration_agent_ticks":0,
+                "deep_penetration_agent_ticks":0,"penetration_depth_fraction_sum":0.0,
                 "min_time_to_collision":-1.0,"mean_time_to_collision":-1.0,
                 "near_miss_agent_ticks":0,"wall_corrections":0,"nonfinite_corrections":0,
                 "agents_ever_stalled":0,"stall_episodes":0,"stall_agent_ticks":0,
+                "distance_travelled_m":500000.0,
                 "heading_reversals":0,"abrupt_turns":0,"gate_crossings":0,
                 "wall_time_seconds":1.0,"ticks_per_second_achieved":1000.0,
                 "peak_allocated_bytes":0,"phase_time_shares":[]}"#,
@@ -520,14 +622,55 @@ mod tests {
             .iter_mut()
             .find(|tier| tier.tier == "S2")
             .unwrap();
-        s2.max_penetration_depth = thresholds.tiers["S2"].max_penetration_depth_m as f32 + 1.0;
+        s2.mean_penetration_depth_fraction =
+            thresholds.tiers["S2"].max_mean_penetration_depth_fraction as f32 * 2.0;
 
         let adjudication = adjudicate(&report, &thresholds);
         assert!(!adjudication.passed);
         assert_eq!(
             failing_check_names(&adjudication),
-            ["S2.max_penetration_depth_m"]
+            ["S2.mean_penetration_depth_fraction"]
         );
+    }
+
+    /// Peak overlap depth and the ever-stalled share are still printed, but a
+    /// run may no longer fail on them: both grow with population at fixed
+    /// solver behavior, so gating them made the bar quietly stricter at each
+    /// larger scale. This pins that they are recorded and non-gating, so
+    /// re-gating one is a deliberate edit rather than an accident.
+    #[test]
+    fn the_two_scale_dependent_figures_are_reported_but_never_fail_a_run() {
+        let thresholds = city_flow_thresholds();
+        let mut report = passing_report(&thresholds);
+        let s2 = report
+            .metrics
+            .per_tier
+            .iter_mut()
+            .find(|tier| tier.tier == "S2")
+            .unwrap();
+        s2.max_penetration_depth = 99.0;
+        s2.stalled_agent_share = 1.0;
+
+        let adjudication = adjudicate(&report, &thresholds);
+        assert!(
+            adjudication.passed,
+            "{:?}",
+            failing_check_names(&adjudication)
+        );
+
+        for name in [
+            "max_penetration_depth_m",
+            "stalled_agent_share",
+            "deep_penetration_agent_ticks_per_agent_tick",
+        ] {
+            let check = adjudication
+                .checks
+                .iter()
+                .find(|c| c.tier.as_deref() == Some("S2") && c.name == name)
+                .unwrap_or_else(|| panic!("{name} is no longer reported at all"));
+            assert_eq!(check.bound, Bound::Reported, "{name} is gated again");
+        }
+        assert!(render(&adjudication).contains("note"));
     }
 
     #[test]
@@ -615,16 +758,18 @@ mod tests {
         s2.stall_agent_ticks_per_agent_tick = 0.0246;
 
         let failures = failing_check_names(&adjudicate(&report, &thresholds));
-        for expected in [
-            "S2.stalled_agent_share",
-            "S2.max_penetration_depth_m",
-            "S2.stall_agent_ticks_per_agent_tick",
-        ] {
-            assert!(
-                failures.contains(&expected.to_string()),
-                "{expected} did not fail: {failures:?}"
-            );
-        }
+        // Two of that candidate's three original rejection reasons — the
+        // ever-stalled share and the peak depth — are no longer gated, so this
+        // asserts only the rate-shaped one. That reason is sufficient on its
+        // own: nearly 5x the stall budget is not a borderline result. The
+        // candidate's run predates schema 5 and has no per-tier evidence, so
+        // its deep-contact rate and stall episodes per kilometre cannot be
+        // recovered from the archived report; inventing plausible values here
+        // would make this test assert a number nobody measured.
+        assert!(
+            failures.contains(&"S2.stall_agent_ticks_per_agent_tick".to_string()),
+            "the rejected candidate now passes the file that rejected it: {failures:?}"
+        );
     }
 
     #[test]

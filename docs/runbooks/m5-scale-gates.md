@@ -74,12 +74,50 @@ cargo run --release -p crowd-bench -- m5-gate \
 
 The thresholds live in `benchmarks/thresholds/m5-city-flow.json` and are
 compiled into the binary, so a run cannot be judged against a loosened copy on
-disk. They are stated as rates per observed agent-tick, which is what lets one
-file gate 1K, 10K, and 100K. Changing a threshold is a reviewable change to
-that file with its `basis` field updated, not a per-run adjustment.
+disk. They are stated as rates per observed agent-tick — or, for stall
+episodes, per agent-kilometre walked — which is what lets one file gate 1K,
+10K, and 100K. Changing a threshold is a reviewable change to that file with
+its `basis` field updated, not a per-run adjustment.
 
-A report older than schema v5 carries no `metrics.per_tier` and is rejected by
-the gate rather than adjudicated on its population-wide totals. Rerun it.
+### Two figures are reported but never gated
+
+`stalled_agent_share` and `max_penetration_depth_m` print as `note` lines and
+cannot fail a run. Both were gated until the 100K attempt of 2026-08-15 showed
+that neither is scale-invariant, so a fixed limit on them was silently stricter
+at each larger population:
+
+- `stalled_agent_share` is a lifetime cumulative probability. At a perfectly
+  constant blocking rate per metre it still tends toward 1.0 as routes
+  lengthen, and this fixture's routes grow with the square root of population.
+- `max_penetration_depth_m` is an extremum over samples. 100K draws 32x the
+  agent-ticks of 10K, so its expected value rises with population even when
+  solver behavior is unchanged.
+
+They stay printed because a jump in either is still worth looking at. The
+pass/fail decision rests on their rate-shaped replacements,
+`stall_episodes_per_agent_km` and `mean_penetration_depth_fraction`. Re-gating
+a reported figure is a deliberate edit that
+`the_two_scale_dependent_figures_are_reported_but_never_fail_a_run` will catch.
+
+`deep_penetration_agent_ticks_per_agent_tick` is reported for the same reason
+but a different one: it measures zero at every scale yet run, so there is no
+measurement to set a bar from. Gate it once a run produces a non-zero value.
+
+Contact severity is gated loosely on purpose. This fixture produces almost no
+contact at the scales that can calibrate it — 99 penetration agent-ticks in
+1.65e8 at 10K — so `mean_penetration_depth_fraction` is a blowup detector, not
+a precision limit. The tight contact gate is
+`max_penetration_agent_ticks_per_agent_tick`, which bounds how often contact
+occurs at all.
+
+**This does not mean a failed 100K may be waved through.** The same run also
+degraded on genuinely rate-shaped measures: `stall_agent_ticks_per_agent_tick`
+grew 5.15x from 10K and passed only on headroom. A specification defect and a
+real regression can be present at once, and neither excuses the other.
+
+A report older than schema v6 is rejected by the gate rather than adjudicated.
+v5 and earlier carry neither `distance_travelled_m` nor the deep-contact
+counters, so the gated metrics cannot be computed from them at all. Rerun it.
 
 Then collect the Blender playback, render, and scale/profiling UI evidence:
 

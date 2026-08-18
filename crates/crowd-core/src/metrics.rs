@@ -85,6 +85,17 @@ pub struct MetricsConfig {
     pub abrupt_turn_radians: f32,
     /// Optional line agents are counted crossing, for throughput.
     pub throughput_gate: Option<Segment>,
+    /// Overlap depth, as a fraction of the pair's combined radius, past which
+    /// an overlap counts as *deep* rather than merely touching.
+    ///
+    /// This exists because `max_penetration_depth` is an extremum over
+    /// samples: its expected value grows with the number of draws, so a fixed
+    /// limit on it is stricter at 100K than at 10K purely through sampling,
+    /// with no change in solver behavior. Counting deep overlaps instead
+    /// yields a rate per agent-tick that one threshold can hold at every
+    /// scale. The fraction, rather than an absolute depth, keeps the severity
+    /// judgement independent of how large the agents are.
+    pub deep_penetration_radius_fraction: f32,
 }
 
 impl Default for MetricsConfig {
@@ -93,6 +104,7 @@ impl Default for MetricsConfig {
             stall_ticks_threshold: 15,
             abrupt_turn_radians: 0.9,
             throughput_gate: None,
+            deep_penetration_radius_fraction: 0.1,
         }
     }
 }
@@ -129,13 +141,46 @@ const _: () = assert!(SimulationTier::S3 as usize + 1 == TIER_COUNT);
 #[derive(Clone, Debug, Default)]
 struct TierAccumulator {
     agent_ticks: u64,
+    /// Agent-ticks on which this tier's neighbours were actually looked up.
+    ///
+    /// The denominator for every *contact* rate, and not the same as
+    /// `agent_ticks` for a tier on a sparse perception cadence. Stall,
+    /// oscillation, and distance counters read world state and are valid every
+    /// tick, so they keep using `agent_ticks`.
+    contact_observed_agent_ticks: u64,
     arrived: u64,
     penetration_pair_ticks: u64,
     penetration_agent_ticks: u64,
+    /// Contiguous runs of penetrating ticks, one per agent per contact.
+    ///
+    /// The counterpart to `stall_episodes` beside `stall_agent_ticks`, and
+    /// needed for the same reason: a single pair that stays overlapped for 50
+    /// ticks contributes ~100 agent-ticks, so agent-ticks are not independent
+    /// samples and a rate built on them cannot be treated as one. Episodes are
+    /// the count to reason about when asking whether two tiers differ.
+    penetration_episodes: u64,
+    /// Contacts split by the tier of the partner the agent was deepest into,
+    /// indexed by `tier as usize`.
+    ///
+    /// Answers whether a tier's contacts are its own doing or inflicted on it.
+    /// An S1 agent re-steering every tick can still be walked into by an S2
+    /// agent whose steering is two ticks stale, and that contact is recorded
+    /// against S1 by the per-tier attribution rules above.
+    penetration_by_partner_tier: [u64; TIER_COUNT],
+    deep_penetration_agent_ticks: u64,
+    /// Sum over observed agent-ticks of the agent's deepest overlap expressed
+    /// as a fraction of that pair's combined radius. Divided by exposure it
+    /// gives a mean severity that every agent-tick contributes to, so unlike
+    /// a rare-event count it is estimated just as well at 1K as at 100K.
+    penetration_depth_fraction_sum: f64,
     max_penetration_depth: f32,
     agents_ever_stalled: u64,
     stall_episodes: u64,
     stall_agent_ticks: u64,
+    /// Path length actually walked by this tier's agents, in metres, summed
+    /// over observed agent-ticks. The exposure denominator for stall
+    /// *episodes*, which occur per distance travelled rather than per tick.
+    distance_travelled_m: f64,
     heading_reversals: u64,
     abrupt_turns: u64,
     /// Full presentation classifications actually performed, against
@@ -151,6 +196,9 @@ pub struct Metrics {
     penetration_pair_ticks: u64,
     max_penetration_depth: f32,
     penetration_agent_ticks: u64,
+    penetration_episodes: u64,
+    deep_penetration_agent_ticks: u64,
+    penetration_depth_fraction_sum: f64,
 
     min_time_to_collision: f32,
     time_to_collision_sum: f64,
@@ -163,6 +211,7 @@ pub struct Metrics {
     stall_episodes: u64,
     agents_ever_stalled: u64,
     stall_agent_ticks: u64,
+    distance_travelled_m: f64,
 
     heading_reversals: u64,
     abrupt_turns: u64,
@@ -177,6 +226,8 @@ pub struct Metrics {
     previous_turn_sign: Vec<i8>,
     counted_arrival: Vec<bool>,
     counted_stall: Vec<bool>,
+    /// Whether this agent's current penetration episode is already counted.
+    counted_penetration: Vec<bool>,
     /// Never reset, so an agent is counted once no matter how many separate
     /// stalls it has.
     ever_stalled: Vec<bool>,
@@ -239,6 +290,7 @@ impl Metrics {
         self.previous_turn_sign.resize(agent_count, 0);
         self.counted_arrival.resize(agent_count, false);
         self.counted_stall.resize(agent_count, false);
+        self.counted_penetration.resize(agent_count, false);
         self.ever_stalled.resize(agent_count, false);
         self.previous_gate_side.resize(agent_count, 0);
     }
@@ -247,10 +299,11 @@ impl Metrics {
         &mut self,
         world: &World,
         arena: &NeighborArena,
-        _clock: &Clock,
+        clock: &Clock,
         config: &MetricsConfig,
     ) {
         self.ensure_capacity(world.len());
+        let seconds_per_tick = 1.0 / clock.ticks_per_second() as f32;
 
         for slot in 0..world.len() {
             // Agents that have left the scene are not part of the crowd any
@@ -268,6 +321,18 @@ impl Metrics {
             // to the same tier, even if a later phase reschedules this agent.
             let tier = world.simulation_tier[slot] as usize;
             self.tiers[tier].agent_ticks += 1;
+
+            // Contact can only be seen on a tick this agent's neighbours were
+            // looked up. Counting the skipped ticks as clean exposure is what
+            // made background-tier contact read ~2x better than it is: the
+            // numerator was sampled every other tick and the denominator every
+            // tick. The skip schedule is an ID hash, independent of whether
+            // anyone is overlapping, so the observed ticks are an unbiased
+            // sample and this ratio estimates the true rate.
+            let contact_observed = arena.is_observed(slot);
+            if contact_observed {
+                self.tiers[tier].contact_observed_agent_ticks += 1;
+            }
 
             // Penetration. Counted once per pair by only considering
             // neighbors with a higher agent ID, so the pair is not
@@ -298,22 +363,67 @@ impl Metrics {
             // would never see it. This pass is symmetric, so both tiers
             // involved in an overlap observe its true depth.
             let mut deepest = 0.0f32;
+            // Tier of the partner achieving `deepest`, so a contact can be
+            // attributed to who it was with and not only to who observed it.
+            let mut deepest_partner_tier = usize::MAX;
+            // Tracked beside `deepest` rather than derived from it: the
+            // deepest overlap and the most *severe* one need not be the same
+            // pair, because severity is depth relative to the pair's own
+            // combined radius and neighbors differ in size.
+            let mut deep = false;
+            // The deepest overlap *relative to the pair's own size*, which is
+            // what severity means when radii vary; tracked separately from
+            // `deepest` for the same reason `deep` is.
+            let mut deepest_fraction = 0.0f32;
             for neighbor in arena.neighbors(slot) {
                 let other = neighbor.slot as usize;
                 let combined = world.radius[slot] + world.radius[other];
                 let distance = neighbor.dist_sq.sqrt();
                 if distance < combined {
                     penetrating = true;
-                    deepest = deepest.max(combined - distance);
+                    let depth = combined - distance;
+                    if depth >= deepest {
+                        deepest = depth;
+                        deepest_partner_tier = world.simulation_tier[other] as usize;
+                    }
+                    let fraction = depth / combined;
+                    deepest_fraction = deepest_fraction.max(fraction);
+                    if fraction > config.deep_penetration_radius_fraction {
+                        deep = true;
+                    }
                 }
             }
             if penetrating {
                 self.penetration_agent_ticks += 1;
                 self.tiers[tier].penetration_agent_ticks += 1;
+                if !self.counted_penetration[slot] {
+                    self.counted_penetration[slot] = true;
+                    self.penetration_episodes += 1;
+                    self.tiers[tier].penetration_episodes += 1;
+                }
+                if deepest_partner_tier < TIER_COUNT {
+                    self.tiers[tier].penetration_by_partner_tier[deepest_partner_tier] += 1;
+                }
+                self.penetration_depth_fraction_sum += deepest_fraction as f64;
+                self.tiers[tier].penetration_depth_fraction_sum += deepest_fraction as f64;
                 if deepest > self.tiers[tier].max_penetration_depth {
                     self.tiers[tier].max_penetration_depth = deepest;
                 }
+            } else {
+                self.counted_penetration[slot] = false;
             }
+            if deep {
+                self.deep_penetration_agent_ticks += 1;
+                self.tiers[tier].deep_penetration_agent_ticks += 1;
+            }
+
+            // Distance walked this tick, the exposure denominator for stall
+            // episodes. Taken from the integrated velocity so it measures the
+            // path actually travelled, not displacement toward the goal: an
+            // agent pushed sideways in a jam has still moved.
+            let step = velocity.length() * seconds_per_tick;
+            self.distance_travelled_m += step as f64;
+            self.tiers[tier].distance_travelled_m += step as f64;
 
             // Stalls.
             if world.stall_ticks[slot] >= config.stall_ticks_threshold {
@@ -474,6 +584,9 @@ impl Metrics {
             penetration_pair_ticks: self.penetration_pair_ticks,
             max_penetration_depth: self.max_penetration_depth,
             penetration_agent_ticks: self.penetration_agent_ticks,
+            penetration_episodes: self.penetration_episodes,
+            deep_penetration_agent_ticks: self.deep_penetration_agent_ticks,
+            penetration_depth_fraction_sum: self.penetration_depth_fraction_sum,
 
             min_time_to_collision: if self.min_time_to_collision.is_finite() {
                 self.min_time_to_collision
@@ -495,6 +608,7 @@ impl Metrics {
             agents_ever_stalled: self.agents_ever_stalled,
             stall_episodes: self.stall_episodes,
             stall_agent_ticks: self.stall_agent_ticks,
+            distance_travelled_m: self.distance_travelled_m,
 
             heading_reversals: self.heading_reversals,
             abrupt_turns: self.abrupt_turns,
@@ -546,22 +660,45 @@ impl Metrics {
                 // Rates are per agent-tick of actual exposure, which is what
                 // makes one threshold file valid at 1K, 10K, and 100K.
                 let exposure = accumulated.agent_ticks.max(1) as f32;
+                // Contact rates divide by the ticks contact could be seen on;
+                // everything else by every tick the agent was active.
+                let contact_exposure = accumulated.contact_observed_agent_ticks.max(1) as f32;
                 let population = agents_final[tier].max(1) as f32;
+                // Kilometres, so the derived rate reads in whole numbers for a
+                // scene whose routes are hundreds of metres long.
+                let distance_km = (accumulated.distance_travelled_m / 1000.0).max(1e-9);
                 TierMetrics {
                     tier: TIER_NAMES[tier].to_string(),
                     agents_final: agents_final[tier],
                     agents_arrived: accumulated.arrived,
                     completion_rate: accumulated.arrived as f32 / population,
                     agent_ticks: accumulated.agent_ticks,
+                    contact_observed_agent_ticks: accumulated.contact_observed_agent_ticks,
                     penetration_pair_ticks: accumulated.penetration_pair_ticks,
                     penetration_agent_ticks: accumulated.penetration_agent_ticks,
                     penetration_agent_ticks_per_agent_tick: accumulated.penetration_agent_ticks
                         as f32
-                        / exposure,
+                        / contact_exposure,
                     max_penetration_depth: accumulated.max_penetration_depth,
+                    penetration_episodes: accumulated.penetration_episodes,
+                    penetration_with_s0_partner: accumulated.penetration_by_partner_tier[0],
+                    penetration_with_s1_partner: accumulated.penetration_by_partner_tier[1],
+                    penetration_with_s2_partner: accumulated.penetration_by_partner_tier[2],
+                    penetration_with_s3_partner: accumulated.penetration_by_partner_tier[3],
+                    deep_penetration_agent_ticks: accumulated.deep_penetration_agent_ticks,
+                    deep_penetration_agent_ticks_per_agent_tick: accumulated
+                        .deep_penetration_agent_ticks
+                        as f32
+                        / contact_exposure,
+                    mean_penetration_depth_fraction: (accumulated.penetration_depth_fraction_sum
+                        / contact_exposure as f64)
+                        as f32,
                     agents_ever_stalled: accumulated.agents_ever_stalled,
                     stalled_agent_share: accumulated.agents_ever_stalled as f32 / population,
                     stall_episodes: accumulated.stall_episodes,
+                    distance_travelled_m: accumulated.distance_travelled_m,
+                    stall_episodes_per_agent_km: (accumulated.stall_episodes as f64 / distance_km)
+                        as f32,
                     stall_agent_ticks: accumulated.stall_agent_ticks,
                     stall_agent_ticks_per_agent_tick: accumulated.stall_agent_ticks as f32
                         / exposure,
@@ -621,17 +758,75 @@ pub struct TierMetrics {
     pub agents_final: u64,
     pub agents_arrived: u64,
     pub completion_rate: f32,
-    /// Observed active agent-ticks; the denominator for every rate here.
+    /// Observed active agent-ticks; the denominator for the stall,
+    /// oscillation, and distance rates here.
     pub agent_ticks: u64,
+    /// Agent-ticks on which neighbours were actually looked up, and so the
+    /// denominator for every *contact* rate.
+    ///
+    /// Below `agent_ticks` for a tier on a sparse perception cadence: an S2
+    /// agent at the declared 2-tick cadence can only be seen overlapping on
+    /// the ticks it perceives. Dividing its contacts by all of its ticks
+    /// instead understated background contact by ~2x before 2026-08-17.
+    #[serde(default)]
+    pub contact_observed_agent_ticks: u64,
 
     pub penetration_pair_ticks: u64,
     pub penetration_agent_ticks: u64,
     pub penetration_agent_ticks_per_agent_tick: f32,
+    /// Deepest single overlap observed. Reported, but **not** gated: it is an
+    /// extremum over samples, so its expected value grows with the number of
+    /// draws and a fixed limit on it tightens with population by construction.
+    /// Gate `deep_penetration_agent_ticks_per_agent_tick` instead.
     pub max_penetration_depth: f32,
+    /// Agent-ticks spent overlapping by more than
+    /// `MetricsConfig::deep_penetration_radius_fraction` of the combined
+    /// radius. The scale-invariant form of "how bad does contact get".
+    /// Distinct contacts, not ticks of contact. The honest sample size when
+    /// comparing tiers or scales; see the field of the same name on the
+    /// accumulator for why agent-ticks are not one.
+    #[serde(default)]
+    pub penetration_episodes: u64,
+    /// Contacts split by the partner's tier, so contact a tier caused can be
+    /// told from contact inflicted on it by another tier.
+    ///
+    /// Four scalars rather than an array because every per-tier field is
+    /// flattened to a `per_tier.<TIER>.<field>` baseline key, and
+    /// `every_summary_field_appears_in_the_metric_map` requires each to be
+    /// comparable on its own.
+    #[serde(default)]
+    pub penetration_with_s0_partner: u64,
+    #[serde(default)]
+    pub penetration_with_s1_partner: u64,
+    #[serde(default)]
+    pub penetration_with_s2_partner: u64,
+    #[serde(default)]
+    pub penetration_with_s3_partner: u64,
+    pub deep_penetration_agent_ticks: u64,
+    pub deep_penetration_agent_ticks_per_agent_tick: f32,
+    /// Mean overlap depth per observed agent-tick, as a fraction of the
+    /// overlapping pair's combined radius; zero for a tick with no contact.
+    ///
+    /// Every agent-tick contributes, so this is estimated equally well at
+    /// every scale -- unlike `deep_penetration_agent_ticks_per_agent_tick`,
+    /// which counts an event rare enough at 10K that its rate there is a
+    /// handful of samples. Read the two together: mean severity says how bad
+    /// typical contact is, the deep rate says how often it gets severe.
+    pub mean_penetration_depth_fraction: f32,
 
     pub agents_ever_stalled: u64,
+    /// Fraction of the tier that stalled at least once. Reported, but **not**
+    /// gated: it is a lifetime cumulative probability, so at any fixed
+    /// blocking rate per metre it rises toward 1.0 as routes lengthen, and
+    /// route length grows with the square root of population in this fixture.
+    /// Gate `stall_episodes_per_agent_km` instead.
     pub stalled_agent_share: f32,
     pub stall_episodes: u64,
+    /// Path length walked by this tier, metres, summed over agent-ticks.
+    pub distance_travelled_m: f64,
+    /// Stall episodes per kilometre actually walked. Independent of both
+    /// population and route length, so one threshold holds at every scale.
+    pub stall_episodes_per_agent_km: f32,
     pub stall_agent_ticks: u64,
     pub stall_agent_ticks_per_agent_tick: f32,
 
@@ -675,8 +870,19 @@ pub struct MetricsSummary {
     /// Pair-ticks of overlap, not distinct penetration episodes: a pair that
     /// stays overlapped for 100 ticks contributes 100.
     pub penetration_pair_ticks: u64,
+    /// An extremum over samples: reported for context, not gated. See
+    /// `TierMetrics::max_penetration_depth`.
     pub max_penetration_depth: f32,
     pub penetration_agent_ticks: u64,
+    /// Agent-ticks overlapping past the deep-contact fraction. Rate-shaped,
+    /// unlike `max_penetration_depth`, so it is what the scale gate checks.
+    /// Distinct contacts, not ticks of contact.
+    #[serde(default)]
+    pub penetration_episodes: u64,
+    pub deep_penetration_agent_ticks: u64,
+    /// Summed overlap severity; divide by agent-ticks for the mean. See
+    /// `TierMetrics::mean_penetration_depth_fraction`.
+    pub penetration_depth_fraction_sum: f64,
 
     /// `-1.0` means no collision was ever predicted. Expect this to saturate
     /// at zero in a dense scene — one overlapping pair pins it for the whole
@@ -697,6 +903,10 @@ pub struct MetricsSummary {
     /// Stall episodes, which is larger: one agent can stall repeatedly.
     pub stall_episodes: u64,
     pub stall_agent_ticks: u64,
+    /// Total path length walked by the crowd, in metres. The exposure
+    /// denominator that makes stall episodes comparable across scales whose
+    /// route lengths differ.
+    pub distance_travelled_m: f64,
 
     pub heading_reversals: u64,
     pub abrupt_turns: u64,
@@ -720,8 +930,10 @@ pub struct MetricsSummary {
 mod tests {
     use super::*;
     use crate::arena::NeighborArena;
+    use crate::fidelity::{FidelityPolicy, S2_UPDATE_INTERVAL_TICKS};
     use crate::grid::UniformGrid;
     use crate::ids::AgentId;
+    use crate::phases::perceive::perceive_scheduled;
     use crate::phases::perceive::{perceive, PerceiveConfig, PerceiveScratch};
     use crate::units::{Aabb, Vec2};
     use crate::world::{AgentSpawn, World, NO_ROUTE};
@@ -857,6 +1069,243 @@ mod tests {
                 "{name} must observe the true overlap depth"
             );
         }
+    }
+
+    /// The severity measure has to be relative to the pair, not absolute:
+    /// two large agents overlapping by 0.2 m are less deeply interpenetrated
+    /// than two small ones overlapping by the same 0.2 m.
+    #[test]
+    fn overlap_severity_is_measured_against_the_pairs_own_radius() {
+        // Both pairs overlap by exactly 0.2 m. Combined radii are 0.6 m and
+        // 1.2 m, so the fractions are 1/3 and 1/6.
+        let small = world_at(&[Vec2::ZERO, Vec2::new(0.4, 0.0)], 0.3);
+        let large = world_at(&[Vec2::ZERO, Vec2::new(1.0, 0.0)], 0.6);
+
+        let mut severity = Vec::new();
+        for world in [&small, &large] {
+            let mut metrics = Metrics::new();
+            observe(world, &mut metrics, &Clock::default());
+            let summary = metrics.summarize_tiers(world);
+            // Both agents sit in the default tier and both observe the
+            // overlap, so the mean over the tier is the per-pair fraction.
+            severity.push(summary[0].mean_penetration_depth_fraction);
+            assert!(
+                (metrics.max_penetration_depth() - 0.2).abs() < 1e-5,
+                "both pairs must overlap by the same absolute depth"
+            );
+        }
+
+        assert!((severity[0] - 1.0 / 3.0).abs() < 1e-4, "{severity:?}");
+        assert!((severity[1] - 1.0 / 6.0).abs() < 1e-4, "{severity:?}");
+    }
+
+    /// The deep-contact counter must fire on the *fraction*, so the same
+    /// absolute depth counts as deep for small agents and not for large ones.
+    #[test]
+    fn deep_contact_is_counted_by_fraction_not_absolute_depth() {
+        let small = world_at(&[Vec2::ZERO, Vec2::new(0.4, 0.0)], 0.3);
+        let large = world_at(&[Vec2::ZERO, Vec2::new(1.0, 0.0)], 0.6);
+        // 1/3 is deep at this setting, 1/6 is not.
+        let config = MetricsConfig {
+            deep_penetration_radius_fraction: 0.25,
+            ..MetricsConfig::default()
+        };
+
+        let mut counts = Vec::new();
+        for world in [&small, &large] {
+            let mut metrics = Metrics::new();
+            let mut grid = UniformGrid::new(
+                Aabb::new(Vec2::new(-50.0, -50.0), Vec2::new(50.0, 50.0)),
+                5.0,
+            );
+            grid.rebuild(&world.pos_x, &world.pos_y);
+            let mut arena = NeighborArena::new();
+            perceive(
+                world,
+                &grid,
+                &PerceiveConfig::default(),
+                &mut PerceiveScratch::default(),
+                &mut arena,
+            );
+            metrics.begin_tick();
+            metrics.observe_tick(world, &arena, &Clock::default(), &config);
+            counts.push(metrics.summarize_tiers(world)[0].deep_penetration_agent_ticks);
+        }
+
+        assert_eq!(counts[0], 2, "both small agents are deeply overlapped");
+        assert_eq!(counts[1], 0, "the same 0.2 m is shallow for large agents");
+    }
+
+    /// A background agent's contacts are only observed on the ticks it
+    /// perceives, but every tick counts toward its exposure.
+    ///
+    /// `perceive_scheduled` pushes an *empty* neighbour list for an agent that
+    /// is not due this tick, and `observe_tick` reads that list for every
+    /// active agent every tick. An S2 agent therefore cannot register contact
+    /// on a skipped tick however deeply it is overlapping, while
+    /// `agent_ticks` — the denominator of every contact rate — still counts
+    /// that tick. The result is a systematic ~2x undercount of background-tier
+    /// contact at the declared 2-tick cadence.
+    ///
+    /// Measured fingerprint at 40,000 agents on `m5_city_flow`: the same
+    /// S1-S2 contacts are seen 65 times from the S1 side, which perceives
+    /// every tick, and only 35 times from the S2 side.
+    #[test]
+    fn a_skipped_perception_tick_hides_contact_but_still_counts_as_exposure() {
+        let mut world = world_at(&[Vec2::ZERO, Vec2::new(0.4, 0.0)], 0.3);
+        for slot in 0..2 {
+            world.simulation_tier[slot] = SimulationTier::S2;
+        }
+
+        let mut grid = UniformGrid::new(
+            Aabb::new(Vec2::new(-50.0, -50.0), Vec2::new(50.0, 50.0)),
+            5.0,
+        );
+        grid.rebuild(&world.pos_x, &world.pos_y);
+
+        let due = (0..S2_UPDATE_INTERVAL_TICKS)
+            .find(|tick| FidelityPolicy::s2_update_due(world.agent_id[0], *tick))
+            .expect("an agent must be due within its interval");
+        let skipped = (due + 1) % S2_UPDATE_INTERVAL_TICKS;
+
+        let mut observed = Vec::new();
+        for tick in [due, skipped] {
+            let mut metrics = Metrics::new();
+            let mut scratch = PerceiveScratch::default();
+            let mut arena = NeighborArena::new();
+            perceive_scheduled(
+                &world,
+                &grid,
+                &PerceiveConfig::default(),
+                &mut scratch,
+                &mut arena,
+                tick,
+            );
+            metrics.begin_tick();
+            metrics.observe_tick(&world, &arena, &Clock::default(), &MetricsConfig::default());
+            let summary = metrics.summarize_tiers(&world);
+            let s2 = tier(&summary, "S2");
+            observed.push((s2.penetration_agent_ticks, s2.agent_ticks));
+        }
+
+        assert_eq!(
+            observed[0],
+            (2, 2),
+            "on its perception tick the overlapping pair must be seen"
+        );
+        assert_eq!(
+            observed[1].1, 2,
+            "the skipped tick still counts toward exposure"
+        );
+        assert_eq!(
+            observed[1].0, 0,
+            "and contributes no contact, however deep the overlap: this is the \
+             undercount, not a property of the crowd"
+        );
+    }
+
+    /// The whole point of the fix: a tier's contact *rate* must not depend on
+    /// how often that tier is scheduled.
+    ///
+    /// Two agents overlapping continuously are observed on every tick at a
+    /// 1-tick cadence and on half the ticks at a 2-tick cadence. If exposure
+    /// counted every tick regardless, the sparser cadence would report half
+    /// the contact rate for identical physical behaviour — which is what the
+    /// 100K gate was reading. Dividing by observed ticks makes the two agree.
+    #[test]
+    fn contact_rate_does_not_depend_on_perception_cadence() {
+        let mut world = world_at(&[Vec2::ZERO, Vec2::new(0.4, 0.0)], 0.3);
+        for slot in 0..2 {
+            world.simulation_tier[slot] = SimulationTier::S2;
+        }
+        let mut grid = UniformGrid::new(
+            Aabb::new(Vec2::new(-50.0, -50.0), Vec2::new(50.0, 50.0)),
+            5.0,
+        );
+        grid.rebuild(&world.pos_x, &world.pos_y);
+
+        let ticks = 200u64;
+        let mut every_tick = Metrics::new();
+        let mut scheduled = Metrics::new();
+        for tick in 0..ticks {
+            for (metrics, staggered) in [(&mut every_tick, false), (&mut scheduled, true)] {
+                let mut scratch = PerceiveScratch::default();
+                let mut arena = NeighborArena::new();
+                if staggered {
+                    perceive_scheduled(
+                        &world,
+                        &grid,
+                        &PerceiveConfig::default(),
+                        &mut scratch,
+                        &mut arena,
+                        tick,
+                    );
+                } else {
+                    perceive(
+                        &world,
+                        &grid,
+                        &PerceiveConfig::default(),
+                        &mut scratch,
+                        &mut arena,
+                    );
+                }
+                metrics.begin_tick();
+                metrics.observe_tick(&world, &arena, &Clock::default(), &MetricsConfig::default());
+            }
+        }
+
+        let dense = tier(&every_tick.summarize_tiers(&world), "S2").clone();
+        let sparse = tier(&scheduled.summarize_tiers(&world), "S2").clone();
+
+        // The sparse run genuinely sees fewer contacts, and says so.
+        assert!(
+            sparse.penetration_agent_ticks < dense.penetration_agent_ticks,
+            "the staggered schedule must observe strictly fewer ticks"
+        );
+        assert_eq!(
+            sparse.agent_ticks, dense.agent_ticks,
+            "both runs had the same agents active for the same ticks"
+        );
+        // But the rate is the same, because exposure shrinks with it.
+        assert!(
+            (sparse.penetration_agent_ticks_per_agent_tick
+                - dense.penetration_agent_ticks_per_agent_tick)
+                .abs()
+                < 1e-6,
+            "contact rate changed with cadence alone: {} at 1-tick against {} at 2-tick",
+            dense.penetration_agent_ticks_per_agent_tick,
+            sparse.penetration_agent_ticks_per_agent_tick,
+        );
+        assert!(
+            (sparse.mean_penetration_depth_fraction - dense.mean_penetration_depth_fraction).abs()
+                < 1e-6,
+            "severity changed with cadence alone"
+        );
+    }
+
+    /// Distance is the denominator for stall episodes, so it has to track the
+    /// path actually walked rather than the tick count.
+    #[test]
+    fn distance_travelled_accumulates_from_speed_not_ticks() {
+        let mut world = world_at(&[Vec2::ZERO, Vec2::new(20.0, 0.0)], 0.3);
+        // 3 m/s and 1 m/s, well separated so neither is in contact.
+        world.vel_x[0] = 3.0;
+        world.vel_x[1] = 1.0;
+
+        let clock = Clock::default();
+        let mut metrics = Metrics::new();
+        for _ in 0..clock.ticks_per_second() as u64 {
+            observe(&world, &mut metrics, &clock);
+        }
+
+        // One second of simulated time: 3 m plus 1 m, independent of the tick
+        // rate the clock happens to use.
+        let summary = metrics.summarize_tiers(&world);
+        assert!(
+            (summary[0].distance_travelled_m - 4.0).abs() < 1e-3,
+            "{} m",
+            summary[0].distance_travelled_m
+        );
     }
 
     #[test]

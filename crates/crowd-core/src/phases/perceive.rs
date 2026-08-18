@@ -80,7 +80,7 @@ fn perceive_with_schedule(
 
     for slot in 0..world.len() {
         if !should_query(slot) {
-            arena.push(slot, &[]);
+            arena.push_unobserved(slot);
             continue;
         }
         let position = Vec2::new(world.pos_x[slot], world.pos_y[slot]);

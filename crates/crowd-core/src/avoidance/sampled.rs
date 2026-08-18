@@ -71,6 +71,20 @@ pub struct SampledVelocitySolver {
     pub personal_space: f32,
     /// How strongly local crowding reduces preferred speed.
     pub density_speed_factor: f32,
+    /// Floor on the crowding speed multiplier, as a fraction of preferred
+    /// speed. `0.0` disables it, restoring the unbounded decay.
+    ///
+    /// Default off, on measurement. It was added to attack the 100K stall
+    /// result and does not: `m5_crowding_distribution` measured the M5 fixture
+    /// as sparse at every scale — max crowding 6 at 10K and 4 at 100K, against
+    /// the ~10 neighbours a 0.35 floor needs before it binds at all — so any
+    /// floor gentle enough to leave the fixture alone is a no-op, and
+    /// `m5_density_floor_sweep` confirms floor 0.35 reproduces the no-floor
+    /// `final_state_hash` exactly. Where it does bind, in `dense_flow`, it made
+    /// jams 74% longer (84.8 to 147.6 ticks per episode) by driving agents into
+    /// blockages instead of letting them hold back. Kept as a knob because the
+    /// sweep needs it, not because it is recommended.
+    pub min_density_speed_fraction: f32,
     /// Cosine threshold for treating an encounter as head-on.
     pub head_on_cosine: f32,
     /// Urgency retained by a neighbor that is not closing at all.
@@ -106,6 +120,7 @@ impl Default for SampledVelocitySolver {
             brake_speed_fraction: 0.5,
             personal_space: 0.45,
             density_speed_factor: 0.18,
+            min_density_speed_fraction: 0.0,
             head_on_cosine: 0.7,
             queue_urgency: 0.25,
         }
@@ -289,6 +304,7 @@ impl AvoidanceSolver for SampledVelocitySolver {
             input.neighbors,
             self.personal_space,
             self.density_speed_factor,
+            self.min_density_speed_fraction,
         )
         .clamp_length(input.max_speed);
 

@@ -24,7 +24,13 @@ use crate::svg::TrajectoryRecorder;
 ///
 /// v5 adds `metrics.per_tier`, without which a report cannot be adjudicated
 /// against the M5 per-tier thresholds.
-pub const REPORT_SCHEMA_VERSION: u32 = 5;
+///
+/// v6 adds the scale-invariant replacements for the two M5 quality gates that
+/// were not scale-invariant: `distance_travelled_m` and the derived
+/// `stall_episodes_per_agent_km` in place of `stalled_agent_share`, and
+/// `deep_penetration_agent_ticks` in place of `max_penetration_depth`. The
+/// replaced fields are still reported; they are no longer gated.
+pub const REPORT_SCHEMA_VERSION: u32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SolverKind {

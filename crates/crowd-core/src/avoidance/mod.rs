@@ -100,7 +100,29 @@ pub(crate) fn sample_candidates(
     }
 }
 
-/// Preferred velocity scaled down by local crowding.
+/// Preferred velocity scaled down by local crowding, but never below
+/// `min_speed_fraction` of it.
+///
+/// `1/(1 + factor * crowding)` decays without bound, which looks like it
+/// should make jams self-sustaining: the agents that most need to move to
+/// relieve a cluster are the ones it slows most. The floor was added on that
+/// reasoning and the reasoning did not survive measurement, so it defaults to
+/// `0.0` — off.
+///
+/// Two findings, both from checked-in probes:
+///
+/// - The term is barely engaged in practice. `m5_crowding_distribution`
+///   measured the M5 scale fixture at max crowding 6 at 10K and 4 at 100K,
+///   with 99.9% of agent-ticks at two neighbours or fewer. A floor needs ~10
+///   before it binds. It is also capped from above regardless:
+///   `PerceiveConfig::budget` keeps 16 neighbours, so `crowding` saturates
+///   there and the strongest slowdown this can ever produce is 0.26.
+/// - Where it does bind, it hurts. On `dense_flow` a 0.35 floor cut stall
+///   episodes 19% but grew stall agent-ticks 40%, lengthening the mean episode
+///   from 84.8 to 147.6 ticks. Holding back in front of a blockage is doing
+///   useful work; flooring the speed drives agents into it instead.
+///
+/// Keep the parameter, leave it off. See `m5_density_floor_sweep`.
 pub(crate) fn density_adjusted_preferred(
     preferred: Vec2,
     position: Vec2,
@@ -108,6 +130,7 @@ pub(crate) fn density_adjusted_preferred(
     neighbors: &[NeighborState],
     personal_space: f32,
     density_speed_factor: f32,
+    min_speed_fraction: f32,
 ) -> Vec2 {
     let crowding = neighbors
         .iter()
@@ -116,7 +139,8 @@ pub(crate) fn density_adjusted_preferred(
             (n.position - position).length_squared() < clearance * clearance
         })
         .count() as f32;
-    preferred * (1.0 / (1.0 + density_speed_factor * crowding))
+    let scale = (1.0 / (1.0 + density_speed_factor * crowding)).max(min_speed_fraction);
+    preferred * scale
 }
 
 /// Whether `neighbor` is closing on `position` from roughly ahead, by

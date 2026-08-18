@@ -108,6 +108,16 @@ pub fn metric_map(summary: &MetricsSummary) -> BTreeMap<String, f64> {
         ("agents_ever_stalled", summary.agents_ever_stalled as f64),
         ("stall_episodes", summary.stall_episodes as f64),
         ("stall_agent_ticks", summary.stall_agent_ticks as f64),
+        ("distance_travelled_m", summary.distance_travelled_m),
+        ("penetration_episodes", summary.penetration_episodes as f64),
+        (
+            "deep_penetration_agent_ticks",
+            summary.deep_penetration_agent_ticks as f64,
+        ),
+        (
+            "penetration_depth_fraction_sum",
+            summary.penetration_depth_fraction_sum,
+        ),
         ("heading_reversals", summary.heading_reversals as f64),
         ("abrupt_turns", summary.abrupt_turns as f64),
         ("gate_crossings", summary.gate_crossings as f64),
@@ -137,6 +147,10 @@ fn tier_metric_entries(tier: &crowd_core::metrics::TierMetrics) -> Vec<(String, 
         ("agents_arrived", tier.agents_arrived as f64),
         ("completion_rate", tier.completion_rate as f64),
         ("agent_ticks", tier.agent_ticks as f64),
+        (
+            "contact_observed_agent_ticks",
+            tier.contact_observed_agent_ticks as f64,
+        ),
         ("penetration_pair_ticks", tier.penetration_pair_ticks as f64),
         (
             "penetration_agent_ticks",
@@ -147,9 +161,45 @@ fn tier_metric_entries(tier: &crowd_core::metrics::TierMetrics) -> Vec<(String, 
             tier.penetration_agent_ticks_per_agent_tick as f64,
         ),
         ("max_penetration_depth", tier.max_penetration_depth as f64),
+        ("penetration_episodes", tier.penetration_episodes as f64),
+        // Compared per partner tier: a shift in *who* a tier collides with is
+        // the signal these carry, and a summed value would hide it.
+        (
+            "penetration_with_s0_partner",
+            tier.penetration_with_s0_partner as f64,
+        ),
+        (
+            "penetration_with_s1_partner",
+            tier.penetration_with_s1_partner as f64,
+        ),
+        (
+            "penetration_with_s2_partner",
+            tier.penetration_with_s2_partner as f64,
+        ),
+        (
+            "penetration_with_s3_partner",
+            tier.penetration_with_s3_partner as f64,
+        ),
+        (
+            "deep_penetration_agent_ticks",
+            tier.deep_penetration_agent_ticks as f64,
+        ),
+        (
+            "deep_penetration_agent_ticks_per_agent_tick",
+            tier.deep_penetration_agent_ticks_per_agent_tick as f64,
+        ),
+        (
+            "mean_penetration_depth_fraction",
+            tier.mean_penetration_depth_fraction as f64,
+        ),
         ("agents_ever_stalled", tier.agents_ever_stalled as f64),
         ("stalled_agent_share", tier.stalled_agent_share as f64),
         ("stall_episodes", tier.stall_episodes as f64),
+        ("distance_travelled_m", tier.distance_travelled_m),
+        (
+            "stall_episodes_per_agent_km",
+            tier.stall_episodes_per_agent_km as f64,
+        ),
         ("stall_agent_ticks", tier.stall_agent_ticks as f64),
         (
             "stall_agent_ticks_per_agent_tick",
