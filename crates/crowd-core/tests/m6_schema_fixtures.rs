@@ -65,6 +65,10 @@ const FIXTURES: &[(&str, &str)] = &[
         "schemas/hero-integration-v1.schema.json",
         "assets/reference/m6/hero-integration-v1.json",
     ),
+    (
+        "schemas/motion-provenance-v1.schema.json",
+        "assets/reference/m6/motion-provenance-v1.json",
+    ),
 ];
 
 fn repository_root() -> PathBuf {

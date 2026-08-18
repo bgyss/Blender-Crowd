@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "asset_id": "reference-walk-metadata",
+  "source_uri": "repo://assets/reference/m6/motion-database-input-v1.json",
+  "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "license_id": "CC0-1.0",
+  "redistribution_allowed": true,
+  "terms_reference": "docs/m6-motion-data-policy.md",
+  "checkpoint_hash": null
+}

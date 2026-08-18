@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/motion-provenance-v1.schema.json",
+  "title": "Blender Crowd Motion Asset Provenance v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "asset_id", "source_uri", "content_hash", "license_id", "redistribution_allowed", "terms_reference"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "asset_id": { "type": "string", "minLength": 1 },
+    "source_uri": { "type": "string", "minLength": 1, "pattern": "^[^/~].*" },
+    "content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "license_id": { "type": "string", "minLength": 1 },
+    "redistribution_allowed": { "const": true },
+    "terms_reference": { "type": "string", "minLength": 1 },
+    "checkpoint_hash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+  }
+}

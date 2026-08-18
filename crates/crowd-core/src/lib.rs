@@ -31,6 +31,7 @@ pub mod phases;
 pub mod physics;
 pub mod presentation;
 pub mod project;
+pub mod provenance;
 pub mod rng;
 pub mod route;
 pub mod runtime_behavior;

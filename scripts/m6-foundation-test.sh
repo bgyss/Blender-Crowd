@@ -15,6 +15,7 @@ for fixture in \
     assets/reference/m6/interaction-request-v1.json \
     assets/reference/m6/motion-database-input-v1.json \
     assets/reference/m6/mixed-tier-v1.json \
+    assets/reference/m6/motion-provenance-v1.json \
     assets/reference/m6/perception-v1.json \
     assets/reference/m6/physics-transition-v1.json \
     assets/reference/m6/retarget-profile-v1.json \
