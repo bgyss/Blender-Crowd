@@ -171,6 +171,9 @@ Figma file:
   and explicit reduced-evidence states by tier.
 - [ ] Add reusable subgraphs/actions and presets.
 
+The independent-user M6 study must follow the [debugger study protocol](user/m6-debugger-study.md);
+automated Blender smoke is explicitly not sufficient for this gate.
+
 ### M7 — native Blender integration
 
 - [ ] Audit workspaces, editors, panels, operators, selection, undo, keymaps,

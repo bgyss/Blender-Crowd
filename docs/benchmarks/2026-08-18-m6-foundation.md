@@ -69,6 +69,8 @@ animation-layer artifact and never changes an authoritative interaction outcome.
 - The M6 UI gate still needs an independent user to author and repair the
   representative state-machine, utility, behavior-tree, motion/contact, and
   interaction failures, with discovery/repair timings and degraded-tier review.
+  The copy-ready [study protocol](../user/m6-debugger-study.md) defines that
+  evidence lane.
 - Full M6 completion remains open until every acceptance criterion in the M6
   contract has requirement-level evidence.
 
