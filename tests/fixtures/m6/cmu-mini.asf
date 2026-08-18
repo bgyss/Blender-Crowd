@@ -1,0 +1,40 @@
+:version 1.10
+:name cmu-mini
+:units
+mass 1.0
+length 0.03937007874015748
+angle deg
+:documentation
+Hand-checked fixture: one source length unit is one millimeter.
+:root
+order TX TY TZ RX RY RZ
+axis XYZ
+position 0 0 0
+orientation 0 0 0
+:bonedata
+begin
+id 1
+name lfoot
+direction 1 0 0
+length 16.6666666667
+axis 0 0 0 XYZ
+dof rx ry rz
+limits (-360 360)
+       (-360 360)
+       (-360 360)
+end
+begin
+id 2
+name rfoot
+direction 1 0 0
+length 16.6666666667
+axis 0 0 0 XYZ
+dof rx ry rz
+limits (-360 360)
+       (-360 360)
+       (-360 360)
+end
+:hierarchy
+begin
+root lfoot rfoot
+end

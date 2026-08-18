@@ -1,0 +1,104 @@
+{
+  "clip_count": 3,
+  "clip_metrics": [
+    {
+      "cross_cache_mutations": 0,
+      "id": "35_01_walk",
+      "joint_limit_violations": 1344,
+      "max_foot_slide_millimeters": 25,
+      "max_root_speed_error_millimeters_per_second": 1,
+      "max_trajectory_deviation_millimeters": 2,
+      "max_turn_discontinuity_microradians": 29341,
+      "parsed_frames": 358,
+      "rejected_frame_rate_ppm": 0,
+      "rejected_frames": 0,
+      "retarget_failures": 0,
+      "root_teleportations": 0,
+      "source_hash_drift": 0,
+      "undeclared_contacts": 0
+    },
+    {
+      "cross_cache_mutations": 0,
+      "id": "35_24_run",
+      "joint_limit_violations": 724,
+      "max_foot_slide_millimeters": 1,
+      "max_root_speed_error_millimeters_per_second": 1,
+      "max_trajectory_deviation_millimeters": 3,
+      "max_turn_discontinuity_microradians": 61911,
+      "parsed_frames": 150,
+      "rejected_frame_rate_ppm": 0,
+      "rejected_frames": 0,
+      "retarget_failures": 0,
+      "root_teleportations": 0,
+      "source_hash_drift": 0,
+      "undeclared_contacts": 0
+    },
+    {
+      "cross_cache_mutations": 0,
+      "id": "36_01_uneven_walk",
+      "joint_limit_violations": 1519,
+      "max_foot_slide_millimeters": 22,
+      "max_root_speed_error_millimeters_per_second": 1,
+      "max_trajectory_deviation_millimeters": 1,
+      "max_turn_discontinuity_microradians": 42494,
+      "parsed_frames": 557,
+      "rejected_frame_rate_ppm": 0,
+      "rejected_frames": 0,
+      "retarget_failures": 0,
+      "root_teleportations": 0,
+      "source_hash_drift": 0,
+      "undeclared_contacts": 0
+    }
+  ],
+  "contact_fraction_millionths": 828358,
+  "database_id": "cmu-mocap-subjects-35-36-m6-v1",
+  "fitted_profile": {
+    "authority": "deterministic-graph-and-clip-state",
+    "confidence_millionths": 1000000,
+    "jog_threshold_mps": 1.8,
+    "preferred_speed_mps": 0.2761731658760774
+  },
+  "hard_limit_observations": {
+    "cross_cache_mutations": 0,
+    "joint_limit_violations": 3587,
+    "root_teleportations": 0,
+    "source_hash_drift": 0,
+    "undeclared_contacts": 0
+  },
+  "mean_slope_millionths": 176941,
+  "mean_speed_mps": 0.2761731658760774,
+  "quality_metrics": {
+    "cross_cache_mutations": 0,
+    "joint_limit_violations": 3587,
+    "max_foot_slide_millimeters": 25,
+    "max_root_speed_error_millimeters_per_second": 1,
+    "max_trajectory_deviation_millimeters": 3,
+    "max_turn_discontinuity_microradians": 61911,
+    "parsed_frames": 1065,
+    "rejected_frame_rate_ppm": 0,
+    "rejected_frames": 0,
+    "retarget_failures": 0,
+    "root_teleportations": 0,
+    "source_hash_drift": 0,
+    "undeclared_contacts": 0
+  },
+  "retarget_profile_id": "cmu-acclaim-humanoid-v1",
+  "sample_count": 268,
+  "schema_version": 1,
+  "source_hash": "3a811a537a687687b0dcf621fcb3f5f36c1481d794cd1c1fb993480cdc6fd91b",
+  "source_hashes": {
+    "35_01_walk": "0743f4ea48e7e199cd56b2810b5ce81f8ede08d32ff79aa4e363c44cc4fe33aa",
+    "35_24_run": "29059fb2c15493983e4dccdf45453a495fb567dd28ff36cc1a0dbc02ad409445",
+    "35_skeleton": "2a8e2eda3c0d7d828566b2a9a8ab36b2b8b3864110574e8b73c8f069fded416c",
+    "36_01_uneven_walk": "882e9f8c35622c2e10e9a3f578b5e0e7033ceb53232f415640b47fc05f3c2fac",
+    "36_skeleton": "05e190867ead216b5dcdc94b210aa19b2eaaf383df44f1d9bb247e64fbf1c02b"
+  },
+  "source_manifest_id": "cmu-mocap-subjects-35-36-m6-v1",
+  "source_provenance": "CMU-Mocap-Free-All-Uses; Carnegie Mellon University Graphics Lab Motion Capture Database; raw redistribution disabled",
+  "threshold_baseline": {
+    "max_foot_slide_millimeters": 25,
+    "max_trajectory_deviation_millimeters": 3,
+    "max_turn_discontinuity_microradians": 61911,
+    "rejected_frame_rate_ppm": 0
+  }
+}

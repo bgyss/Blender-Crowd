@@ -13,6 +13,41 @@ from pathlib import Path
 
 
 SCHEMA_VERSION = 1
+MAXIMUM_METRICS = (
+    "max_root_speed_error_millimeters_per_second",
+    "max_foot_slide_millimeters",
+    "max_trajectory_deviation_millimeters",
+    "max_turn_discontinuity_microradians",
+    "rejected_frame_rate_ppm",
+)
+SUM_METRICS = (
+    "joint_limit_violations",
+    "retarget_failures",
+    "rejected_frames",
+    "parsed_frames",
+    "root_teleportations",
+    "undeclared_contacts",
+    "source_hash_drift",
+    "cross_cache_mutations",
+)
+
+
+def _validated_metrics(clip):
+    metrics = clip.get("metrics")
+    if metrics is None:
+        return None
+    if not isinstance(metrics, dict):
+        raise ValueError("motion clip {} metrics must be an object".format(clip["id"]))
+    expected = set(MAXIMUM_METRICS + SUM_METRICS)
+    if set(metrics) != expected:
+        raise ValueError("motion clip {} metrics do not match the M6 evidence contract".format(clip["id"]))
+    normalized = {}
+    for key in MAXIMUM_METRICS + SUM_METRICS:
+        value = metrics[key]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError("motion clip {} metric {} must be a non-negative integer".format(clip["id"], key))
+        normalized[key] = value
+    return normalized
 
 
 def build_database(database):
@@ -35,13 +70,15 @@ def build_database(database):
         samples = clip.get("samples", [])
         if not isinstance(samples, list):
             raise ValueError("motion clip {} samples must be a list".format(clip["id"]))
-        normalized.append(
-            {
-                "id": clip["id"],
-                "sample_count": len(samples),
-                "feature_channels": ["future_velocity", "contact", "slope"],
-            }
-        )
+        normalized_clip = {
+            "id": clip["id"],
+            "sample_count": len(samples),
+            "feature_channels": ["future_velocity", "contact", "slope"],
+        }
+        metrics = _validated_metrics(clip)
+        if metrics is not None:
+            normalized_clip["metrics"] = metrics
+        normalized.append(normalized_clip)
     normalized.sort(key=lambda clip: clip["id"])
     canonical = {
         "schema_version": SCHEMA_VERSION,
@@ -50,14 +87,33 @@ def build_database(database):
         "source_provenance": database["source_provenance"],
         "clips": normalized,
     }
+    if "source_manifest_id" in database:
+        if not isinstance(database["source_manifest_id"], str) or not database["source_manifest_id"]:
+            raise ValueError("motion database source manifest ID must be non-empty")
+        canonical["source_manifest_id"] = database["source_manifest_id"]
+    if "source_hashes" in database:
+        hashes = database["source_hashes"]
+        if not isinstance(hashes, dict) or not hashes:
+            raise ValueError("motion database source hashes must be a non-empty object")
+        for identity, digest in hashes.items():
+            if not isinstance(identity, str) or not identity or not isinstance(digest, str) or len(digest) != 64:
+                raise ValueError("motion database source hashes are invalid")
+        canonical["source_hashes"] = dict(sorted(hashes.items()))
     encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return {
+    report = {
         **canonical,
         "clip_ids": [clip["id"] for clip in normalized],
         "clip_count": len(normalized),
         "sample_count": sum(clip["sample_count"] for clip in normalized),
         "content_hash": hashlib.sha256(encoded).hexdigest(),
     }
+    measured = [clip["metrics"] for clip in normalized if "metrics" in clip]
+    if measured:
+        report["quality_metrics"] = {
+            **{key: max(metrics[key] for metrics in measured) for key in MAXIMUM_METRICS},
+            **{key: sum(metrics[key] for metrics in measured) for key in SUM_METRICS},
+        }
+    return report
 
 
 def main(argv=None):

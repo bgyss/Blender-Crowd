@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import math
 import tempfile
 from pathlib import Path
 import unittest
@@ -17,6 +18,8 @@ def database():
         "database_id": "reference",
         "retarget_profile_id": "reference-humanoid",
         "source_provenance": "redistributable-reference-metadata-v1",
+        "source_manifest_id": "cmu-test-v1",
+        "source_hashes": {"skeleton": "a" * 64, "walk-a": "b" * 64, "walk-b": "c" * 64},
         "clips": [
             {
                 "id": "walk-a",
@@ -24,12 +27,42 @@ def database():
                     {"tick": 0, "velocity_millimeters_per_second": [1000, 0], "contact": "left_foot", "slope_millionths": 0},
                     {"tick": 1, "velocity_millimeters_per_second": [1200, 0], "contact": "right_foot", "slope_millionths": 10000},
                 ],
+                "metrics": {
+                    "max_root_speed_error_millimeters_per_second": 1,
+                    "max_foot_slide_millimeters": 7,
+                    "max_trajectory_deviation_millimeters": 3,
+                    "max_turn_discontinuity_microradians": 900,
+                    "joint_limit_violations": 0,
+                    "retarget_failures": 0,
+                    "rejected_frames": 1,
+                    "parsed_frames": 9,
+                    "rejected_frame_rate_ppm": math.ceil(1_000_000 / 9),
+                    "root_teleportations": 0,
+                    "undeclared_contacts": 0,
+                    "source_hash_drift": 0,
+                    "cross_cache_mutations": 0,
+                },
             },
             {
                 "id": "walk-b",
                 "samples": [
                     {"tick": 0, "velocity_millimeters_per_second": [800, 0], "contact": "left_foot", "slope_millionths": 0},
                 ],
+                "metrics": {
+                    "max_root_speed_error_millimeters_per_second": 2,
+                    "max_foot_slide_millimeters": 5,
+                    "max_trajectory_deviation_millimeters": 4,
+                    "max_turn_discontinuity_microradians": 800,
+                    "joint_limit_violations": 0,
+                    "retarget_failures": 0,
+                    "rejected_frames": 0,
+                    "parsed_frames": 4,
+                    "rejected_frame_rate_ppm": 0,
+                    "root_teleportations": 0,
+                    "undeclared_contacts": 0,
+                    "source_hash_drift": 0,
+                    "cross_cache_mutations": 0,
+                },
             },
         ],
     }
@@ -68,6 +101,23 @@ class M6MotionEvaluationTest(unittest.TestCase):
             report = json.loads(output.read_text())
             self.assertEqual(report["database_id"], "reference")
             self.assertIn("confidence_millionths", report["fitted_profile"])
+
+    def test_evaluation_records_exact_hashes_and_observed_threshold_baseline(self):
+        report = m6_motion_evaluate.evaluate_database(database())
+        self.assertEqual(report["source_hashes"]["walk-a"], "b" * 64)
+        self.assertEqual(report["quality_metrics"]["max_foot_slide_millimeters"], 7)
+        self.assertEqual(report["quality_metrics"]["max_trajectory_deviation_millimeters"], 4)
+        self.assertEqual(report["quality_metrics"]["rejected_frame_rate_ppm"], 111112)
+        self.assertEqual(report["hard_limit_observations"]["joint_limit_violations"], 0)
+        self.assertEqual(
+            report["threshold_baseline"],
+            {
+                "max_foot_slide_millimeters": 7,
+                "max_trajectory_deviation_millimeters": 4,
+                "max_turn_discontinuity_microradians": 900,
+                "rejected_frame_rate_ppm": 111112,
+            },
+        )
 
 
 if __name__ == "__main__":

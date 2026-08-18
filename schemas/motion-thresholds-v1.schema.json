@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/motion-thresholds-v1.schema.json",
+  "title": "Blender Crowd Motion Thresholds v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "threshold_id", "adjudicated_on", "baseline_report", "source_manifest", "source_hashes", "hard_limits", "soft_limits", "policy"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "threshold_id": { "type": "string", "minLength": 1 },
+    "adjudicated_on": { "type": "string", "format": "date" },
+    "baseline_report": { "type": "string", "minLength": 1 },
+    "source_manifest": { "type": "string", "minLength": 1 },
+    "source_hashes": { "type": "object", "minProperties": 5, "maxProperties": 5, "additionalProperties": { "$ref": "#/$defs/hash" } },
+    "hard_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root_teleportations", "undeclared_contacts", "source_hash_drift", "cross_cache_mutations", "joint_limit_violations"],
+      "properties": {
+        "root_teleportations": { "const": 0 },
+        "undeclared_contacts": { "const": 0 },
+        "source_hash_drift": { "const": 0 },
+        "cross_cache_mutations": { "const": 0 },
+        "joint_limit_violations": { "const": 0 }
+      }
+    },
+    "soft_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_foot_slide_millimeters", "max_trajectory_deviation_millimeters", "max_turn_discontinuity_microradians", "rejected_frame_rate_ppm"],
+      "properties": {
+        "max_foot_slide_millimeters": { "$ref": "#/$defs/measured_limit" },
+        "max_trajectory_deviation_millimeters": { "$ref": "#/$defs/measured_limit" },
+        "max_turn_discontinuity_microradians": { "$ref": "#/$defs/measured_limit" },
+        "rejected_frame_rate_ppm": { "$ref": "#/$defs/measured_limit" }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["soft_limit_rule", "additional_headroom", "loosening_requires_new_dated_adjudication"],
+      "properties": {
+        "soft_limit_rule": { "const": "integer-ceiling-of-maximum-observed-baseline" },
+        "additional_headroom": { "const": 0 },
+        "loosening_requires_new_dated_adjudication": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "measured_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "limit"],
+      "properties": {
+        "baseline": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
