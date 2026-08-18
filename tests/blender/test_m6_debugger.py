@@ -23,8 +23,14 @@ def require(condition, message):
 
 
 def main():
-    addon_utils.enable(EXTENSION, default_set=True)
-    from bl_ext.user_default.blender_crowd import m6_debugger
+    if os.environ.get("CROWD_SOURCE_ADDON"):
+        from addon import blender_crowd
+
+        blender_crowd.register()
+        from addon.blender_crowd import m6_debugger
+    else:
+        addon_utils.enable(EXTENSION, default_set=True)
+        from bl_ext.user_default.blender_crowd import m6_debugger
 
     props = bpy.context.scene.crowd_project
     props.selected_agent_id = "7"

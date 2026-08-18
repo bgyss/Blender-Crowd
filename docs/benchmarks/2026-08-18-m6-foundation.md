@@ -29,7 +29,7 @@ and the independent-user UI study.
 | `cargo test --workspace` | INCOMPLETE | The current run passed benchmark/cache/Blender-native/core unit/authoring/determinism suites, then was interrupted during the repository's long `fuzz_density` lane; no full-workspace pass is claimed |
 | `cargo test --release -p crowd-core --test fuzz_density` | PASS | All 4 prescribed density-fuzz tests passed in the optimized release lane (507.46s) |
 | `cargo test --workspace --release` | PASS | Full optimized workspace suite passed, including all non-ignored M6 tests, doc tests, and the density-fuzz lane; intentionally ignored long M1/M2/M5 acceptance tests remain separate gates |
-| `scripts/m6-blender-test.sh` | BLOCKED | The installed arm64 Blender 5.2.0 process aborts before Python startup during Metal GPU backend detection; startup also reports USD `ARCH_CACHE_LINE_SIZE != Arch_ObtainCacheLineSize()`; no Blender UI/runtime claim is made |
+| `scripts/m6-blender-test.sh` | PASS | Blender 5.2.0 LTS loaded the current source add-on and freshly built abi3 native wheel with normal host Metal access; trace inspection and graph search passed. A restricted-sandbox launch reproduced the pre-Python Metal abort, and a host launch against the stale installed extension reproduced the old-package `ImportError`, confirming both runner safeguards are necessary |
 | `scripts/m6-acceptance.sh` | OPEN BY DESIGN | The audit passes the deterministic foundation and reports the unproven production, Blender, R1-R4, independent-user, and full-workspace gates; it exits nonzero unless `M6_ALLOW_OPEN=1` is explicitly set |
 | `python3 -m unittest -q tests/test_m6_extensions.py tests/test_m6_interaction_layers.py tests/test_m6_debugger.py tests/test_m6_motion_database.py tests/test_m6_motion_evaluation.py tests/test_m6_physics_boundaries.py` | PASS | 23 pure-Python extension, persistence, debugger, motion-build/evaluation, and physics-boundary tests passed |
 | `python3 -m py_compile scripts/m6_motion_build.py scripts/m6_motion_evaluate.py addon/blender_crowd/m6_debugger.py addon/blender_crowd/m6_extensions.py addon/blender_crowd/m6_interaction.py addon/blender_crowd/m6_physics.py addon/blender_crowd/operators.py addon/blender_crowd/panels.py addon/blender_crowd/properties.py` | PASS | Blender-facing Python syntax checked without requiring a Blender process |
@@ -49,7 +49,7 @@ and the independent-user UI study.
 | Interaction R0 | Versioned request/response schemas, strict validation, deterministic paired baseline, atomic group promotion/locking, out-of-process worker, fallback provenance, removable layer, cross-cache isolation, and model-absent response generation | R0 local exit evidence passes |
 | Physics/hero boundary | Versioned transition and recovery declarations with solver/cache/failure ownership | Boundary validation only; no Blender physics/cloth/hair acceptance |
 | Extensions | Versioned channels, declared inputs/outputs, cost budgets, deterministic mode, failure isolation, and matching Rust/Python facades | Contract tests pass; no external studio API compatibility claim |
-| Debugger | Pure trace summary/search model, Blender properties/panels/operators, trace-to-node path, and reduced-evidence text | Automated surface proof only; independent-user UI gate remains open |
+| Debugger | Pure trace summary/search model, Blender properties/panels/operators, trace-to-node path, reduced-evidence text, and passing Blender 5.2 source-add-on smoke | Automated Blender surface proof; independent-user UI gate remains open |
 
 ## R0 acceptance mapping
 
