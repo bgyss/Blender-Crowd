@@ -8,6 +8,7 @@ from pathlib import Path
 
 import addon_utils
 import bpy
+import blender_crowd_native
 
 
 EXTENSION = "bl_ext.user_default.blender_crowd"
@@ -119,6 +120,8 @@ def main():
             {node["id"] for node in serialized["nodes"]} == {"north::root", "north::leave", "north::hold"},
             "preset graph did not remain bounded and namespaced",
         )
+        compiled = blender_crowd_native.compile_behavior_graph(json.dumps(serialized, sort_keys=True))
+        require(compiled["node_count"] == 3, "preset graph did not compile through Rust")
     print("M6 debugger Blender smoke: PASS")
     bpy.ops.wm.quit_blender()
 

@@ -18,6 +18,10 @@ const FIXTURES: &[(&str, &str)] = &[
         "assets/reference/m6/brain-v1.json",
     ),
     (
+        "schemas/brain-library-v1.schema.json",
+        "assets/reference/m6/brain-library-v1.json",
+    ),
+    (
         "schemas/activity-v1.schema.json",
         "assets/reference/m6/activity-v1.json",
     ),
@@ -114,6 +118,23 @@ fn m6_interaction_schema_rejects_unknown_fields() {
         .validate(&fixture)
         .expect_err("unknown interaction fields must be rejected");
     assert!(error.to_string().contains("unexpected"));
+}
+
+#[test]
+fn m6_brain_library_schema_rejects_a_source_code_field() {
+    let root = repository_root();
+    let schema = read_json(&root.join("schemas/brain-library-v1.schema.json"));
+    let mut fixture = read_json(&root.join("assets/reference/m6/brain-library-v1.json"));
+    fixture["actions"][0]
+        .as_object_mut()
+        .expect("brain library action")
+        .insert("source_code".to_owned(), Value::String("print('no')".to_owned()));
+
+    let error = validator_for(&schema)
+        .expect("brain library schema")
+        .validate(&fixture)
+        .expect_err("brain library source-code fields must be rejected");
+    assert!(error.to_string().contains("source_code"));
 }
 
 #[test]

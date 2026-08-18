@@ -5,14 +5,16 @@
     {
       "id": "hold_position",
       "channel": "locomotion",
-      "parameters": []
+      "parameters": [],
+      "node": { "type": "hold_position" }
     },
     {
       "id": "leave",
       "channel": "navigation",
       "parameters": [
         { "id": "destination", "type": "stable_id" }
-      ]
+      ],
+      "node": { "type": "navigate", "destination_id": "$destination" }
     }
   ],
   "subgraphs": [
@@ -25,7 +27,7 @@
       "nodes": [
         {
           "id": "root",
-          "type": "utility_selector",
+          "type": "selector",
           "children": ["leave", "hold"]
         },
         {

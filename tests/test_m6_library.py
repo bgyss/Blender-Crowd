@@ -20,11 +20,13 @@ LIBRARY = {
             "id": "hold_position",
             "channel": "locomotion",
             "parameters": [],
+            "node": {"type": "hold_position"},
         },
         {
             "id": "leave",
             "channel": "navigation",
             "parameters": [{"id": "destination", "type": "stable_id"}],
+            "node": {"type": "navigate", "destination_id": "$destination"},
         },
     ],
     "subgraphs": [
@@ -33,7 +35,7 @@ LIBRARY = {
             "entry_id": "root",
             "parameters": [{"id": "destination", "type": "stable_id"}],
             "nodes": [
-                {"id": "root", "type": "utility_selector", "children": ["leave", "hold"]},
+                {"id": "root", "type": "selector", "children": ["leave", "hold"]},
                 {
                     "id": "leave",
                     "type": "navigate",
@@ -71,10 +73,17 @@ class M6LibraryTest(unittest.TestCase):
         self.assertEqual([node["id"] for node in first["nodes"]], ["north::hold", "north::leave", "north::root"])
         self.assertEqual([action["id"] for action in first["actions"]], ["north::hold_position", "north::leave"])
         nodes = {node["id"]: node for node in first["nodes"]}
-        self.assertEqual(nodes["north::root"]["children"], ["north::leave", "north::hold"])
-        self.assertEqual(nodes["north::hold"]["action_id"], "north::hold_position")
-        self.assertEqual(nodes["north::leave"]["action_id"], "north::leave")
-        self.assertEqual(nodes["north::leave"]["parameters"], {"destination": "exit_n"})
+        self.assertEqual(nodes["north::root"], {
+            "id": "north::root",
+            "type": "selector",
+            "children": ["north::leave", "north::hold"],
+        })
+        self.assertEqual(nodes["north::hold"], {"id": "north::hold", "type": "hold_position"})
+        self.assertEqual(nodes["north::leave"], {
+            "id": "north::leave",
+            "type": "navigate",
+            "destination_id": "exit_n",
+        })
 
     def test_library_rejects_unbounded_or_undeclared_data(self):
         cases = [

@@ -24,9 +24,11 @@ NODE_TYPES = {
     "navigate",
     "wait",
     "queue",
+    "action",
     "follow_lane",
     "hold_position",
 }
+ACTION_TEMPLATE_TYPES = {"navigate", "wait", "queue", "reserve", "action", "follow_lane", "hold_position"}
 _FORBIDDEN_FIELD_NAMES = {"callback", "runtime_callback", "source_code", "source-code", "script"}
 
 
@@ -79,17 +81,13 @@ def instantiate_preset(value, preset_id, instance_id, parameters):
 
     namespaced_nodes = []
     for node in subgraph["nodes"]:
-        emitted = copy.deepcopy(node)
+        action = actions_by_id.get(node.get("action_id"))
+        emitted = copy.deepcopy(action["node"] if action is not None else node)
         emitted["id"] = _namespace(instance_id, node["id"])
-        if "children" in emitted:
-            emitted["children"] = [_namespace(instance_id, child) for child in emitted["children"]]
-        if "action_id" in emitted:
-            emitted["action_id"] = _namespace(instance_id, emitted["action_id"])
-        if "parameters" in emitted:
-            emitted["parameters"] = {
-                key: _substitute_parameter(parameter_value, resolved_parameters)
-                for key, parameter_value in emitted["parameters"].items()
-            }
+        _namespace_node_references(emitted, instance_id)
+        _substitute_node_parameters(emitted, resolved_parameters)
+        emitted.pop("parameters", None)
+        emitted.pop("action_id", None)
         namespaced_nodes.append(emitted)
 
     namespaced_nodes.sort(key=lambda node: node["id"])
@@ -108,12 +106,16 @@ def _validate_actions(actions):
     by_id = {}
     for action in actions:
         _require_mapping(action, "action")
-        _require_exact_keys(action, {"id", "channel", "parameters"}, "action")
+        _require_exact_keys(action, {"id", "channel", "parameters", "node"}, "action")
         _require_id(action["id"], "action ID")
         _require_id(action["channel"], "action channel")
         if action["id"] in by_id:
             raise ValueError("duplicate action ID {}".format(action["id"]))
-        _validate_parameters(action["parameters"], "action {}".format(action["id"]))
+        parameters = _parameter_map(
+            _validate_parameters(action["parameters"], "action {}".format(action["id"])),
+            "action {}".format(action["id"]),
+        )
+        _validate_action_template(action["node"], parameters, action["id"])
         by_id[action["id"]] = action
     return by_id
 
@@ -205,6 +207,30 @@ def _validate_node_action_parameters(node, action, subgraph_parameters):
             raise ValueError("node {} parameter {} has invalid type".format(node["id"], name))
 
 
+def _validate_action_template(template, parameters, action_id):
+    _require_mapping(template, "action {} node template".format(action_id))
+    template_type = template.get("type")
+    if template_type not in ACTION_TEMPLATE_TYPES:
+        raise ValueError("action {} has unsupported node template {}".format(action_id, template_type))
+    required = {
+        "navigate": {"type", "destination_id"},
+        "wait": {"type", "ticks"},
+        "queue": {"type", "queue_id"},
+        "reserve": {"type", "resource_id", "priority"},
+        "action": {"type", "action_id"},
+        "follow_lane": {"type", "lane_id"},
+        "hold_position": {"type"},
+    }[template_type]
+    _require_exact_keys(template, required, "action {} node template".format(action_id))
+    for value in template.values():
+        if isinstance(value, str) and value.startswith("$") and value[1:] not in parameters:
+            raise ValueError("action {} references undeclared parameter {}".format(action_id, value[1:]))
+    if template_type == "wait" and (not isinstance(template["ticks"], int) or template["ticks"] < 1):
+        raise ValueError("action {} wait template requires positive ticks".format(action_id))
+    if template_type == "reserve" and not isinstance(template["priority"], int):
+        raise ValueError("action {} reserve template requires integer priority".format(action_id))
+
+
 def _validate_parameters(parameters, owner):
     _require_list(parameters, "{} parameters".format(owner))
     seen = set()
@@ -250,6 +276,31 @@ def _substitute_parameter(value, parameters):
     if isinstance(value, str) and value.startswith("$"):
         return parameters[value[1:]]
     return value
+
+
+def _substitute_node_parameters(node, parameters):
+    for key, value in list(node.items()):
+        if isinstance(value, dict):
+            _substitute_node_parameters(value, parameters)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    _substitute_node_parameters(item, parameters)
+        else:
+            node[key] = _substitute_parameter(value, parameters)
+
+
+def _namespace_node_references(node, instance_id):
+    if "children" in node:
+        node["children"] = [_namespace(instance_id, child) for child in node["children"]]
+    if "child" in node:
+        node["child"] = _namespace(instance_id, node["child"])
+    if "fallback" in node:
+        node["fallback"] = _namespace(instance_id, node["fallback"])
+    for option in node.get("options", []):
+        option["child"] = _namespace(instance_id, option["child"])
+    for branch in node.get("branches", []):
+        branch["child"] = _namespace(instance_id, branch["child"])
 
 
 def _namespace(instance_id, identifier):

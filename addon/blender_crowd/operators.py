@@ -936,12 +936,16 @@ class CROWD_OT_apply_m6_brain_preset(Operator):
                 parameters,
             )
             behavior_editor.ensure_reference_tree(graph)
+            serialized = behavior_editor.graph_from_tree()
+            compiled = blender_crowd_native.compile_behavior_graph(
+                json.dumps(serialized, sort_keys=True, separators=(",", ":"))
+            )
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
             props.status = "M6 preset invalid: {}".format(error)
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
-        props.status = "M6 preset applied: {} as {}".format(
-            props.m6_brain_preset_id, props.m6_brain_instance_id
+        props.status = "M6 preset applied: {} as {} ({} nodes)".format(
+            props.m6_brain_preset_id, props.m6_brain_instance_id, compiled["node_count"]
         )
         self.report({"INFO"}, props.status)
         return {"FINISHED"}

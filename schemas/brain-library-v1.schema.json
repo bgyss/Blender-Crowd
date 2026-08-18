@@ -26,12 +26,24 @@
     "action": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "channel", "parameters"],
+      "required": ["id", "channel", "parameters", "node"],
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "channel": { "$ref": "#/$defs/id" },
-        "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } }
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } },
+        "node": { "$ref": "#/$defs/action_node_template" }
       }
+    },
+    "action_node_template": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["type", "destination_id"], "properties": { "type": { "const": "navigate" }, "destination_id": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "ticks"], "properties": { "type": { "const": "wait" }, "ticks": { "type": "integer", "minimum": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "queue_id"], "properties": { "type": { "const": "queue" }, "queue_id": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "resource_id", "priority"], "properties": { "type": { "const": "reserve" }, "resource_id": { "type": "string", "minLength": 1 }, "priority": { "type": "integer" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "action_id"], "properties": { "type": { "const": "action" }, "action_id": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "lane_id"], "properties": { "type": { "const": "follow_lane" }, "lane_id": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "const": "hold_position" } } }
+      ]
     },
     "node": {
       "type": "object",
@@ -43,7 +55,7 @@
           "enum": [
             "selector", "sequence", "fallback", "utility_selector", "state_switch",
             "interrupt", "timer", "probability", "event", "blackboard_compare",
-            "navigate", "wait", "queue", "follow_lane", "hold_position"
+            "navigate", "wait", "queue", "action", "follow_lane", "hold_position"
           ]
         },
         "children": { "type": "array", "items": { "$ref": "#/$defs/id" } },
