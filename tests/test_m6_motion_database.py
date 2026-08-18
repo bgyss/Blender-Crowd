@@ -81,12 +81,12 @@ class M6MotionDatabaseTest(unittest.TestCase):
                         "rejected_frames": 1,
                         "parsed_frames": 10,
                         "rejected_frame_rate_ppm": 100000,
-                        "undeclared_contacts": 0,
                         "source_hash_drift": 0,
                     },
                     "evidence": {
                         "retarget_failures": {"status": "not_applicable", "reason": "no retarget"},
                         "root_teleportations": {"status": "not_applicable", "reason": "no runtime transition"},
+                        "undeclared_contacts": {"status": "not_applicable", "reason": "no independent contacts"},
                         "cross_cache_mutations": {"status": "not_applicable", "reason": "no cache"},
                     },
                 }

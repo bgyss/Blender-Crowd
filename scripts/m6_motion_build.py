@@ -24,16 +24,22 @@ SUM_METRICS = (
     "joint_limit_violations",
     "rejected_frames",
     "parsed_frames",
-    "undeclared_contacts",
     "source_hash_drift",
 )
-NOT_APPLICABLE_EVIDENCE = ("retarget_failures", "root_teleportations", "cross_cache_mutations")
+NOT_APPLICABLE_EVIDENCE = (
+    "retarget_failures",
+    "root_teleportations",
+    "undeclared_contacts",
+    "cross_cache_mutations",
+)
 
 
 def _validated_metrics(clip):
     metrics = clip.get("metrics")
     if metrics is None:
         return None
+    if isinstance(metrics, dict) and "undeclared_contacts" in metrics:
+        raise ValueError("undeclared_contacts requires independent evidence and is not measured by source ingestion")
     if not isinstance(metrics, dict):
         raise ValueError("motion clip {} metrics must be an object".format(clip["id"]))
     expected = set(MAXIMUM_METRICS + SUM_METRICS)

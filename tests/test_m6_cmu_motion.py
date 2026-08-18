@@ -95,7 +95,7 @@ class FakeOpener:
 
 
 class M6CmuMotionTest(unittest.TestCase):
-    def test_forward_kinematics_honors_fixed_axis_and_declared_rotation_order(self):
+    def test_forward_kinematics_preserves_xyz_values_under_permuted_orders(self):
         ingest = load_script("m6_cmu_motion_ingest")
         skeleton = {
             "length_scale_mm": 1.0,
@@ -124,11 +124,11 @@ class M6CmuMotionTest(unittest.TestCase):
         }
         _, root_rotation, endpoints, _ = ingest._frame_world(skeleton, frame)
         expected_root = (
-            (0.8602446943023864, -0.3449214726185835, 0.3755106438587611),
-            (0.5073393335340475, 0.5055825889928195, -0.6978488707138145),
-            (0.05085141663535128, 0.7908321082467159, 0.6099169697526315),
+            (0.8027588832811212, -0.34991263847893106, 0.4828450276703281),
+            (0.5855522024605384, 0.6156378662204942, -0.5273695439339379),
+            (-0.11272441397878141, 0.7060815555643624, 0.6991008821228523),
         )
-        expected_endpoint = (0.06474872005615889, 9.92821845960343, 1.1942720886133016)
+        expected_endpoint = (3.0687283404321852, 9.499289012003814, -0.5885699950319878)
         for actual_row, expected_row in zip(root_rotation, expected_root):
             for actual, expected in zip(actual_row, expected_row):
                 self.assertAlmostEqual(actual, expected, places=12)
@@ -292,7 +292,6 @@ class M6CmuMotionTest(unittest.TestCase):
                 "rejected_frames",
                 "parsed_frames",
                 "rejected_frame_rate_ppm",
-                "undeclared_contacts",
                 "source_hash_drift",
             },
         )
@@ -301,18 +300,18 @@ class M6CmuMotionTest(unittest.TestCase):
             {
                 "retarget_failures": "not_applicable",
                 "root_teleportations": "not_applicable",
+                "undeclared_contacts": "not_applicable",
                 "cross_cache_mutations": "not_applicable",
             },
         )
-        mismatched = [{"tick": 0, "contact": "left_foot"}, {"tick": 1, "contact": "none"}]
-        self.assertEqual(ingest._count_undeclared_contacts(mismatched, [], []), 1)
 
         report = evaluate.evaluate_database(database)
         self.assertEqual(
             set(report["hard_limit_observations"]),
-            {"undeclared_contacts", "source_hash_drift", "joint_limit_violations"},
+            {"source_hash_drift", "joint_limit_violations"},
         )
-        self.assertEqual(report["hard_limit_evidence"]["undeclared_contacts"], {"status": "measured", "observed": 0})
+        self.assertEqual(report["hard_limit_evidence"]["undeclared_contacts"]["status"], "not_applicable")
+        self.assertNotIn("observed", report["hard_limit_evidence"]["undeclared_contacts"])
         self.assertEqual(report["hard_limit_evidence"]["root_teleportations"]["status"], "not_applicable")
         self.assertNotIn("observed", report["hard_limit_evidence"]["root_teleportations"])
         self.assertEqual(report["retarget_evidence"]["status"], "not_applicable")
@@ -324,8 +323,8 @@ class M6CmuMotionTest(unittest.TestCase):
         expected_hashes = {entry["id"]: entry["sha256"] for entry in source["files"]}
         self.assertEqual(thresholds["source_hashes"], expected_hashes)
         self.assertEqual(report["source_hashes"], expected_hashes)
-        measured = {"undeclared_contacts", "source_hash_drift", "joint_limit_violations"}
-        unmeasured = {"root_teleportations", "cross_cache_mutations"}
+        measured = {"source_hash_drift", "joint_limit_violations"}
+        unmeasured = {"root_teleportations", "undeclared_contacts", "cross_cache_mutations"}
         self.assertEqual(set(report["hard_limit_observations"]), measured)
         for name in measured:
             self.assertEqual(

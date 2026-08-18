@@ -36,12 +36,12 @@ def database():
                     "rejected_frames": 1,
                     "parsed_frames": 9,
                     "rejected_frame_rate_ppm": math.ceil(1_000_000 / 9),
-                    "undeclared_contacts": 0,
                     "source_hash_drift": 0,
                 },
                 "evidence": {
                     "retarget_failures": {"status": "not_applicable", "reason": "no retarget"},
                     "root_teleportations": {"status": "not_applicable", "reason": "no runtime transition"},
+                    "undeclared_contacts": {"status": "not_applicable", "reason": "no independent contacts"},
                     "cross_cache_mutations": {"status": "not_applicable", "reason": "no cache"},
                 },
             },
@@ -59,12 +59,12 @@ def database():
                     "rejected_frames": 0,
                     "parsed_frames": 4,
                     "rejected_frame_rate_ppm": 0,
-                    "undeclared_contacts": 0,
                     "source_hash_drift": 0,
                 },
                 "evidence": {
                     "retarget_failures": {"status": "not_applicable", "reason": "no retarget"},
                     "root_teleportations": {"status": "not_applicable", "reason": "no runtime transition"},
+                    "undeclared_contacts": {"status": "not_applicable", "reason": "no independent contacts"},
                     "cross_cache_mutations": {"status": "not_applicable", "reason": "no cache"},
                 },
             },
@@ -94,6 +94,13 @@ class M6MotionEvaluationTest(unittest.TestCase):
         payload = database()
         payload["source_provenance"] = ""
         with self.assertRaisesRegex(ValueError, "provenance"):
+            m6_motion_evaluate.evaluate_database(payload)
+
+    def test_evaluation_rejects_numeric_undeclared_contact_evidence(self):
+        payload = database()
+        for clip in payload["clips"]:
+            clip["metrics"]["undeclared_contacts"] = 0
+        with self.assertRaisesRegex(ValueError, "undeclared_contacts"):
             m6_motion_evaluate.evaluate_database(payload)
 
     def test_cli_writes_a_reviewable_profile_fitting_report(self):

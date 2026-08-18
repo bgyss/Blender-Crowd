@@ -26,6 +26,10 @@ NOT_APPLICABLE_EVIDENCE = {
         "status": "not_applicable",
         "reason": "source ingestion does not execute runtime root transitions",
     },
+    "undeclared_contacts": {
+        "status": "not_applicable",
+        "reason": "source ingestion has no independent contact observation source",
+    },
     "cross_cache_mutations": {
         "status": "not_applicable",
         "reason": "source ingestion does not read or write runtime caches",
@@ -65,8 +69,12 @@ def _rotation(axis, radians):
 
 
 def _euler(values, order, degrees=True):
+    if len(values) != 3:
+        raise ValueError("Euler values must be the XYZ triplet")
+    by_axis = dict(zip("XYZ", values))
     matrix = _identity()
-    for axis, value in zip(order, values):
+    for axis in order:
+        value = by_axis[axis]
         angle = math.radians(value) if degrees else value
         matrix = _matmul(_rotation(axis, angle), matrix)
     return matrix
@@ -275,7 +283,7 @@ def _frame_world(skeleton, frame):
     translation = tuple(root_values["T" + axis] * skeleton["length_scale_mm"] for axis in "XYZ")
     root_position = _add(skeleton["root_position"], translation)
     motion_order = "".join(channel[1] for channel in skeleton["root_order"] if channel.startswith("R"))
-    motion_angles = [root_values["R" + axis] for axis in motion_order]
+    motion_angles = tuple(root_values["R" + axis] for axis in "XYZ")
     root_rotation = _matmul(
         _euler(skeleton["root_orientation"], skeleton["root_axis"]),
         _euler(motion_angles, motion_order),
@@ -298,7 +306,8 @@ def _frame_world(skeleton, frame):
             axis_matrix = _euler(bone["axis"], bone["axis_order"])
             dof_angles = {channel[1].upper(): value for channel, value in zip(bone["dof"], values) if channel.startswith("r")}
             dof_order = "".join(channel[1].upper() for channel in bone["dof"] if channel.startswith("r"))
-            dof_matrix = _euler([dof_angles[axis] for axis in dof_order], dof_order) if dof_order else _identity()
+            dof_xyz = tuple(dof_angles.get(axis, 0.0) for axis in "XYZ")
+            dof_matrix = _euler(dof_xyz, dof_order) if dof_order else _identity()
             local_rotation = _matmul(_matmul(axis_matrix, dof_matrix), _transpose(axis_matrix))
             rotation = _matmul(parent_rotation, local_rotation)
             rotations[name] = rotation
@@ -351,20 +360,6 @@ def _max_foot_slide(samples, key, windows):
             for right in range(left + 1, len(positions)):
                 maximum = max(maximum, _distance_horizontal(positions[left], positions[right]))
     return _ceil_metric(maximum)
-
-
-def _count_undeclared_contacts(samples, left_windows, right_windows):
-    left_ticks = {tick for start, end in left_windows for tick in range(start, end + 1)}
-    right_ticks = {tick for start, end in right_windows for tick in range(start, end + 1)}
-    mismatches = 0
-    for sample in samples:
-        tick = sample["tick"]
-        left = tick in left_ticks
-        right = tick in right_ticks
-        expected = "both_feet" if left and right else "left_foot" if left else "right_foot" if right else "none"
-        if sample.get("contact") != expected:
-            mismatches += 1
-    return mismatches
 
 
 def _reconstructed_position(source_frame, retained):
@@ -476,7 +471,6 @@ def _ingest_validated(asf_path, amc_paths, manifest):
             left = sample["tick"] in left_ticks
             right = sample["tick"] in right_ticks
             sample["contact"] = "both_feet" if left and right else "left_foot" if left else "right_foot" if right else "none"
-        undeclared_contacts = _count_undeclared_contacts(samples, left_windows, right_windows)
         trajectory_deviation = 0.0
         for frame in world_frames:
             reconstructed = _reconstructed_position(frame["source_frame"], retained)
@@ -509,7 +503,6 @@ def _ingest_validated(asf_path, amc_paths, manifest):
                     "rejected_frames": len(rejected),
                     "parsed_frames": parsed_count,
                     "rejected_frame_rate_ppm": rejected_rate,
-                    "undeclared_contacts": undeclared_contacts,
                     "source_hash_drift": 0,
                 },
                 "evidence": {name: dict(evidence) for name, evidence in NOT_APPLICABLE_EVIDENCE.items()},

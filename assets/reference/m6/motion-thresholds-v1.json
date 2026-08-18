@@ -17,7 +17,11 @@
       "evidence_status": "not_applicable",
       "reason": "source ingestion does not execute runtime root transitions"
     },
-    "undeclared_contacts": { "limit": 0, "evidence_status": "measured", "baseline": 0 },
+    "undeclared_contacts": {
+      "limit": 0,
+      "evidence_status": "not_applicable",
+      "reason": "source ingestion has no independent contact observation source"
+    },
     "source_hash_drift": { "limit": 0, "evidence_status": "measured", "baseline": 0 },
     "cross_cache_mutations": {
       "limit": 0,

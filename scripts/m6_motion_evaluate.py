@@ -20,12 +20,16 @@ MAXIMUM_METRICS = (
     "rejected_frame_rate_ppm",
 )
 HARD_MEASURED_METRICS = (
-    "undeclared_contacts",
     "source_hash_drift",
     "joint_limit_violations",
 )
 SUM_METRICS = HARD_MEASURED_METRICS + ("rejected_frames", "parsed_frames")
-NOT_APPLICABLE_EVIDENCE = ("retarget_failures", "root_teleportations", "cross_cache_mutations")
+NOT_APPLICABLE_EVIDENCE = (
+    "retarget_failures",
+    "root_teleportations",
+    "undeclared_contacts",
+    "cross_cache_mutations",
+)
 SOFT_METRICS = (
     "max_foot_slide_millimeters",
     "max_trajectory_deviation_millimeters",
@@ -38,6 +42,8 @@ def _validated_metrics(clip):
     metrics = clip.get("metrics")
     if metrics is None:
         return None
+    if isinstance(metrics, dict) and "undeclared_contacts" in metrics:
+        raise ValueError("undeclared_contacts requires independent evidence and is not measured by source ingestion")
     expected = set(MAXIMUM_METRICS + SUM_METRICS)
     if not isinstance(metrics, dict) or set(metrics) != expected:
         raise ValueError("motion clip {} metrics do not match the M6 evidence contract".format(clip.get("id", "<unknown>")))
@@ -169,7 +175,7 @@ def evaluate_database(database):
         report["hard_limit_observations"] = {key: quality_metrics[key] for key in HARD_MEASURED_METRICS}
         report["hard_limit_evidence"] = {
             "root_teleportations": clip_evidence[0]["root_teleportations"],
-            "undeclared_contacts": {"status": "measured", "observed": quality_metrics["undeclared_contacts"]},
+            "undeclared_contacts": clip_evidence[0]["undeclared_contacts"],
             "source_hash_drift": {"status": "measured", "observed": quality_metrics["source_hash_drift"]},
             "cross_cache_mutations": clip_evidence[0]["cross_cache_mutations"],
             "joint_limit_violations": {"status": "measured", "observed": quality_metrics["joint_limit_violations"]},
