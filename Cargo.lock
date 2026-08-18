@@ -149,6 +149,7 @@ dependencies = [
  "crowd-cache",
  "crowd-core",
  "crowd-trace",
+ "jsonschema",
  "serde",
  "serde_json",
  "tempfile",

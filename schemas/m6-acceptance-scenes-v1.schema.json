@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/m6-acceptance-scenes-v1.schema.json",
+  "title": "Blender Crowd Integrated M6 Acceptance Scene Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "fixture_id", "hash_algorithm", "fixture_hash",
+    "motion_report_hash", "motion_source_selection", "scenes",
+    "deterministic_replay_hash", "hard_safety_passed", "fallback_count",
+    "unrelated_agent_mutations", "passed", "reasons"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "fixture_id": { "type": "string", "minLength": 1 },
+    "hash_algorithm": { "const": "blake3" },
+    "fixture_hash": { "$ref": "#/$defs/hash" },
+    "motion_report_hash": { "$ref": "#/$defs/hash" },
+    "motion_source_selection": { "$ref": "#/$defs/motion_source_selection" },
+    "scenes": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "prefixItems": [
+        { "$ref": "#/$defs/scheduled_cafe" },
+        { "$ref": "#/$defs/family_split_regroup" },
+        { "$ref": "#/$defs/terrain_motion_feedback" },
+        { "$ref": "#/$defs/paired_handoff" },
+        { "$ref": "#/$defs/ragdoll_recovery" },
+        { "$ref": "#/$defs/mixed_tier_diagnostics" }
+      ],
+      "items": false
+    },
+    "deterministic_replay_hash": { "$ref": "#/$defs/hash" },
+    "hard_safety_passed": { "type": "boolean" },
+    "fallback_count": { "$ref": "#/$defs/count" },
+    "unrelated_agent_mutations": { "$ref": "#/$defs/count" },
+    "passed": { "type": "boolean" },
+    "reasons": { "$ref": "#/$defs/reasons" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "count": { "type": "integer", "minimum": 0 },
+    "reasons": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "hard_limit_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed", "limit"],
+      "properties": {
+        "observed": { "$ref": "#/$defs/count" },
+        "limit": { "const": 0 }
+      }
+    },
+    "motion_source_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external_candidate", "baseline"],
+      "properties": {
+        "external_candidate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "report_path", "report_hash", "status", "joint_limit_violations", "reasons"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "report_path": { "type": "string", "minLength": 1 },
+            "report_hash": { "$ref": "#/$defs/hash" },
+            "status": { "const": "rejected" },
+            "joint_limit_violations": { "$ref": "#/$defs/hard_limit_observation" },
+            "reasons": { "$ref": "#/$defs/reasons" }
+          }
+        },
+        "baseline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "database_path", "provenance_path", "database_hash", "provenance_hash", "license_id", "status"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "database_path": { "type": "string", "minLength": 1 },
+            "provenance_path": { "type": "string", "minLength": 1 },
+            "database_hash": { "$ref": "#/$defs/hash" },
+            "provenance_hash": { "$ref": "#/$defs/hash" },
+            "license_id": { "const": "CC0-1.0" },
+            "status": { "const": "accepted" }
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trajectory_fit_millimeters", "foot_slide_millimeters",
+        "required_contacts", "observed_contacts",
+        "contact_precision_millionths", "safety_violations", "scene_specific"
+      ],
+      "properties": {
+        "trajectory_fit_millimeters": { "$ref": "#/$defs/count" },
+        "foot_slide_millimeters": { "$ref": "#/$defs/count" },
+        "required_contacts": { "$ref": "#/$defs/count" },
+        "observed_contacts": { "$ref": "#/$defs/count" },
+        "contact_precision_millionths": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "safety_violations": { "$ref": "#/$defs/count" },
+        "scene_specific": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/count" }
+        }
+      }
+    },
+    "scene": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "seed", "fixture_hash", "source_hashes", "tick_start", "tick_end",
+        "agent_count", "promoted_group_count", "deterministic_replay_hash",
+        "hard_safety_passed", "metrics", "fallback_count",
+        "unrelated_agent_mutations", "passed", "reasons"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "seed": { "type": "integer", "minimum": 0 },
+        "fixture_hash": { "$ref": "#/$defs/hash" },
+        "source_hashes": {
+          "type": "object",
+          "minProperties": 4,
+          "additionalProperties": { "$ref": "#/$defs/hash" }
+        },
+        "tick_start": { "$ref": "#/$defs/count" },
+        "tick_end": { "$ref": "#/$defs/count" },
+        "agent_count": { "type": "integer", "minimum": 1 },
+        "promoted_group_count": { "$ref": "#/$defs/count" },
+        "deterministic_replay_hash": { "$ref": "#/$defs/hash" },
+        "hard_safety_passed": { "type": "boolean" },
+        "metrics": { "$ref": "#/$defs/metrics" },
+        "fallback_count": { "$ref": "#/$defs/count" },
+        "unrelated_agent_mutations": { "$ref": "#/$defs/count" },
+        "passed": { "type": "boolean" },
+        "reasons": { "$ref": "#/$defs/reasons" }
+      }
+    },
+    "scheduled_cafe": {
+      "allOf": [
+        { "$ref": "#/$defs/scene" },
+        { "properties": { "id": { "const": "scheduled_cafe" } } }
+      ]
+    },
+    "family_split_regroup": {
+      "allOf": [
+        { "$ref": "#/$defs/scene" },
+        { "properties": { "id": { "const": "family_split_regroup" } } }
+      ]
+    },
+    "terrain_motion_feedback": {
+      "allOf": [
+        { "$ref": "#/$defs/scene" },
+        { "properties": { "id": { "const": "terrain_motion_feedback" } } }
+      ]
+    },
+    "paired_handoff": {
+      "allOf": [
+        { "$ref": "#/$defs/scene" },
+        { "properties": { "id": { "const": "paired_handoff" } } }
+      ]
+    },
+    "ragdoll_recovery": {
+      "allOf": [
+        { "$ref": "#/$defs/scene" },
+        { "properties": { "id": { "const": "ragdoll_recovery" } } }
+      ]
+    },
+    "mixed_tier_diagnostics": {
+      "allOf": [
+        { "$ref": "#/$defs/scene" },
+        { "properties": { "id": { "const": "mixed_tier_diagnostics" } } }
+      ]
+    }
+  }
+}
