@@ -147,6 +147,26 @@ class M6CmuMotionTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "two retained"):
                 ingest.ingest(ASF, [path], manifest)
 
+    def test_ingest_rejects_weakened_license_boundaries_and_malformed_channels(self):
+        ingest = load_script("m6_cmu_motion_ingest")
+        manifest = fixture_manifest()
+        manifest["redistribution_allowed"] = True
+        with self.assertRaisesRegex(ValueError, "redistribution"):
+            ingest.ingest(ASF, [AMC], manifest)
+
+        malformed_inputs = (
+            ("root 0 0 0 0 0 0", "root nan 0 0 0 0 0", "non-finite channels for bone root"),
+            ("root 0 0 0 0 0 0", "root 0 0 0 0 0 0\nmystery 0", "unknown bone mystery"),
+        )
+        for original, replacement, reason in malformed_inputs:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "cmu-mini.amc"
+                path.write_text(AMC.read_text().replace(original, replacement, 1))
+                manifest = fixture_manifest()
+                manifest["files"][1]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+                database = ingest.ingest(ASF, [path], manifest)
+                self.assertEqual(database["clips"][0]["rejected_frames"][0], {"source_frame": 1, "reason": reason})
+
     def test_source_manifest_contains_only_the_fixed_official_sources(self):
         fetch = load_script("m6_fetch_cmu_motion")
         source = json.loads((ROOT / "assets" / "reference" / "m6" / "cmu-motion-source-v1.json").read_text())

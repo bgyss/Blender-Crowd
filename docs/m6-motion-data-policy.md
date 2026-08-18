@@ -6,7 +6,7 @@ versioned provenance manifest with:
 - stable asset identity and content hash;
 - source URI that is repository-relative or otherwise machine-neutral;
 - license identifier and a durable terms reference;
-- explicit redistribution authorization;
+- explicit redistribution status and repository/package boundaries;
 - checkpoint/configuration identity when a learned artifact is involved.
 
 The checked M6 foundation uses redistributable reference metadata, authored

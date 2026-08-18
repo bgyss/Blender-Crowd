@@ -6,6 +6,7 @@ import json
 import math
 import re
 import sys
+import urllib.parse
 from pathlib import Path
 
 
@@ -202,6 +203,7 @@ def parse_asf(path):
 def parse_amc(path, skeleton):
     frames = []
     current = None
+    known_bones = {"root", *skeleton["bones"]}
     for line in _clean_lines(path):
         if line.startswith(":"):
             continue
@@ -213,6 +215,9 @@ def parse_amc(path, skeleton):
             raise ValueError("AMC channel data appears before its first frame")
         parts = line.split()
         bone = parts[0]
+        if bone not in known_bones:
+            current["errors"].append("unknown bone {}".format(bone))
+            continue
         if bone in current["channels"]:
             current["errors"].append("duplicate bone {}".format(bone))
             continue
@@ -220,6 +225,9 @@ def parse_amc(path, skeleton):
             values = [float(value) for value in parts[1:]]
         except ValueError:
             current["errors"].append("non-numeric channels for bone {}".format(bone))
+            continue
+        if any(not math.isfinite(value) for value in values):
+            current["errors"].append("non-finite channels for bone {}".format(bone))
             continue
         current["channels"][bone] = values
     if not frames:
@@ -346,6 +354,14 @@ def _sha256(path):
 
 
 def ingest(asf_path, amc_paths, manifest):
+    if manifest.get("schema_version") != 1 or manifest.get("license_id") != "CMU-Mocap-Free-All-Uses":
+        raise ValueError("ingestion requires the versioned CMU license manifest")
+    if manifest.get("redistribution_allowed") is not False:
+        raise ValueError("raw and converted CMU redistribution must remain disabled")
+    if manifest.get("source_host") != "mocap.cs.cmu.edu" or urllib.parse.urlsplit(manifest.get("terms_url", "")).hostname != "mocap.cs.cmu.edu":
+        raise ValueError("ingestion requires official CMU source and terms hosts")
+    if not isinstance(manifest.get("required_attribution"), str) or not manifest["required_attribution"].strip():
+        raise ValueError("ingestion requires CMU attribution")
     if manifest.get("source_frame_rate_hz") != SOURCE_RATE or manifest.get("target_frame_rate_hz") != TARGET_RATE:
         raise ValueError("ingestion requires declared 120 Hz source and 30 Hz target rates")
     profile = manifest.get("retarget_profile", {})
