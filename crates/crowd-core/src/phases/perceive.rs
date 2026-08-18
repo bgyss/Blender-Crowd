@@ -6,6 +6,7 @@
 //! between them would silently depend on spawn history.
 
 use crate::arena::{Neighbor, NeighborArena};
+use crate::fidelity::{FidelityPolicy, SimulationTier};
 use crate::grid::UniformGrid;
 use crate::units::Vec2;
 use crate::world::World;
@@ -41,10 +42,47 @@ pub fn perceive(
     scratch: &mut PerceiveScratch,
     arena: &mut NeighborArena,
 ) {
+    perceive_with_schedule(world, grid, config, scratch, arena, |_| true);
+}
+
+/// M5 scheduled perception. S0/S1 query every tick; S2 queries every other
+/// tick on a stable-ID stagger; and S3 uses its flow/cache representation
+/// rather than an individual neighbor list. The arena still has one
+/// deterministic empty entry for each skipped slot, so downstream phases
+/// retain their stable indexing contract.
+pub fn perceive_scheduled(
+    world: &World,
+    grid: &UniformGrid,
+    config: &PerceiveConfig,
+    scratch: &mut PerceiveScratch,
+    arena: &mut NeighborArena,
+    tick: u64,
+) {
+    perceive_with_schedule(world, grid, config, scratch, arena, |slot| {
+        match world.simulation_tier[slot] {
+            SimulationTier::S0 | SimulationTier::S1 => true,
+            SimulationTier::S2 => FidelityPolicy::s2_update_due(world.agent_id[slot], tick),
+            SimulationTier::S3 => false,
+        }
+    });
+}
+
+fn perceive_with_schedule(
+    world: &World,
+    grid: &UniformGrid,
+    config: &PerceiveConfig,
+    scratch: &mut PerceiveScratch,
+    arena: &mut NeighborArena,
+    should_query: impl Fn(usize) -> bool,
+) {
     arena.begin(world.len());
     let radius_sq = config.query_radius * config.query_radius;
 
     for slot in 0..world.len() {
+        if !should_query(slot) {
+            arena.push_unobserved(slot);
+            continue;
+        }
         let position = Vec2::new(world.pos_x[slot], world.pos_y[slot]);
         grid.query(position, config.query_radius, &mut scratch.candidates);
 
@@ -90,6 +128,7 @@ pub fn perceive(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fidelity::S2_UPDATE_INTERVAL_TICKS;
     use crate::ids::AgentId;
     use crate::units::{Aabb, Vec2};
     use crate::world::{AgentSpawn, World, NO_ROUTE};
@@ -143,6 +182,43 @@ mod tests {
         assert_eq!(arena.neighbors(0).len(), 1);
         assert_eq!(arena.neighbors(0)[0].slot, 1);
         assert_eq!(arena.neighbors(1)[0].slot, 0);
+    }
+
+    #[test]
+    fn background_perception_is_deterministically_scheduled() {
+        let mut world = world_at(&[Vec2::ZERO, Vec2::new(1.0, 0.0)]);
+        world.simulation_tier[0] = SimulationTier::S2;
+        world.simulation_tier[1] = SimulationTier::S3;
+        let mut grid = UniformGrid::new(
+            Aabb::new(Vec2::new(-50.0, -50.0), Vec2::new(50.0, 50.0)),
+            5.0,
+        );
+        grid.rebuild(&world.pos_x, &world.pos_y);
+        let mut scratch = PerceiveScratch::default();
+        let mut arena = NeighborArena::new();
+        let due_tick = (0..S2_UPDATE_INTERVAL_TICKS)
+            .find(|tick| FidelityPolicy::s2_update_due(world.agent_id[0], *tick))
+            .unwrap();
+        let skipped_tick = (due_tick + 1) % S2_UPDATE_INTERVAL_TICKS;
+        perceive_scheduled(
+            &world,
+            &grid,
+            &PerceiveConfig::default(),
+            &mut scratch,
+            &mut arena,
+            skipped_tick,
+        );
+        assert!(arena.neighbors(0).is_empty());
+        perceive_scheduled(
+            &world,
+            &grid,
+            &PerceiveConfig::default(),
+            &mut scratch,
+            &mut arena,
+            due_tick,
+        );
+        assert_eq!(arena.neighbors(0).len(), 1);
+        assert!(arena.neighbors(1).is_empty());
     }
 
     #[test]

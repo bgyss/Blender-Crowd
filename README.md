@@ -138,6 +138,14 @@ scripts/blender-install-test.sh --python tests/blender/test_m3_production.py # M
 scripts/m3-acceptance.sh --archive /path/to/blender_crowd-1.0.0.zip --out /tmp/blender-crowd-m3-proof # archive-first M3 gate
 scripts/m2-full-acceptance.sh --out /path/to/blender-crowd-m2-proof      # 1K full bake/replay/debug/render subgate
 scripts/m4-foundation-test.sh                         # M4 layer composition, v1 migration, cache-only bridge, and USD profile checks
+scripts/m5-foundation-test.sh                         # M5 tier scheduling, per-tier gate, transitions, CPU fallback, cache-range streaming
+cargo run --release -p crowd-bench -- m5-gate --report REPORT.json --out ADJUDICATION.json # adjudicate a scale report against the fixed per-tier thresholds
+scripts/m5-blender-test.sh                            # M5 procedural playback, render, and scale/profiling UI proof
+M5_BLENDER_AGENTS=10000 scripts/m5-blender-test.sh    # the same proof at the 10K gate's population
+cargo run --release -p crowd-bench -- cache-experiment --agents 10000 --cache-frames 8 --out /tmp/blender-crowd-m5-cache-10k # M5 bounded cache preflight, not acceptance
+scripts/m5-100k-gate.sh                               # every M5 100K stage in one command; multi-hour, run it under tmux
+# Full 10K/100K procedure: docs/runbooks/m5-scale-gates.md
+# Accepted 10K gate report: docs/benchmarks/2026-08-14-m5-10k.md
 scripts/m4-blender-test.sh                            # M4 1K/5K-tick layer UI, seven-agent correction, physics, procedural render, USD, reload proof
 M4_ARTIFACT_DIR=/tmp/blender-crowd-m4-captures scripts/m4-blender-test.sh # retain M4 before/after and scale PNGs
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress

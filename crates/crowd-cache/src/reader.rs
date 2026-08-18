@@ -158,6 +158,45 @@ impl CacheReader {
         Ok(decoded.frames[(tick - chunk.tick_start) as usize].clone())
     }
 
+    /// Load one inclusive time range without materializing the rest of the
+    /// cache.  This is the streaming primitive used by M5 viewport and render
+    /// extraction: each intersecting chunk is decoded once, then only the
+    /// requested frames are retained.
+    pub fn read_range(&self, range: RangeInclusive<u64>) -> Result<Vec<Frame>, CacheError> {
+        let start = *range.start();
+        let end = *range.end();
+        if start > end || start < self.manifest.tick_start || end > self.manifest.tick_end {
+            return Err(CacheError::TickOutOfRange {
+                requested: if start > end { start } else { end },
+                start: self.manifest.tick_start,
+                end: self.manifest.tick_end,
+            });
+        }
+        let mut frames = Vec::with_capacity((end - start + 1) as usize);
+        for chunk in self
+            .manifest
+            .chunks
+            .iter()
+            .filter(|chunk| chunk.tick_start <= end && chunk.tick_end >= start)
+        {
+            let path = safe_join(&self.root, &chunk.path)?;
+            let bytes = validate_chunk_file(&path, chunk)?;
+            let decoded = decode_chunk(&bytes).map_err(|source| CacheError::Codec {
+                path: path.clone(),
+                source,
+            })?;
+            let first = start.max(chunk.tick_start);
+            let last = end.min(chunk.tick_end);
+            frames.extend(
+                decoded.frames
+                    [(first - chunk.tick_start) as usize..=(last - chunk.tick_start) as usize]
+                    .iter()
+                    .cloned(),
+            );
+        }
+        Ok(frames)
+    }
+
     /// Decode every frame sequentially, loading each chunk exactly once.
     ///
     /// Acceptance and render-preflight scans must not repeatedly decode the

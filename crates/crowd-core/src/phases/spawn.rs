@@ -210,6 +210,11 @@ pub fn apply_spawns(
 
             match world.spawn(spawn, tick) {
                 Ok(slot) => {
+                    // Generic scenes have no RuntimeAgentSpec, but their
+                    // stable emission ordinal is still needed by M5's fixed
+                    // scale profile. Do not use dense slot order: it can vary
+                    // when otherwise-identical regions are reordered.
+                    world.spawn_ordinal[slot as usize] = ordinal;
                     if let Some(spec) = runtime_spec {
                         let slot = slot as usize;
                         world.archetype_id[slot] = spec.archetype_id;

@@ -17,6 +17,15 @@ pub struct NeighborArena {
     entries: Vec<Neighbor>,
     start: Vec<u32>,
     len: Vec<u32>,
+    /// Whether this slot's neighbours were actually looked up this tick.
+    ///
+    /// An empty list is ambiguous on its own: it means either "queried, and
+    /// genuinely alone" or "not due this tick, so nothing was looked at". Any
+    /// reader deriving a *rate* has to tell those apart, or it divides real
+    /// observations by an exposure that includes ticks nothing was observed
+    /// on. That is exactly how background-tier contact came to be undercounted
+    /// ~2x; see `metrics::observe_tick`.
+    observed: Vec<bool>,
 }
 
 impl NeighborArena {
@@ -31,6 +40,8 @@ impl NeighborArena {
         self.len.clear();
         self.start.resize(agent_count, 0);
         self.len.resize(agent_count, 0);
+        self.observed.clear();
+        self.observed.resize(agent_count, false);
     }
 
     /// Record `neighbors` as belonging to `slot_owner`.
@@ -42,7 +53,24 @@ impl NeighborArena {
     pub fn push(&mut self, slot_owner: usize, neighbors: &[Neighbor]) {
         self.start[slot_owner] = self.entries.len() as u32;
         self.len[slot_owner] = neighbors.len() as u32;
+        self.observed[slot_owner] = true;
         self.entries.extend_from_slice(neighbors);
+    }
+
+    /// Record that `slot_owner` was *not* queried this tick.
+    ///
+    /// Distinct from `push(slot, &[])`, which asserts the agent was looked at
+    /// and found alone. Use this for an agent its schedule skipped.
+    pub fn push_unobserved(&mut self, slot_owner: usize) {
+        self.start[slot_owner] = self.entries.len() as u32;
+        self.len[slot_owner] = 0;
+        self.observed[slot_owner] = false;
+    }
+
+    /// Whether `slot`'s neighbours were looked up this tick. False for a slot
+    /// that was skipped, and for one past what `begin` sized for.
+    pub fn is_observed(&self, slot: usize) -> bool {
+        self.observed.get(slot).copied().unwrap_or(false)
     }
 
     pub fn neighbors(&self, slot: usize) -> &[Neighbor] {

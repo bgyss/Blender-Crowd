@@ -143,6 +143,24 @@ fn complete_cache_decodes_each_frame_in_sequential_order() {
 }
 
 #[test]
+fn complete_cache_streams_a_range_across_chunk_boundaries() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("range.crowd");
+    write_complete_cache(&target, 4, 89);
+
+    let reader = CacheReader::open_complete(&target).unwrap();
+    let frames = reader.read_range(29..=61).unwrap();
+    assert_eq!(frames.len(), 33);
+    for (offset, actual) in frames.iter().enumerate() {
+        assert_eq!(*actual, frame(4, 29 + offset as u64));
+    }
+    assert!(matches!(
+        reader.read_range(90..=91),
+        Err(CacheError::TickOutOfRange { .. })
+    ));
+}
+
+#[test]
 fn complete_reader_names_a_corrupt_chunk() {
     let temp = tempfile::tempdir().unwrap();
     let target = temp.path().join("corrupt.crowd");

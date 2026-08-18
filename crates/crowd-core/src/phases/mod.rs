@@ -12,7 +12,10 @@ pub mod plan;
 pub mod spawn;
 pub mod steer;
 
-pub use animate::{animate, AnimateConfig, IDLE_CLIP_ID, JOG_CLIP_ID, WALK_CLIP_ID};
+pub use animate::{
+    animate, animate_scheduled, AnimateConfig, AnimateReport, IDLE_CLIP_ID, JOG_CLIP_ID,
+    WALK_CLIP_ID,
+};
 pub use decide::{decide, DecideConfig};
 pub use integrate::{integrate, IntegrateConfig, IntegrateReport, IntegrateScratch};
 pub use perceive::{perceive, PerceiveConfig, PerceiveScratch};

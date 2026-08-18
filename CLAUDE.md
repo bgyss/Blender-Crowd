@@ -15,6 +15,11 @@ cargo test --workspace                                    # unit, property, dete
 cargo test -p crowd-core --test behavior_graph            # M2 typed graph schema/compiler
 scripts/m2-foundation-test.sh                             # implemented M2 compiler/data-layer checks
 scripts/m4-foundation-test.sh                             # M4 layer composition, migration, bridge, and profile checks
+scripts/m5-foundation-test.sh                             # M5 tier scheduler, per-tier gate, transitions, CPU fallback
+cargo run --release -p crowd-bench -- m5-gate --report REPORT.json --out ADJUDICATION.json # fixed per-tier M5 thresholds
+scripts/m5-blender-test.sh                                # M5 procedural playback, render, and scale/profiling UI proof
+M5_BLENDER_AGENTS=10000 scripts/m5-blender-test.sh        # the same proof at the 10K gate's population
+scripts/m5-100k-gate.sh                                   # every M5 100K stage in one command; multi-hour, run under tmux
 scripts/m4-blender-test.sh                                # M4 clean-install layer editor, conflict, flatten, USD, and reload proof
 M4_ARTIFACT_DIR=/tmp/blender-crowd-m4-captures scripts/m4-blender-test.sh # retain M4 before/after and scale PNGs
 cargo test --release -p crowd-core --test fuzz_density    # 800-agent density stress

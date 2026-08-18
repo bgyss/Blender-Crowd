@@ -19,6 +19,9 @@ pub const SCENE_NAMES: [&str; 6] = [
     "l_corridor",
 ];
 
+/// Scale fixtures deliberately excluded from the legacy baseline sweep.
+pub const M5_SCENE_NAMES: [&str; 1] = ["m5_city_flow"];
+
 pub fn build(name: &str, agents: u32, seed: u64) -> Option<SceneDef> {
     let scale = population_scale(agents);
     let scene = match name {
@@ -33,6 +36,7 @@ pub fn build(name: &str, agents: u32, seed: u64) -> Option<SceneDef> {
         // with the population — see `population_scale`.
         "bottleneck" => bottleneck(agents, seed, scale),
         "dense_flow" => dense_flow(agents, seed, scale),
+        "m5_city_flow" => m5_city_flow(agents, seed, scale),
         _ => return None,
     };
     Some(scene)
@@ -115,8 +119,129 @@ pub fn throughput_gate(name: &str, agents: u32) -> Option<Segment> {
                 Vec2::new(x, mid + 3.5),
             ))
         }
+        "m5_city_flow" => {
+            let x = 40.0 * scale;
+            let mid = 20.0 * scale;
+            Some(Segment::new(
+                Vec2::new(x, mid - 16.0 * scale),
+                Vec2::new(x, mid + 16.0 * scale),
+            ))
+        }
         _ => None,
     }
+}
+
+/// M5's broad bidirectional city-flow reference.
+///
+/// Do not reuse `dense_flow`: its fixed 6m funnel is deliberately a
+/// congestion benchmark, which makes it unsuitable for a 90% S2 background
+/// population. This scene keeps density stable by scaling the full street
+/// cross section with the requested population and has no hidden bottleneck.
+///
+/// Each direction uses parallel route lanes. A single waypoint line for a
+/// tall spawn region turns that whole region into an unintended merge: every
+/// agent is pulled onto one centreline before it can make forward progress.
+/// The number of strips grows with the linear scene scale. This is necessary
+/// because route *length* grows linearly while population grows with area:
+/// keeping six lanes at 10K would put roughly ten times as many agents on each
+/// route as the 100-agent reference. Scaled lane strips therefore make the
+/// background-flow fixture measure scheduled steering at stable linear density,
+/// rather than an artificial single-file queue.
+fn m5_city_flow(agents: u32, seed: u64, scale: f32) -> SceneDef {
+    let lanes_per_direction = m5_lanes_per_direction(scale);
+    let total_lanes = lanes_per_direction * 2;
+
+    let bounds = Aabb::new(Vec2::new(0.0, 0.0), Vec2::new(80.0 * scale, 40.0 * scale));
+    let mut waypoints = WaypointGraph::new();
+    let margin = 2.0 * scale;
+    let spawn_width = 14.0 * scale;
+    let lane_pitch = 16.0 * scale / lanes_per_direction as f32;
+    let lane_half_width = lane_pitch * 0.35;
+    let mut destinations = Vec::with_capacity(total_lanes as usize);
+    let mut spawns = Vec::with_capacity(total_lanes as usize);
+    let mut previous_connector: Option<u32> = None;
+
+    for lane in 0..lanes_per_direction {
+        let y = (2.0 * scale) + lane_pitch * (lane as f32 + 0.5);
+        let start = waypoints.add_node(Vec2::new(4.0 * scale, y));
+        let exit = waypoints.add_node(Vec2::new(76.0 * scale, y));
+        waypoints.add_edge(start, exit);
+        if let Some(previous) = previous_connector {
+            // This is a structural connection for the generic waypoint
+            // graph. The direct lane edge is always the shorter route.
+            waypoints.add_edge(previous, start);
+        }
+        previous_connector = Some(exit);
+        destinations.push(Destination {
+            name: format!("east_exit_lane_{lane}"),
+            node: exit,
+        });
+        spawns.push(SpawnRegion {
+            id: lane as u16,
+            population_id: 0,
+            area: Aabb::new(
+                Vec2::new(margin, y - lane_half_width),
+                Vec2::new(margin + spawn_width, y + lane_half_width),
+            ),
+            count: split_count(agents, total_lanes, lane),
+            per_tick: ((2.0 * scale).ceil() as u32).max(1),
+            destination: lane as u16,
+        });
+    }
+
+    for lane in 0..lanes_per_direction {
+        let y = (22.0 * scale) + lane_pitch * (lane as f32 + 0.5);
+        let start = waypoints.add_node(Vec2::new(76.0 * scale, y));
+        let exit = waypoints.add_node(Vec2::new(4.0 * scale, y));
+        waypoints.add_edge(start, exit);
+        if let Some(previous) = previous_connector {
+            waypoints.add_edge(previous, start);
+        }
+        previous_connector = Some(exit);
+        let destination = lanes_per_direction + lane;
+        destinations.push(Destination {
+            name: format!("west_exit_lane_{lane}"),
+            node: exit,
+        });
+        spawns.push(SpawnRegion {
+            id: destination as u16,
+            population_id: 0,
+            area: Aabb::new(
+                Vec2::new(80.0 * scale - margin - spawn_width, y - lane_half_width),
+                Vec2::new(80.0 * scale - margin, y + lane_half_width),
+            ),
+            count: split_count(agents, total_lanes, destination),
+            per_tick: ((2.0 * scale).ceil() as u32).max(1),
+            destination: destination as u16,
+        });
+    }
+
+    SceneDef {
+        name: "m5_city_flow".to_owned(),
+        bounds,
+        walls: box_walls(bounds),
+        waypoints,
+        destinations,
+        spawns,
+        populations: vec![PopulationParams::default()],
+        project_seed: seed,
+        ticks_per_second: 30,
+        // Includes emission and the measured 500-agent P95 traversal with
+        // slack, rather than declaring failure while a valid background agent
+        // is still in the street. The gate evaluates completion separately.
+        duration_ticks: (4_500.0 * scale).round() as u64,
+        nav: None,
+        nav_destinations: Vec::new(),
+    }
+}
+
+/// Number of one-way city-flow lanes in each direction.
+///
+/// The reference fixture has six lanes per direction. Growing lane count with
+/// linear scene scale gives total route length the same area-scale growth as
+/// population while retaining an approximately 2.7 m lane pitch.
+fn m5_lanes_per_direction(scale: f32) -> u32 {
+    (6.0 * scale).ceil() as u32
 }
 
 /// Split `total` across `parts` so the counts sum to exactly `total`.
@@ -708,5 +833,48 @@ mod tests {
         // A count that does not divide evenly must still total exactly.
         let compiled = build("crossing", 101, 42).unwrap().compile().unwrap();
         assert_eq!(compiled.total_agents(), 101);
+    }
+
+    #[test]
+    fn m5_city_flow_uses_parallel_lane_strips_without_an_entry_funnel() {
+        let agents = 1_000;
+        let scale = population_scale(agents);
+        let scene = build("m5_city_flow", agents, 42).unwrap();
+        let lanes_per_direction = m5_lanes_per_direction(scale);
+        let total_lanes = lanes_per_direction * 2;
+
+        assert_eq!(scene.spawns.len(), total_lanes as usize);
+        assert_eq!(scene.destinations.len(), total_lanes as usize);
+        assert_eq!(
+            scene.spawns.iter().map(|spawn| spawn.count).sum::<u32>(),
+            agents
+        );
+        assert!(scene.waypoints.is_connected());
+        for (index, spawn) in scene.spawns.iter().enumerate() {
+            let height = spawn.area.max.y - spawn.area.min.y;
+            assert!(
+                height < 2.5,
+                "lane {index} grew into a wide merge strip: {height}m"
+            );
+            assert_eq!(spawn.destination as usize, index);
+        }
+    }
+
+    #[test]
+    fn m5_city_flow_scales_lane_capacity_with_population() {
+        let small = build("m5_city_flow", 100, 42).unwrap();
+        let large = build("m5_city_flow", 10_000, 42).unwrap();
+
+        assert_eq!(small.spawns.len(), 12);
+        assert_eq!(large.spawns.len(), 120);
+        assert!(
+            large.spawns[0].area.max.y - large.spawns[0].area.min.y
+                <= small.spawns[0].area.max.y - small.spawns[0].area.min.y + f32::EPSILON,
+            "larger fixture widened each lane instead of adding capacity"
+        );
+        assert_eq!(
+            large.spawns.iter().map(|spawn| spawn.count).sum::<u32>(),
+            10_000
+        );
     }
 }

@@ -9,9 +9,11 @@ use std::time::Instant;
 use crowd_core::avoidance::{
     AnticipatorySolver, AvoidanceSolver, OrcaSolver, SampledVelocitySolver,
 };
+use crowd_core::fidelity::S2_UPDATE_INTERVAL_TICKS;
 use crowd_core::metrics::{MetricsConfig, MetricsSummary};
 use crowd_core::scenes;
 use crowd_core::sim::{SimConfig, Simulation};
+use crowd_core::{FidelityPolicy, RenderTier, SimulationTier};
 use serde::{Deserialize, Serialize};
 
 use crate::alloc;
@@ -19,7 +21,16 @@ use crate::frames::FrameWriter;
 use crate::svg::TrajectoryRecorder;
 
 /// Bumped whenever the report schema changes incompatibly.
-pub const REPORT_SCHEMA_VERSION: u32 = 2;
+///
+/// v5 adds `metrics.per_tier`, without which a report cannot be adjudicated
+/// against the M5 per-tier thresholds.
+///
+/// v6 adds the scale-invariant replacements for the two M5 quality gates that
+/// were not scale-invariant: `distance_travelled_m` and the derived
+/// `stall_episodes_per_agent_km` in place of `stalled_agent_share`, and
+/// `deep_penetration_agent_ticks` in place of `max_penetration_depth`. The
+/// replaced fields are still reported; they are no longer gated.
+pub const REPORT_SCHEMA_VERSION: u32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SolverKind {
@@ -208,8 +219,22 @@ pub struct Report {
     pub duration_ticks: u64,
     pub scene_hash: u64,
     pub final_state_hash: u64,
+    /// Declared M5 fidelity mix, never inferred from an arbitrary camera.
+    pub fidelity_profile: Option<FidelityProfileReport>,
     pub environment: Environment,
     pub metrics: MetricsSummary,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FidelityProfileReport {
+    pub mode: String,
+    pub s1_agents: u32,
+    pub s2_agents: u32,
+    pub r1_agents: u32,
+    pub r2_agents: u32,
+    pub s2_perception_interval_ticks: u32,
+    pub s2_steering_interval_ticks: u32,
+    pub s3_individual_perception: bool,
 }
 
 /// Build, run, and measure one scene.
@@ -224,14 +249,28 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
     let ticks_per_second = scene.ticks_per_second;
     let duration_ticks = scene.duration_ticks;
 
+    let fidelity = if options.scene == "m5_city_flow" {
+        Some(FidelityPolicy::m5_10k_profile())
+    } else {
+        None
+    };
     let config = SimConfig {
         metrics: MetricsConfig {
             throughput_gate: scenes::throughput_gate(&options.scene, options.agents),
             ..MetricsConfig::default()
         },
+        fidelity,
         ..SimConfig::default()
     };
 
+    // The coarse background preset is deliberately NOT enabled here. Measured
+    // 2026-08-14 at 1,000 agents it bought 1.57x throughput (663 -> 1041
+    // ticks/s) but regressed contact quality past the gate: S2 penetration
+    // rate 4.3e-7 -> 1.4e-5 and peak depth 0.00087 m -> 0.0576 m, failing
+    // three checks the full-resolution solver passes with wide headroom.
+    // Angular sampling resolution converts directly into contact quality, and
+    // quality is the scarce resource at scale. The preset stays available via
+    // `set_background_solver` for callers who want that trade explicitly.
     let mut sim = Simulation::new(scene, options.solver.build(), config);
 
     // PEAK/LIVE are process-wide (see alloc::measurement_lock), so exclude
@@ -317,6 +356,46 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
         peak_allocated_bytes,
     );
 
+    let fidelity_profile = if options.scene == "m5_city_flow" {
+        // Count the committed assignments rather than re-deriving the target
+        // share from `options.agents`. The report is evidence of what ran.
+        let s1_agents = sim
+            .world()
+            .simulation_tier
+            .iter()
+            .filter(|tier| **tier == SimulationTier::S1)
+            .count() as u32;
+        let s2_agents = sim
+            .world()
+            .simulation_tier
+            .iter()
+            .filter(|tier| **tier == SimulationTier::S2)
+            .count() as u32;
+        let r1_agents = sim
+            .world()
+            .render_fidelity_tier
+            .iter()
+            .filter(|tier| **tier == RenderTier::R1)
+            .count() as u32;
+        let r2_agents = sim
+            .world()
+            .render_fidelity_tier
+            .iter()
+            .filter(|tier| **tier == RenderTier::R2)
+            .count() as u32;
+        Some(FidelityProfileReport {
+            mode: "stable_agent_id_hash_target_10_percent_s1_90_percent_s2".to_owned(),
+            s1_agents,
+            s2_agents,
+            r1_agents,
+            r2_agents,
+            s2_perception_interval_ticks: S2_UPDATE_INTERVAL_TICKS as u32,
+            s2_steering_interval_ticks: S2_UPDATE_INTERVAL_TICKS as u32,
+            s3_individual_perception: false,
+        })
+    } else {
+        None
+    };
     Ok(Report {
         schema_version: REPORT_SCHEMA_VERSION,
         scene: options.scene.clone(),
@@ -327,6 +406,7 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
         duration_ticks,
         scene_hash,
         final_state_hash: sim.state_hash(),
+        fidelity_profile,
         environment: Environment::capture(),
         metrics,
     })
@@ -401,6 +481,58 @@ mod tests {
         let report = run_scene(&options("circle", 32)).unwrap();
         assert_ne!(report.scene_hash, 0);
     }
+
+    #[test]
+    fn m5_city_flow_records_its_declared_background_mix() {
+        let report = run_scene(&options("m5_city_flow", 100)).unwrap();
+        let profile = report.fidelity_profile.expect("M5 profile was omitted");
+        assert_eq!(
+            profile.mode,
+            "stable_agent_id_hash_target_10_percent_s1_90_percent_s2"
+        );
+        assert_eq!(profile.s1_agents + profile.s2_agents, 100);
+        assert_eq!(profile.r1_agents, profile.s1_agents);
+        assert_eq!(profile.r2_agents, profile.s2_agents);
+        assert!(
+            profile.s1_agents > 0,
+            "stable profile assigned no S1 agents"
+        );
+        assert!(profile.s2_agents > profile.s1_agents);
+    }
+
+    /// The gate reads reports through `m5_gate::GatedReport`, a deliberate
+    /// subset of this schema that lives in the library rather than the binary.
+    /// This is what keeps the two definitions in step: rename or retype a
+    /// gated field here and the round trip stops parsing.
+    #[test]
+    fn a_produced_report_parses_as_the_gate_sees_it() {
+        let report = run_scene(&options("m5_city_flow", 100)).unwrap();
+        let json = serde_json::to_string(&report).unwrap();
+        let gated: crowd_bench::m5_gate::GatedReport = serde_json::from_str(&json)
+            .unwrap_or_else(|error| panic!("the gate cannot read a current report: {error}"));
+
+        assert_eq!(gated.schema_version, report.schema_version);
+        assert_eq!(gated.scene, report.scene);
+        assert_eq!(gated.requested_agents, report.requested_agents);
+        assert_eq!(
+            gated
+                .fidelity_profile
+                .expect("profile lost in round trip")
+                .mode,
+            report.fidelity_profile.unwrap().mode
+        );
+        assert!(
+            !gated.metrics.per_tier.is_empty(),
+            "a current report must carry per-tier metrics for the gate to read"
+        );
+    }
+
+    /// A report the gate cannot adjudicate is worthless as M5 evidence, so
+    /// the schema version and the gate's minimum must not drift apart.
+    ///
+    /// A const block rather than a runtime assertion: both operands are
+    /// constants, so this fails the build instead of a test run.
+    const _: () = assert!(REPORT_SCHEMA_VERSION >= crowd_bench::m5_gate::MINIMUM_REPORT_SCHEMA);
 
     #[test]
     fn civil_from_days_matches_a_known_date() {

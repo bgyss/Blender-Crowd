@@ -108,6 +108,16 @@ pub fn metric_map(summary: &MetricsSummary) -> BTreeMap<String, f64> {
         ("agents_ever_stalled", summary.agents_ever_stalled as f64),
         ("stall_episodes", summary.stall_episodes as f64),
         ("stall_agent_ticks", summary.stall_agent_ticks as f64),
+        ("distance_travelled_m", summary.distance_travelled_m),
+        ("penetration_episodes", summary.penetration_episodes as f64),
+        (
+            "deep_penetration_agent_ticks",
+            summary.deep_penetration_agent_ticks as f64,
+        ),
+        (
+            "penetration_depth_fraction_sum",
+            summary.penetration_depth_fraction_sum,
+        ),
         ("heading_reversals", summary.heading_reversals as f64),
         ("abrupt_turns", summary.abrupt_turns as f64),
         ("gate_crossings", summary.gate_crossings as f64),
@@ -120,6 +130,100 @@ pub fn metric_map(summary: &MetricsSummary) -> BTreeMap<String, f64> {
     ]
     .into_iter()
     .map(|(key, value)| (key.to_string(), value))
+    .chain(summary.per_tier.iter().flat_map(tier_metric_entries))
+    .collect()
+}
+
+/// Flatten one tier's metrics into `per_tier.<TIER>.<field>` keys.
+///
+/// Per-tier values are compared like any other quality metric rather than
+/// being treated as commentary: a change that leaves the population-wide
+/// totals intact while moving work between tiers is exactly the kind of
+/// regression the M5 tier scheduler can introduce.
+fn tier_metric_entries(tier: &crowd_core::metrics::TierMetrics) -> Vec<(String, f64)> {
+    let prefix = format!("per_tier.{}", tier.tier);
+    [
+        ("agents_final", tier.agents_final as f64),
+        ("agents_arrived", tier.agents_arrived as f64),
+        ("completion_rate", tier.completion_rate as f64),
+        ("agent_ticks", tier.agent_ticks as f64),
+        (
+            "contact_observed_agent_ticks",
+            tier.contact_observed_agent_ticks as f64,
+        ),
+        ("penetration_pair_ticks", tier.penetration_pair_ticks as f64),
+        (
+            "penetration_agent_ticks",
+            tier.penetration_agent_ticks as f64,
+        ),
+        (
+            "penetration_agent_ticks_per_agent_tick",
+            tier.penetration_agent_ticks_per_agent_tick as f64,
+        ),
+        ("max_penetration_depth", tier.max_penetration_depth as f64),
+        ("penetration_episodes", tier.penetration_episodes as f64),
+        // Compared per partner tier: a shift in *who* a tier collides with is
+        // the signal these carry, and a summed value would hide it.
+        (
+            "penetration_with_s0_partner",
+            tier.penetration_with_s0_partner as f64,
+        ),
+        (
+            "penetration_with_s1_partner",
+            tier.penetration_with_s1_partner as f64,
+        ),
+        (
+            "penetration_with_s2_partner",
+            tier.penetration_with_s2_partner as f64,
+        ),
+        (
+            "penetration_with_s3_partner",
+            tier.penetration_with_s3_partner as f64,
+        ),
+        (
+            "deep_penetration_agent_ticks",
+            tier.deep_penetration_agent_ticks as f64,
+        ),
+        (
+            "deep_penetration_agent_ticks_per_agent_tick",
+            tier.deep_penetration_agent_ticks_per_agent_tick as f64,
+        ),
+        (
+            "mean_penetration_depth_fraction",
+            tier.mean_penetration_depth_fraction as f64,
+        ),
+        ("agents_ever_stalled", tier.agents_ever_stalled as f64),
+        ("stalled_agent_share", tier.stalled_agent_share as f64),
+        ("stall_episodes", tier.stall_episodes as f64),
+        ("distance_travelled_m", tier.distance_travelled_m),
+        (
+            "stall_episodes_per_agent_km",
+            tier.stall_episodes_per_agent_km as f64,
+        ),
+        ("stall_agent_ticks", tier.stall_agent_ticks as f64),
+        (
+            "stall_agent_ticks_per_agent_tick",
+            tier.stall_agent_ticks_per_agent_tick as f64,
+        ),
+        ("heading_reversals", tier.heading_reversals as f64),
+        (
+            "heading_reversals_per_agent_tick",
+            tier.heading_reversals_per_agent_tick as f64,
+        ),
+        ("abrupt_turns", tier.abrupt_turns as f64),
+        (
+            "abrupt_turns_per_agent_tick",
+            tier.abrupt_turns_per_agent_tick as f64,
+        ),
+        ("animation_evaluations", tier.animation_evaluations as f64),
+        ("animation_agent_ticks", tier.animation_agent_ticks as f64),
+        (
+            "animation_evaluation_share",
+            tier.animation_evaluation_share as f64,
+        ),
+    ]
+    .into_iter()
+    .map(|(key, value)| (format!("{prefix}.{key}"), value))
     .collect()
 }
 
@@ -359,6 +463,31 @@ mod tests {
             // scalar quality metric, and they are excluded from comparison on
             // purpose: they are wall-clock derived and vary between runs.
             if key == "phase_time_shares" {
+                continue;
+            }
+            // Per-tier metrics are a nested array, but unlike phase timings
+            // they *are* compared — flattened to `per_tier.<TIER>.<field>`.
+            // Check every field of every reported tier reached the map, so a
+            // field added to `TierMetrics` cannot go silently uncompared.
+            if key == "per_tier" {
+                for entry in value.as_array().expect("per_tier is a JSON array") {
+                    let entry = entry.as_object().expect("a tier is a JSON object");
+                    let tier = entry["tier"].as_str().expect("tier is named");
+                    for (field, field_value) in entry {
+                        if field == "tier" {
+                            continue;
+                        }
+                        assert!(
+                            field_value.is_number(),
+                            "unexpected non-scalar tier metric {field}: {field_value}"
+                        );
+                        let flattened = format!("per_tier.{tier}.{field}");
+                        assert!(
+                            map.contains_key(&flattened),
+                            "tier metric `{flattened}` is in TierMetrics but never compared"
+                        );
+                    }
+                }
                 continue;
             }
             assert!(

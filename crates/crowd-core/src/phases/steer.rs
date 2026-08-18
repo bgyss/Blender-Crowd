@@ -7,6 +7,7 @@
 
 use crate::arena::NeighborArena;
 use crate::avoidance::{AvoidanceInput, AvoidanceSolver, NeighborState};
+use crate::fidelity::{FidelityPolicy, SimulationTier};
 use crate::geometry::{time_to_collision_disc, time_to_collision_segment, Segment};
 use crate::scene::CompiledScene;
 use crate::units::Vec2;
@@ -24,6 +25,15 @@ pub struct SteerConfig {
     pub wall_query_radius: f32,
     /// Predicted time to collision below which an agent-tick is a near miss.
     pub near_miss_time: f32,
+    /// Agents below this count steer on one thread: thread setup costs more
+    /// than it saves on a small scene.
+    ///
+    /// Purely a performance knob. Each agent's solution is a pure function of
+    /// the previous-tick snapshot and the reduction runs in slot order, so the
+    /// two paths agree bitwise and this value cannot change a result — which
+    /// `parallel_and_sequential_steering_agree_bitwise` asserts by running the
+    /// same scene both ways.
+    pub parallel_min_agents: usize,
 }
 
 impl Default for SteerConfig {
@@ -31,6 +41,7 @@ impl Default for SteerConfig {
         Self {
             wall_query_radius: 3.0,
             near_miss_time: 0.5,
+            parallel_min_agents: 2_048,
         }
     }
 }
@@ -38,9 +49,35 @@ impl Default for SteerConfig {
 /// Reused buffers so the phase does not allocate after warmup.
 #[derive(Clone, Debug, Default)]
 pub struct SteerScratch {
+    /// One buffer set per worker, retained across ticks so neither path
+    /// allocates per tick. The sequential path is simply the one-worker case.
+    workers: Vec<WorkerScratch>,
+    /// Per-slot solver results, filled in parallel and applied in slot order.
+    outcomes: Vec<Option<SolvedOutcome>>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct WorkerScratch {
     neighbors: Vec<NeighborState>,
     wall_indices: Vec<u32>,
     walls: Vec<Segment>,
+}
+
+/// What solving one agent produced, before any of it is written back.
+///
+/// Solving is separated from applying so the compute pass can run across
+/// threads while touching nothing mutable: every field here is a pure function
+/// of the previous-tick snapshot. The apply pass then walks slots in order, so
+/// the world writes and the float reduction happen in exactly the sequence the
+/// single-threaded path used — which is what makes the two bitwise identical.
+#[derive(Clone, Copy, Debug)]
+struct SolvedOutcome {
+    velocity: Vec2,
+    status: SolverStatus,
+    /// Predicted time to collision against the velocity actually chosen.
+    time_to_collision: f32,
+    /// False for agents that have left the scene and must not accrue risk.
+    contributes_risk: bool,
 }
 
 /// Tick-level aggregates the metrics layer would otherwise recompute.
@@ -74,118 +111,179 @@ pub fn steer(
     config: &SteerConfig,
     scratch: &mut SteerScratch,
 ) -> SteerReport {
+    steer_with_schedule(world, arena, scene, solver, None, config, scratch, None)
+}
+
+/// M5 steering schedule. S2 reuses its last solved target between scheduled
+/// evaluations; S3 follows its coarse desired flow without invoking the
+/// individual avoidance solver. Neither path freezes root motion.
+#[allow(clippy::too_many_arguments)]
+pub fn steer_scheduled(
+    world: &mut World,
+    arena: &NeighborArena,
+    scene: &CompiledScene,
+    solver: &dyn AvoidanceSolver,
+    background_solver: Option<&dyn AvoidanceSolver>,
+    config: &SteerConfig,
+    scratch: &mut SteerScratch,
+    tick: u64,
+) -> SteerReport {
+    steer_with_schedule(
+        world,
+        arena,
+        scene,
+        solver,
+        background_solver,
+        config,
+        scratch,
+        Some(tick),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn steer_with_schedule(
+    world: &mut World,
+    arena: &NeighborArena,
+    scene: &CompiledScene,
+    solver: &dyn AvoidanceSolver,
+    background_solver: Option<&dyn AvoidanceSolver>,
+    config: &SteerConfig,
+    scratch: &mut SteerScratch,
+    scheduled_tick: Option<u64>,
+) -> SteerReport {
+    let len = world.len();
+    scratch.outcomes.clear();
+    scratch.outcomes.resize(len, None);
+
+    // Phase one: solve. Nothing mutable in the world is touched, so this can
+    // be spread across threads without any hazard.
+    if len >= config.parallel_min_agents {
+        let SteerScratch {
+            workers, outcomes, ..
+        } = scratch;
+        // Reborrowed as shared for the compute pass. This is the borrow that
+        // makes the parallelism sound: while it lives, nothing can mutate the
+        // world, so every worker reads the same consistent snapshot.
+        let world: &World = world;
+        let worker_count = std::thread::available_parallelism().map_or(1, |n| n.get());
+        workers.resize_with(worker_count, WorkerScratch::default);
+        let chunk = len.div_ceil(worker_count).max(1);
+
+        // Contiguous chunks in slot order. Any chunking produces the same
+        // outcomes — each is a pure function of the snapshot — so this is a
+        // scheduling decision, not a semantic one.
+        std::thread::scope(|scope| {
+            for (index, (worker, slice)) in workers
+                .iter_mut()
+                .zip(outcomes.chunks_mut(chunk))
+                .enumerate()
+            {
+                let base = index * chunk;
+                scope.spawn(move || {
+                    for (offset, outcome) in slice.iter_mut().enumerate() {
+                        let slot = base + offset;
+                        if !should_solve(world, slot, scheduled_tick) {
+                            continue;
+                        }
+                        *outcome = Some(solve_slot(
+                            world,
+                            arena,
+                            scene,
+                            solver,
+                            background_solver,
+                            config,
+                            worker,
+                            slot,
+                        ));
+                    }
+                });
+            }
+        });
+    } else {
+        let SteerScratch {
+            workers, outcomes, ..
+        } = scratch;
+        // The sequential path is the parallel one with a single worker, so it
+        // reuses the same retained buffers rather than keeping a second set.
+        workers.resize_with(1, WorkerScratch::default);
+        let worker = &mut workers[0];
+        for (slot, outcome) in outcomes.iter_mut().enumerate() {
+            if !should_solve(world, slot, scheduled_tick) {
+                continue;
+            }
+            *outcome = Some(solve_slot(
+                world,
+                arena,
+                scene,
+                solver,
+                background_solver,
+                config,
+                worker,
+                slot,
+            ));
+        }
+    }
+
+    // Phase two: apply, in slot order. Both the world writes and the float
+    // reduction happen in exactly the order the single-threaded implementation
+    // used, which is what keeps the parallel and sequential paths bitwise
+    // identical rather than merely close.
     let mut min_time_to_collision = f32::INFINITY;
     let mut time_to_collision_sum = 0.0;
     let mut risk_samples = 0;
     let mut near_miss_agents = 0;
     let mut braking_agents = 0;
 
-    for slot in 0..world.len() {
-        let position = Vec2::new(world.pos_x[slot], world.pos_y[slot]);
-
-        scratch.neighbors.clear();
-        for neighbor in arena.neighbors(slot) {
-            let other = neighbor.slot as usize;
-            scratch.neighbors.push(NeighborState {
-                position: Vec2::new(world.pos_x[other], world.pos_y[other]),
-                velocity: Vec2::new(world.vel_x[other], world.vel_y[other]),
-                radius: world.radius[other],
-                agent_id: world.agent_id[other],
-            });
-        }
-
-        scene.wall_index.query(
-            position,
-            config.wall_query_radius,
-            &mut scratch.wall_indices,
-        );
-        scratch.walls.clear();
-        for &index in &scratch.wall_indices {
-            scratch.walls.push(scene.walls[index as usize]);
-        }
-
-        // `des_vel` carries the decide phase's preferred velocity on the way
-        // in and this phase's solution on the way out. Read it before the
-        // overwrite below.
-        let preferred = Vec2::new(world.des_vel_x[slot], world.des_vel_y[slot]);
-        let velocity_now = Vec2::new(world.vel_x[slot], world.vel_y[slot]);
-
-        let output = solver.solve(&AvoidanceInput {
-            agent_id: world.agent_id[slot],
-            position,
-            velocity: velocity_now,
-            preferred,
-            radius: world.radius[slot],
-            max_speed: world.max_speed[slot],
-            neighbors: &scratch.neighbors,
-            walls: &scratch.walls,
-        });
-
-        // A non-finite solution would propagate into position and poison the
-        // whole bake, so refuse it here rather than letting it escape.
-        debug_assert!(output.velocity.is_finite(), "solver produced {output:?}");
-        let velocity = if output.velocity.is_finite() {
-            output.velocity
-        } else {
-            Vec2::ZERO
+    for slot in 0..len {
+        let Some(outcome) = scratch.outcomes[slot] else {
+            if world.simulation_tier[slot] == SimulationTier::S2 {
+                // `decide` has just written a new preferred velocity into
+                // des_vel; restore the target from the last sparse solve.
+                // Reusing the current velocity turns each sparse interval
+                // into a stop-start acceleration sawtooth and adds heading
+                // jitter without any new avoidance evidence.
+                world.des_vel_x[slot] = world.scheduled_target_vel_x[slot];
+                world.des_vel_y[slot] = world.scheduled_target_vel_y[slot];
+                // The retained target also retains its solver result. Marking
+                // this tick `Free` would let intermittent braking accumulate
+                // in `stall_ticks` without representing consecutive braking;
+                // conversely, preserving `Braking` without incrementing would
+                // undercount the time spent following a braking target.
+                if world.solver_status[slot] == SolverStatus::Braking {
+                    braking_agents += 1;
+                    world.stall_ticks[slot] = world.stall_ticks[slot].saturating_add(1);
+                } else {
+                    world.stall_ticks[slot] = 0;
+                }
+            } else {
+                world.solver_status[slot] = SolverStatus::Free;
+                world.stall_ticks[slot] = 0;
+            }
+            continue;
         };
 
-        world.des_vel_x[slot] = velocity.x;
-        world.des_vel_y[slot] = velocity.y;
+        world.des_vel_x[slot] = outcome.velocity.x;
+        world.des_vel_y[slot] = outcome.velocity.y;
+        world.scheduled_target_vel_x[slot] = outcome.velocity.x;
+        world.scheduled_target_vel_y[slot] = outcome.velocity.y;
+        world.solver_status[slot] = outcome.status;
 
-        world.solver_status[slot] = output.status;
-
-        if output.status == SolverStatus::Braking {
+        if outcome.status == SolverStatus::Braking {
             braking_agents += 1;
             world.stall_ticks[slot] = world.stall_ticks[slot].saturating_add(1);
         } else {
             world.stall_ticks[slot] = 0;
         }
 
-        // Risk is measured here, not taken from the solver. The solver's own
-        // figure comes from the reciprocal construction (`candidate * 2 -
-        // velocity`), which is correct as a cost heuristic but describes a
-        // velocity the agent never has. This uses the velocity the agent will
-        // actually move with.
-        let mut agent_ttc = f32::INFINITY;
-        for neighbor in &scratch.neighbors {
-            let relative_position = neighbor.position - position;
-            let relative_velocity = neighbor.velocity - velocity;
-            let combined_radius = world.radius[slot] + neighbor.radius;
-            if let Some(t) =
-                time_to_collision_disc(relative_position, relative_velocity, combined_radius)
-            {
-                agent_ttc = agent_ttc.min(t);
-            }
-        }
-        for wall in &scratch.walls {
-            if let Some(t) = time_to_collision_segment(
-                position,
-                velocity,
-                world.radius[slot],
-                wall,
-                RISK_HORIZON,
-            ) {
-                agent_ttc = agent_ttc.min(t);
-            }
-        }
-
-        // Agents that have left the scene do not contribute risk. They are
-        // parked on a destination with zero velocity, and every later agent
-        // routes to that same point, so counting them would accrue phantom
-        // risk in proportion to how *well* the solver does — a solver landing
-        // 500 agents would look worse than one landing 200. That is a perverse
-        // gradient in the metrics meant to compare solvers.
-        if world.arrived[slot] || world.unrouted[slot] {
+        if !outcome.contributes_risk {
             continue;
         }
-
-        min_time_to_collision = min_time_to_collision.min(agent_ttc);
+        min_time_to_collision = min_time_to_collision.min(outcome.time_to_collision);
         // Cap before summing so an agent in the clear does not contribute
         // infinity and destroy the mean.
-        time_to_collision_sum += agent_ttc.min(RISK_HORIZON);
+        time_to_collision_sum += outcome.time_to_collision.min(RISK_HORIZON);
         risk_samples += 1;
-        if agent_ttc < config.near_miss_time {
+        if outcome.time_to_collision < config.near_miss_time {
             near_miss_agents += 1;
         }
     }
@@ -199,10 +297,140 @@ pub fn steer(
     }
 }
 
+/// Whether this agent runs the avoidance solver this tick.
+fn should_solve(world: &World, slot: usize, scheduled_tick: Option<u64>) -> bool {
+    match scheduled_tick {
+        None => true,
+        Some(_)
+            if matches!(
+                world.simulation_tier[slot],
+                SimulationTier::S0 | SimulationTier::S1
+            ) =>
+        {
+            true
+        }
+        Some(tick) if world.simulation_tier[slot] == SimulationTier::S2 => {
+            FidelityPolicy::s2_update_due(world.agent_id[slot], tick)
+        }
+        Some(_) => false,
+    }
+}
+
+/// Solve one agent against the previous-tick snapshot.
+///
+/// Takes `&World` rather than `&mut World` deliberately: the immutable borrow
+/// is what proves this is safe to run concurrently for many slots at once.
+#[allow(clippy::too_many_arguments)]
+fn solve_slot(
+    world: &World,
+    arena: &NeighborArena,
+    scene: &CompiledScene,
+    solver: &dyn AvoidanceSolver,
+    background_solver: Option<&dyn AvoidanceSolver>,
+    config: &SteerConfig,
+    scratch: &mut WorkerScratch,
+    slot: usize,
+) -> SolvedOutcome {
+    let position = Vec2::new(world.pos_x[slot], world.pos_y[slot]);
+
+    scratch.neighbors.clear();
+    for neighbor in arena.neighbors(slot) {
+        let other = neighbor.slot as usize;
+        scratch.neighbors.push(NeighborState {
+            position: Vec2::new(world.pos_x[other], world.pos_y[other]),
+            velocity: Vec2::new(world.vel_x[other], world.vel_y[other]),
+            radius: world.radius[other],
+            agent_id: world.agent_id[other],
+        });
+    }
+
+    scene.wall_index.query(
+        position,
+        config.wall_query_radius,
+        &mut scratch.wall_indices,
+    );
+    scratch.walls.clear();
+    for &index in &scratch.wall_indices {
+        scratch.walls.push(scene.walls[index as usize]);
+    }
+
+    // `des_vel` carries the decide phase's preferred velocity on the way in
+    // and this phase's solution on the way out. Read it before the apply pass
+    // overwrites it.
+    let preferred = Vec2::new(world.des_vel_x[slot], world.des_vel_y[slot]);
+    let velocity_now = Vec2::new(world.vel_x[slot], world.vel_y[slot]);
+
+    // Tier selects the solver, not just the cadence. M5's fidelity model
+    // gives background agents a coarse *representation*, not merely a
+    // sparser schedule. The choice is a pure function of the committed tier,
+    // so it cannot vary between runs.
+    let active_solver = match (background_solver, world.simulation_tier[slot]) {
+        (Some(coarse), SimulationTier::S2 | SimulationTier::S3) => coarse,
+        _ => solver,
+    };
+    let output = active_solver.solve(&AvoidanceInput {
+        agent_id: world.agent_id[slot],
+        position,
+        velocity: velocity_now,
+        preferred,
+        radius: world.radius[slot],
+        max_speed: world.max_speed[slot],
+        neighbors: &scratch.neighbors,
+        walls: &scratch.walls,
+    });
+
+    // A non-finite solution would propagate into position and poison the
+    // whole bake, so refuse it here rather than letting it escape.
+    debug_assert!(output.velocity.is_finite(), "solver produced {output:?}");
+    let velocity = if output.velocity.is_finite() {
+        output.velocity
+    } else {
+        Vec2::ZERO
+    };
+
+    // Risk is measured here, not taken from the solver. The solver's own
+    // figure comes from the reciprocal construction (`candidate * 2 -
+    // velocity`), which is correct as a cost heuristic but describes a
+    // velocity the agent never has. This uses the velocity the agent will
+    // actually move with.
+    let mut agent_ttc = f32::INFINITY;
+    for neighbor in &scratch.neighbors {
+        let relative_position = neighbor.position - position;
+        let relative_velocity = neighbor.velocity - velocity;
+        let combined_radius = world.radius[slot] + neighbor.radius;
+        if let Some(t) =
+            time_to_collision_disc(relative_position, relative_velocity, combined_radius)
+        {
+            agent_ttc = agent_ttc.min(t);
+        }
+    }
+    for wall in &scratch.walls {
+        if let Some(t) =
+            time_to_collision_segment(position, velocity, world.radius[slot], wall, RISK_HORIZON)
+        {
+            agent_ttc = agent_ttc.min(t);
+        }
+    }
+
+    SolvedOutcome {
+        velocity,
+        status: output.status,
+        time_to_collision: agent_ttc,
+        // Agents that have left the scene do not contribute risk. They are
+        // parked on a destination with zero velocity, and every later agent
+        // routes to that same point, so counting them would accrue phantom
+        // risk in proportion to how *well* the solver does — a solver landing
+        // 500 agents would look worse than one landing 200. That is a perverse
+        // gradient in the metrics meant to compare solvers.
+        contributes_risk: !(world.arrived[slot] || world.unrouted[slot]),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::avoidance::SampledVelocitySolver;
+    use crate::fidelity::S2_UPDATE_INTERVAL_TICKS;
     use crate::grid::UniformGrid;
     use crate::ids::AgentId;
     use crate::phases::perceive::{perceive, PerceiveConfig, PerceiveScratch};
@@ -421,5 +649,61 @@ mod tests {
         let report = run_steer(&mut world, &scene, &[]);
         assert_eq!(report.braking_agents, 0);
         assert!(report.min_time_to_collision.is_infinite());
+    }
+
+    #[test]
+    fn sparse_s2_tick_reuses_last_solved_target_not_current_velocity() {
+        let scene = open_scene(Vec::new());
+        let mut world = world_with(&[(1, Vec2::ZERO, Vec2::new(1.35, 0.0))]);
+        world.simulation_tier[0] = SimulationTier::S2;
+        world.vel_x[0] = 0.2;
+        world.vel_y[0] = -0.1;
+        world.scheduled_target_vel_x[0] = 1.1;
+        world.scheduled_target_vel_y[0] = 0.4;
+        let mut scratch = SteerScratch::default();
+        let skipped_tick = (0..S2_UPDATE_INTERVAL_TICKS)
+            .find(|tick| !FidelityPolicy::s2_update_due(world.agent_id[0], *tick))
+            .unwrap();
+
+        steer_scheduled(
+            &mut world,
+            &NeighborArena::new(),
+            &scene,
+            &SampledVelocitySolver::default(),
+            None,
+            &SteerConfig::default(),
+            &mut scratch,
+            skipped_tick,
+        );
+
+        assert_eq!(world.desired_velocity(0), Vec2::new(1.1, 0.4));
+    }
+
+    #[test]
+    fn sparse_s2_braking_is_counted_as_continuous_not_accumulated_samples() {
+        let scene = open_scene(Vec::new());
+        let mut world = world_with(&[(1, Vec2::ZERO, Vec2::new(1.35, 0.0))]);
+        world.simulation_tier[0] = SimulationTier::S2;
+        world.solver_status[0] = SolverStatus::Braking;
+        world.stall_ticks[0] = 7;
+        let mut scratch = SteerScratch::default();
+        let skipped_tick = (0..S2_UPDATE_INTERVAL_TICKS)
+            .find(|tick| !FidelityPolicy::s2_update_due(world.agent_id[0], *tick))
+            .unwrap();
+
+        let report = steer_scheduled(
+            &mut world,
+            &NeighborArena::new(),
+            &scene,
+            &SampledVelocitySolver::default(),
+            None,
+            &SteerConfig::default(),
+            &mut scratch,
+            skipped_tick,
+        );
+
+        assert_eq!(world.solver_status[0], SolverStatus::Braking);
+        assert_eq!(world.stall_ticks[0], 8);
+        assert_eq!(report.braking_agents, 1);
     }
 }

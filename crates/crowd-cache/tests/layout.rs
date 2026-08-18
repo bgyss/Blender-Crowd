@@ -234,6 +234,47 @@ fn procedural_extraction_keeps_10k_agents_as_data_and_bounded_prototypes() {
 }
 
 #[test]
+fn procedural_extraction_keeps_100k_background_agents_as_data() {
+    let records = (0..100_000)
+        .map(|agent_id| crowd_cache::LayoutRecordV1 {
+            agent_id,
+            position: [agent_id as f32, 0.0, 0.0],
+            velocity: [0.0; 3],
+            visible: agent_id % 20 != 0,
+            playback_rate: 1.0,
+            variant_id: (agent_id % 3) as u32,
+            clip_id: 2,
+            phase: 0.25,
+            destination_id: 0,
+            render_tier: 3,
+            time_offset_ticks: 0,
+            frozen: false,
+            path_guide: None,
+            group_id: None,
+            physics_active: false,
+        })
+        .collect::<Vec<_>>();
+    let prototypes = vec![
+        ProceduralPrototypeV1 {
+            prototype_id: "adult-a".to_owned(),
+            material_id: "mat-a".to_owned(),
+        },
+        ProceduralPrototypeV1 {
+            prototype_id: "adult-b".to_owned(),
+            material_id: "mat-b".to_owned(),
+        },
+        ProceduralPrototypeV1 {
+            prototype_id: "adult-c".to_owned(),
+            material_id: "mat-c".to_owned(),
+        },
+    ];
+    let instances = extract_procedural_instances_v1(&records, &prototypes).unwrap();
+    assert_eq!(instances.len(), 95_000);
+    assert_eq!(prototypes.len(), 3);
+    assert!(instances.iter().all(|instance| instance.render_tier == 3));
+}
+
+#[test]
 fn dependencies_are_explicit_and_usd_keeps_identity_and_variant_data() {
     let mut dependent = layer(
         "animation",
@@ -439,10 +480,16 @@ fn checked_m4_migration_fixture_validates_against_the_full_layer_schema() {
     )
     .unwrap();
     let fixture: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(root.join("assets/reference/migrations/override-layer-v1-to-layout-v1-golden.json")).unwrap(),
+        &std::fs::read(
+            root.join("assets/reference/migrations/override-layer-v1-to-layout-v1-golden.json"),
+        )
+        .unwrap(),
     )
     .unwrap();
-    jsonschema::validator_for(&schema).unwrap().validate(&fixture).unwrap();
+    jsonschema::validator_for(&schema)
+        .unwrap()
+        .validate(&fixture)
+        .unwrap();
 }
 
 #[test]
@@ -453,11 +500,17 @@ fn schema_rejects_an_unknown_or_under_specified_edit() {
     )
     .unwrap();
     let mut fixture: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(root.join("assets/reference/migrations/override-layer-v1-to-layout-v1-golden.json")).unwrap(),
+        &std::fs::read(
+            root.join("assets/reference/migrations/override-layer-v1-to-layout-v1-golden.json"),
+        )
+        .unwrap(),
     )
     .unwrap();
     fixture["edits"] = serde_json::json!([{ "type": "region_density", "region_id": "west" }]);
-    assert!(jsonschema::validator_for(&schema).unwrap().validate(&fixture).is_err());
+    assert!(jsonschema::validator_for(&schema)
+        .unwrap()
+        .validate(&fixture)
+        .is_err());
 }
 
 #[test]

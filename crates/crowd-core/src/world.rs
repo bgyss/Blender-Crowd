@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::commuter::{CommuterState, DecisionReason};
+use crate::fidelity::{RenderTier, SimulationTier};
 use crate::ids::{hash_combine, AgentId};
 use crate::units::Vec2;
 
@@ -105,11 +106,20 @@ pub struct World {
     pub clip_phase: Vec<f32>,
     pub playback_rate: Vec<f32>,
     pub visible: Vec<bool>,
+    /// Independent M5 axes. `render_tier` remains the cache-compatible u8
+    /// representation; these typed columns are authoritative scheduling state.
+    pub simulation_tier: Vec<SimulationTier>,
+    pub render_fidelity_tier: Vec<RenderTier>,
     pub render_tier: Vec<u8>,
 
     // Staging. Written by steer, consumed by integrate.
     pub des_vel_x: Vec<f32>,
     pub des_vel_y: Vec<f32>,
+    /// Last avoidance target retained by a sparsely scheduled S2 agent.
+    /// `decide` overwrites `des_vel_*` every tick, so it cannot also retain
+    /// this value without turning sparse steering into a stop-start loop.
+    pub scheduled_target_vel_x: Vec<f32>,
+    pub scheduled_target_vel_y: Vec<f32>,
     pub next_pos_x: Vec<f32>,
     pub next_pos_y: Vec<f32>,
     pub next_vel_x: Vec<f32>,
@@ -195,10 +205,14 @@ impl World {
         self.clip_phase.push(0.0);
         self.playback_rate.push(1.0);
         self.visible.push(true);
+        self.simulation_tier.push(SimulationTier::S0);
+        self.render_fidelity_tier.push(RenderTier::R0);
         self.render_tier.push(0);
 
         self.des_vel_x.push(0.0);
         self.des_vel_y.push(0.0);
+        self.scheduled_target_vel_x.push(0.0);
+        self.scheduled_target_vel_y.push(0.0);
         self.next_pos_x.push(spawn.position.x);
         self.next_pos_y.push(spawn.position.y);
         self.next_vel_x.push(0.0);
@@ -271,6 +285,8 @@ impl World {
             h = hash_combine(h, canonical_bits(self.pos_y[slot]));
             h = hash_combine(h, canonical_bits(self.vel_x[slot]));
             h = hash_combine(h, canonical_bits(self.vel_y[slot]));
+            h = hash_combine(h, canonical_bits(self.scheduled_target_vel_x[slot]));
+            h = hash_combine(h, canonical_bits(self.scheduled_target_vel_y[slot]));
             h = hash_combine(h, canonical_bits(self.yaw[slot]));
             h = hash_combine(h, self.route[slot].0 as u64);
             h = hash_combine(h, self.route_index[slot] as u64);
@@ -299,6 +315,8 @@ impl World {
             h = hash_combine(h, canonical_bits(self.clip_phase[slot]));
             h = hash_combine(h, canonical_bits(self.playback_rate[slot]));
             h = hash_combine(h, self.visible[slot] as u64);
+            h = hash_combine(h, self.simulation_tier[slot] as u64);
+            h = hash_combine(h, self.render_fidelity_tier[slot] as u64);
             h = hash_combine(h, self.render_tier[slot] as u64);
         }
         h
@@ -386,6 +404,8 @@ mod tests {
         assert_eq!(world.pos_x.len(), n);
         assert_eq!(world.pos_y.len(), n);
         assert_eq!(world.vel_x.len(), n);
+        assert_eq!(world.scheduled_target_vel_x.len(), n);
+        assert_eq!(world.scheduled_target_vel_y.len(), n);
         assert_eq!(world.next_pos_x.len(), n);
         assert_eq!(world.solver_status.len(), n);
         assert_eq!(world.stall_ticks.len(), n);
@@ -400,6 +420,8 @@ mod tests {
         assert_eq!(world.clip_phase.len(), n);
         assert_eq!(world.playback_rate.len(), n);
         assert_eq!(world.visible.len(), n);
+        assert_eq!(world.simulation_tier.len(), n);
+        assert_eq!(world.render_fidelity_tier.len(), n);
         assert_eq!(world.render_tier.len(), n);
         assert_eq!(world.custom_destination.len(), n);
         assert_eq!(world.destination_x.len(), n);

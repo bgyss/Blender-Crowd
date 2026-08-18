@@ -32,7 +32,7 @@ use crowd_core::project::{
     compile_project as compile_core_project, CompiledAgentSpawn,
     CompiledProject as CoreCompiledProject, Diagnostic,
 };
-use crowd_core::{compile_concourse, SimConfig, Simulation};
+use crowd_core::{compile_concourse, FidelityPolicy, SimConfig, Simulation};
 use crowd_trace::{AgentRecord, TraceReader};
 use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
@@ -97,8 +97,15 @@ impl PyCompiledProject {
             .collect()
     }
 
-    #[pyo3(signature = (agent_count=None))]
-    fn create_session(&self, agent_count: Option<u32>) -> PyResult<Session> {
+    /// `fidelity_profile` names a declared M5 tier mix. Omitting it leaves
+    /// every agent at S0/R0, which is the pre-M5 behavior and what every
+    /// existing caller gets.
+    #[pyo3(signature = (agent_count=None, fidelity_profile=None))]
+    fn create_session(
+        &self,
+        agent_count: Option<u32>,
+        fidelity_profile: Option<&str>,
+    ) -> PyResult<Session> {
         let requested = agent_count.unwrap_or(self.inner.agent_spawns().len() as u32);
         if requested == 0 || requested as usize > self.inner.agent_spawns().len() {
             return Err(PyValueError::new_err(format!(
@@ -106,7 +113,26 @@ impl PyCompiledProject {
                 self.inner.agent_spawns().len()
             )));
         }
-        Session::create(Arc::clone(&self.inner), requested)
+        Session::create(
+            Arc::clone(&self.inner),
+            requested,
+            parse_fidelity_profile(fidelity_profile)?,
+        )
+    }
+}
+
+/// Resolve a declared M5 tier-mix name to a policy.
+///
+/// Names rather than raw radii/shares: the mix a scale report claims must be
+/// one the repository can reproduce by name, and an arbitrary caller-supplied
+/// share would make a cache's declared profile unverifiable.
+fn parse_fidelity_profile(name: Option<&str>) -> PyResult<Option<FidelityPolicy>> {
+    match name {
+        None => Ok(None),
+        Some("m5_background_10_90") => Ok(Some(FidelityPolicy::m5_10k_profile())),
+        Some(other) => Err(PyValueError::new_err(format!(
+            "E_FIDELITY_PROFILE: unknown profile {other}; known profiles: m5_background_10_90"
+        ))),
     }
 }
 
@@ -214,7 +240,11 @@ impl Session {
 }
 
 impl Session {
-    fn create(project: Arc<CoreCompiledProject>, agent_count: u32) -> PyResult<Self> {
+    fn create(
+        project: Arc<CoreCompiledProject>,
+        agent_count: u32,
+        fidelity: Option<FidelityPolicy>,
+    ) -> PyResult<Self> {
         let scene = facade_scene(&project, agent_count)
             .map_err(|error| PyValueError::new_err(format!("E_SESSION_COMPILE: {error}")))?;
         Ok(Self {
@@ -223,7 +253,10 @@ impl Session {
             simulation: Simulation::new(
                 scene,
                 Box::new(SampledVelocitySolver::default()),
-                SimConfig::default(),
+                SimConfig {
+                    fidelity,
+                    ..SimConfig::default()
+                },
             ),
             agent_count,
         })
@@ -1352,6 +1385,23 @@ fn pack(records: &[AgentRecord]) -> PackedChannels {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn only_declared_fidelity_profiles_are_accepted() {
+        assert!(parse_fidelity_profile(None).unwrap().is_none());
+        let declared = parse_fidelity_profile(Some("m5_background_10_90"))
+            .unwrap()
+            .expect("the declared M5 mix must resolve to a policy");
+        assert_eq!(
+            declared.background_permyriad,
+            FidelityPolicy::m5_10k_profile().background_permyriad
+        );
+        // An arbitrary share would make a cache's declared profile
+        // unverifiable, so an unknown name is an error rather than a default.
+        // Only `is_err` is asserted: rendering the message would fetch the
+        // Python exception value, and this unit test runs with no interpreter.
+        assert!(parse_fidelity_profile(Some("90_percent_background")).is_err());
+    }
 
     fn record_with_id(agent_id: u64) -> AgentRecord {
         AgentRecord {
