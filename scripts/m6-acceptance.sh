@@ -22,7 +22,7 @@ echo "  Blender debugger smoke: ${blender_status}"
 echo "  production motion/terrain/physics thresholds: OPEN"
 echo "  R1-R4 reactive-motion research gates: OPEN"
 echo "  independent-user UI gate: OPEN"
-echo "  full workspace test: OPEN (release density-fuzz lane passed; complete workspace run remains unproven)"
+echo "  full release workspace: PASS (debug workspace run remains unproven)"
 
 if [[ "${M6_ALLOW_OPEN:-0}" == "1" ]]; then
     exit 0
