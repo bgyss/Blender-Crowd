@@ -2,129 +2,162 @@
 
 ## Result
 
-The six integrated M6 reference scenes pass against the checked CC0 authored
+The six checked M6 reference scenes pass against the pinned CC0 authored
 motion baseline. Two complete runner invocations emitted byte-identical JSON,
-including identical per-scene metrics and replay hashes. The combined replay
-hash is
-`620e086637a7df18e78c13347e26a3452078bc7fed1d8f65d79d0e81fbc569b8`.
+including identical runtime-derived metrics and replay hashes. The combined
+replay hash is
+`7fbea50f7c2f7a1ab67df4c978f323fd0792aa8811bfb590d8bade8875f87fac`.
 
-This result does not accept the official CMU candidate. The checked
-[CMU report](2026-08-18-m6-cmu-motion.json) records 3,587 raw joint-limit
-exceedances against the unchanged hard-zero limit. The runner rejects that
-candidate and explicitly falls back to the checked
-[CC0 database](../../assets/reference/m6/motion-database-input-v1.json) and
-[provenance contract](../../assets/reference/m6/motion-provenance-v1.json).
-No CMU clip contributes accepted scene motion.
+This result does not accept the official CMU candidate. The pinned
+[CMU report](2026-08-18-m6-cmu-motion.json) contains 3,587 measured raw
+joint-limit exceedances against the pinned hard-zero threshold. The runner
+rejects that candidate before scene execution. No CMU clip contributes
+accepted scene motion, and no component probe is promoted as integrated CMU
+evidence.
+
+## Pinned source selection
+
+The runner recomputes BLAKE3 from every consumed byte stream and accepts source
+selection only when all pinned digests, IDs, and relationships agree.
+
+| Artifact | Required identity | Pinned BLAKE3 |
+| --- | --- | --- |
+| CMU report | `cmu-mocap-subjects-35-36-m6-v1`; manifest `cmu-mocap-subjects-35-36-m6-v1`; source hash `a75af4c0…ec91424`; measured joint evidence 3,587 | `b05e9bce668fab8ef11fe55e6b396841fd23a7d2373e8281e9c654280cb5f2f9` |
+| Threshold contract | `m6-cmu-motion-2026-08-18`; measured baseline 3,587; limit 0; exact report/manifest relationships | `993bb4897305524e359943820fdae24f347e8cc025429f604fbdc628b76de154` |
+| CC0 database | `reference-humanoid-motion`; retarget profile `reference-humanoid`; exact walk/jog fixture clips | `c687fede242e359fb7b94e91e1c17a44ddacd01963697f2e5f4e687c01998e08` |
+| CC0 provenance | `reference-walk-metadata`; `CC0-1.0`; redistribution allowed; content hash equals the database BLAKE3 | `60d1bf5aa98f66ab1a37096876140a53b6bb6d63e03f8a83a5ed7370c895340d` |
+
+The passing baseline is labeled `accepted` only after those checks succeed.
+Mutating the CMU report, authored database, provenance content hash, or
+threshold bytes makes the runner fail closed with exit 2 and no report.
 
 ## Environment and inputs
 
 - Platform: Darwin arm64
 - Rust: `rustc 1.94.1 (e408947bf 2026-03-25)`
 - Cargo: `cargo 1.94.1 (29ea6fb6a 2026-03-24)`
-- Pre-task repository revision: `c29693b`
+- Fix-round base revision: `74103eb`
 - Fixture:
   [acceptance-scenes-v1.json](../../assets/reference/m6/acceptance-scenes-v1.json)
 - Report schema:
   [m6-acceptance-scenes-v1.schema.json](../../schemas/m6-acceptance-scenes-v1.schema.json)
 - Fixture BLAKE3:
-  `42aad3858811c2e1820542e91c5441ed1afd655ba38a677cadb1a71daef98396`
-- CMU report BLAKE3:
-  `b05e9bce668fab8ef11fe55e6b396841fd23a7d2373e8281e9c654280cb5f2f9`
-- Accepted database BLAKE3:
-  `c687fede242e359fb7b94e91e1c17a44ddacd01963697f2e5f4e687c01998e08`
-- Accepted provenance BLAKE3:
-  `66fecce25c4b37a1dde217118018215275fa4fbed2ab50d07e4cd7f05dd793d0`
+  `df0545312fc88ef7b53c7dbb604ddebd034f4a6a3c65badf809f72bc13518472`
 
-All generated JSON reports remained outside Git. The checked fixture records
-stable seeds, source paths, tick ranges, population size, promoted targets,
-motion requests, and explicit criteria. The emitted report hashes every source
-file actually consumed by each scene.
+Generated JSON reports remained outside Git.
 
-## Method
+## Integrated execution method
 
-The runner composes existing M6 authorities instead of reimplementing their
-decisions:
+Each scene constructs a complete population frame from its declared seed and
+population. Stable agent IDs, initial positions, presentation state, and
+per-agent motion variation are generated through the existing deterministic
+RNG/ID contracts. Every declared tick executes motion matching and feedback for
+every agent, so seed, population, and tick mutations affect executed state,
+agent-tick counts, and replay identity rather than only changing report text.
 
-- `ReservationRuntimeV1` performs finite-capacity café admission and promotion.
-- `FormationV1` detects the family split, supplies bounded cohesion, and
-  verifies regrouping and intrusion state.
-- `MotionMatcher`, `MotionFeedbackV1`, `TerrainConstraintV1`, and
-  `FootLockWindowV1` measure trajectory fit, contact, foot slide, terrain
-  feasibility, and navigation feedback.
-- `InteractionSchedulerV1`, `InteractionMotionV1::validate_against`, and
-  `deterministic_paired_clip` verify atomic promotion, required contact, and
-  completion.
-- `simulate_physics_handoff_v1`, `validate_transition`, and `recovery_phase`
-  produce the inspectable ragdoll cache and recovery sequence.
-- `FidelityPolicy::animation_due` and `render_for` verify the mixed-tier
-  diagnostic schedule and tier mapping.
-- `compose_interaction_frame_v1` measures immutable-base and unrelated-agent
-  isolation independently in every scene.
+The domain operation then composes existing authorities:
 
-Every scene also runs the checked authored motion database through the same
-matcher and feedback path. Required versus observed contact counts are kept
-separate, and a zero-required-contact case would report perfect precision
-without inventing a contact. A failing criterion still produces schema-valid
-JSON and exits with status 1; malformed inputs or execution failures exit 2.
+- `scheduled_cafe`: finite-capacity reservation, waiting, release, promotion,
+  and a runtime-created paired layer applied to the two admitted agents;
+- `family_split_regroup`: formation evaluation and bounded cohesion on every
+  declared tick, with intrusion candidates drawn from the executed population;
+- `terrain_motion_feedback`: terrain acceptance, foot locks, and navigation
+  feedback measured on every applicable tick;
+- `paired_handoff`: consumed request, motion, and animation-layer artifacts;
+  request/motion validation; atomic scheduling; and checked layer edits applied
+  to the complete state;
+- `ragdoll_recovery`: consumed physics transition and hero boundary,
+  deterministic physics samples, phase recovery, promotion, and target-state
+  application; and
+- `mixed_tier_diagnostics`: consumed tier, request, and motion artifacts;
+  fidelity scheduling over all 100 agents; atomic interaction promotion;
+  validated contact; and participant root application.
+
+The source ledger hashes only parsed/consumed artifacts. A declared source that
+is not consumed causes exit 2. Shared motion/provenance/threshold/report hashes
+appear in each scene because each scene executes that pinned baseline and
+source-selection decision.
 
 ## Scene metrics
 
-| Scene | Ticks | Agents | Promoted groups | Trajectory fit (mm) | Foot slide (mm) | Contacts observed/required | Safety violations | Source fallback | Runtime motion fallback | Unrelated mutations | Replay hash |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `scheduled_cafe` | 0–120 | 3 | 1 | 10 | 10 | 2/2 | 0 | 1 | 0 | 0 | `9caf3eb1…1347c` |
-| `family_split_regroup` | 0–30 | 4 | 0 | 0 | 8 | 1/1 | 0 | 1 | 0 | 0 | `a3125bfa…5f53e` |
-| `terrain_motion_feedback` | 10–20 | 2 | 0 | 20 | 10 | 2/2 | 0 | 1 | 0 | 0 | `f925d7ce…3bbc8` |
-| `paired_handoff` | 10–20 | 3 | 1 | 0 | 6 | 2/2 | 0 | 1 | 0 | 0 | `6e0f150f…f847b` |
-| `ragdoll_recovery` | 20–30 | 2 | 1 | 10 | 10 | 2/2 | 0 | 1 | 0 | 0 | `5a7cc489…ea4b` |
-| `mixed_tier_diagnostics` | 0–15 | 100 | 1 | 0 | 8 | 2/2 | 0 | 1 | 0 | 0 | `f37b3f8f…6c41` |
+| Scene | Ticks | Agent-ticks | Promoted groups | Trajectory max (mm) | Foot slide (mm) | Contacts observed/required | Safety | Runtime fallback | Isolation | Base/unrelated mutations | Target mutations | Replay hash |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- |
+| `scheduled_cafe` | 121 | 363 | 1 | 15 | 10 | 364/364 | 0 | 0 | measured | 0/0 | 2 | `f9bdc9b9…7ff509` |
+| `family_split_regroup` | 31 | 124 | 0 | 5 | 8 | 124/124 | 0 | 0 | not applicable | n/a | 0 | `4967ed43…5f7ce` |
+| `terrain_motion_feedback` | 11 | 22 | 0 | 25 | 10 | 33/33 | 0 | 0 | not applicable | n/a | 0 | `c13e3237…cff5a` |
+| `paired_handoff` | 11 | 33 | 1 | 5 | 6 | 34/34 | 0 | 0 | measured | 0/0 | 2 | `2d96800f…596af` |
+| `ragdoll_recovery` | 11 | 22 | 1 | 15 | 10 | 23/23 | 0 | 0 | measured | 0/0 | 1 | `026ec198…82eb7` |
+| `mixed_tier_diagnostics` | 16 | 1,600 | 1 | 5 | 8 | 1,601/1,601 | 0 | 0 | measured | 0/0 | 2 | `78c2ac91…50e29` |
 
-Contact precision is 1,000,000 millionths in every scene. The combined source
-fallback count is six: one explicit CMU-rejection-to-CC0 selection per scene.
-The independent runtime motion-matcher fallback count is zero in every scene.
-This distinction prevents the rejected external source from being hidden by a
-generic fallback total.
+Contact precision is 1,000,000 millionths in every scene. Contact totals include
+one authored locomotion-contact observation per executed agent-tick plus each
+scene's domain contact where applicable. The source fallback count remains one
+per scene for explicit CMU-rejection-to-CC0 selection; the separate runtime
+motion-matcher fallback count is zero in every scene.
 
-Scene-specific evidence also records:
+Family and terrain isolation are explicitly `not_applicable`: neither scene
+executes a promoted layer/runtime operation, so the report does not fabricate
+zero isolation measurements. The other four scenes compare the complete base
+population before and after the actual promoted operation, require target
+mutation, and measure base-cache and unrelated-agent preservation.
 
-- café: two initial grants, one waiter, one deterministic promotion after
-  release, and zero double ownership;
-- family: one split sample, one regrouped sample, 4,000 mm maximum split
-  separation, and zero intrusion samples;
-- terrain: one accepted terrain constraint, one satisfied foot lock, and one
-  navigation-feedback event;
-- paired handoff: two atomically locked participants, one required interaction
-  contact, and one completed interaction;
-- ragdoll: 11 cached samples, five floor-contact samples, and the expected
-  1/2/8 impact/stabilize/resume tick distribution; and
-- mixed tier: 3 full, 2 reduced, and 1 aggregate diagnostic channels, with 880
-  scheduled animation evaluations over the declared interval.
+Scene-specific runtime evidence includes:
+
+- café: two grants, one waiter, one promotion after release, and zero double
+  ownership;
+- family: 16 split samples, 15 regrouped samples, zero runtime-derived
+  intrusion samples, and 4,000 mm maximum separation;
+- terrain: 11 accepted terrain ticks, 11 satisfied foot-lock ticks, and 11
+  navigation-feedback events;
+- paired handoff: atomic participant locking, one required interaction contact,
+  completion, and two consumed layer edits;
+- ragdoll: a validated hero boundary, 11 physics samples, five floor-contact
+  samples, and 1/2/8 impact/stabilize/resume ticks; and
+- mixed tier: one actual promoted group and validated contact, 3 full, 2
+  reduced, and 1 aggregate diagnostic channels, and 880 scheduled animation
+  evaluations.
+
+## Mutation and failure evidence
+
+The real-binary suite covers:
+
+- four source-spoof mutations, all rejected before report publication;
+- seed, population, and tick mutations that alter executed state or
+  agent-tick counts;
+- full-population target/base/unrelated isolation;
+- declared-but-unconsumed source rejection;
+- actual paired layer, hero boundary, and mixed request/motion consumption;
+- required common fields and exact typed evidence for all six scene kinds;
+- canonical scene names; and
+- a nonzero hard-safety result under a permissive configured maximum, which
+  still writes schema-valid failure evidence, includes a hard-safety reason,
+  and exits 1.
 
 ## Verified commands
 
-The focused RED run failed before implementation because Cargo could not find
-the absent `m6-acceptance-scenes` binary:
+The fix-round RED run had 13 intended failures and two existing passes:
 
 ```text
 cargo test -p crowd-bench --test m6_acceptance_scenes
-error: environment variable `CARGO_BIN_EXE_m6-acceptance-scenes` not defined at compile time
+test result: FAILED. 2 passed; 13 failed
 ```
 
-The GREEN focused run passed all nine tests:
+The focused GREEN run passes all real-binary regressions:
 
 ```text
 cargo test -p crowd-bench --test m6_acceptance_scenes
-test result: ok. 9 passed; 0 failed
+test result: ok. 15 passed; 0 failed
 ```
 
-The prescribed runner then executed the focused suite and two complete reports,
-used `cmp` for byte equality, and checked the combined result:
+The prescribed two-pass runner validates byte equality and the regenerated
+combined hash:
 
 ```text
 scripts/m6-reference-scenes-test.sh
-M6 reference scenes passed twice with exact hashes and metrics: 620e086637a7df18e78c13347e26a3452078bc7fed1d8f65d79d0e81fbc569b8
+M6 reference scenes passed twice with exact hashes and metrics: 7fbea50f7c2f7a1ab67df4c978f323fd0792aa8811bfb590d8bade8875f87fac
 ```
 
-Focused linting also passed:
+Focused linting passes:
 
 ```text
 cargo clippy -p crowd-bench --bin m6-acceptance-scenes --test m6_acceptance_scenes -- -D warnings
@@ -132,10 +165,10 @@ cargo clippy -p crowd-bench --bin m6-acceptance-scenes --test m6_acceptance_scen
 
 ## Interpretation and limits
 
-This is deterministic, fixture-level integration evidence. It establishes
-trajectory/contact/safety accounting, stable replay, and base/unrelated-agent
-isolation for the authored reference scenes. It does not establish that the
-rejected CMU clips meet joint limits, broad production motion quality,
-arbitrary-rig retargeting, Blender visual fidelity, or mixed-tier performance.
-Blender layer proof and the 10,000-agent performance gate remain Task 13 scope;
-the final requirement-level M6 adjudication remains Task 14 scope.
+This is deterministic, checked-fixture integration evidence. It establishes
+causal scene execution, source consumption, trajectory/contact/safety
+accounting, stable replay, and applicable full-state isolation for this narrow
+authored baseline. It does not establish accepted CMU motion, arbitrary-rig
+retargeting, Blender visual fidelity, human perceptual quality, or mixed-tier
+performance. Blender layer proof and the 10,000-agent performance gate remain
+Task 13 scope; requirement-level M6 adjudication remains Task 14 scope.

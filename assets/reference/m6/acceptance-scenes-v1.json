@@ -13,7 +13,6 @@
       "tick_start": 0,
       "tick_end": 120,
       "agent_count": 3,
-      "target_agent_ids": [1, 2],
       "source_paths": ["assets/reference/m6/activity-v1.json"],
       "motion": {
         "desired_velocity_millimeters_per_second": [990, 0],
@@ -36,7 +35,6 @@
       "tick_start": 0,
       "tick_end": 30,
       "agent_count": 4,
-      "target_agent_ids": [7, 9, 11],
       "source_paths": ["assets/reference/m6/formation-v1.json"],
       "motion": {
         "desired_velocity_millimeters_per_second": [1000, 0],
@@ -59,7 +57,6 @@
       "tick_start": 10,
       "tick_end": 20,
       "agent_count": 2,
-      "target_agent_ids": [1],
       "source_paths": ["assets/reference/m6/terrain-motion-v1.json"],
       "motion": {
         "desired_velocity_millimeters_per_second": [980, 0],
@@ -82,7 +79,6 @@
       "tick_start": 10,
       "tick_end": 20,
       "agent_count": 3,
-      "target_agent_ids": [7, 9],
       "source_paths": [
         "assets/reference/m6/interaction-request-v1.json",
         "assets/reference/m6/interaction-motion-v1.json",
@@ -109,7 +105,6 @@
       "tick_start": 20,
       "tick_end": 30,
       "agent_count": 2,
-      "target_agent_ids": [7],
       "source_paths": [
         "assets/reference/m6/physics-transition-v1.json",
         "assets/reference/m6/hero-integration-v1.json"
@@ -135,7 +130,6 @@
       "tick_start": 0,
       "tick_end": 15,
       "agent_count": 100,
-      "target_agent_ids": [7, 9],
       "source_paths": [
         "assets/reference/m6/mixed-tier-v1.json",
         "assets/reference/m6/interaction-request-v1.json",

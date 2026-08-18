@@ -2,7 +2,7 @@
   "schema_version": 1,
   "asset_id": "reference-walk-metadata",
   "source_uri": "repo://assets/reference/m6/motion-database-input-v1.json",
-  "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "content_hash": "c687fede242e359fb7b94e91e1c17a44ddacd01963697f2e5f4e687c01998e08",
   "license_id": "CC0-1.0",
   "redistribution_allowed": true,
   "terms_reference": "docs/m6-motion-data-policy.md",
