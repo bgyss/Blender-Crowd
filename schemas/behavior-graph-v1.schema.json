@@ -19,9 +19,12 @@
         { "$ref": "#/$defs/utility_selector" },
         { "$ref": "#/$defs/state_switch" },
         { "$ref": "#/$defs/one_child" },
+        { "$ref": "#/$defs/fuzzy_compare" },
         { "$ref": "#/$defs/navigate" },
         { "$ref": "#/$defs/wait" },
         { "$ref": "#/$defs/queue" },
+        { "$ref": "#/$defs/reserve" },
+        { "$ref": "#/$defs/action" },
         { "$ref": "#/$defs/follow_lane" },
         { "$ref": "#/$defs/hold_position" }
       ]
@@ -59,9 +62,24 @@
         { "type": "object", "additionalProperties": false, "required": ["type", "id", "child", "key"], "properties": { "type": { "const": "blackboard_compare" }, "id": { "$ref": "#/$defs/id" }, "child": { "$ref": "#/$defs/id" }, "key": { "$ref": "#/$defs/id" } } }
       ]
     },
+    "fuzzy_compare": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "id", "key", "lower", "upper", "threshold_millionths", "child"],
+      "properties": {
+        "type": { "const": "fuzzy_compare" },
+        "id": { "$ref": "#/$defs/id" },
+        "key": { "$ref": "#/$defs/id" },
+        "lower": { "type": "integer" },
+        "upper": { "type": "integer" },
+        "threshold_millionths": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "child": { "$ref": "#/$defs/id" }
+      }
+    },
     "navigate": { "type": "object", "additionalProperties": false, "required": ["type", "id", "destination_id"], "properties": { "type": { "const": "navigate" }, "id": { "$ref": "#/$defs/id" }, "destination_id": { "$ref": "#/$defs/id" } } },
     "wait": { "type": "object", "additionalProperties": false, "required": ["type", "id", "ticks"], "properties": { "type": { "const": "wait" }, "id": { "$ref": "#/$defs/id" }, "ticks": { "type": "integer", "minimum": 1 } } },
     "queue": { "type": "object", "additionalProperties": false, "required": ["type", "id", "queue_id"], "properties": { "type": { "const": "queue" }, "id": { "$ref": "#/$defs/id" }, "queue_id": { "$ref": "#/$defs/id" } } },
+    "reserve": { "type": "object", "additionalProperties": false, "required": ["type", "id", "resource_id", "priority"], "properties": { "type": { "const": "reserve" }, "id": { "$ref": "#/$defs/id" }, "resource_id": { "$ref": "#/$defs/id" }, "priority": { "type": "integer" } } },
+    "action": { "type": "object", "additionalProperties": false, "required": ["type", "id", "action_id"], "properties": { "type": { "const": "action" }, "id": { "$ref": "#/$defs/id" }, "action_id": { "$ref": "#/$defs/id" } } },
     "follow_lane": { "type": "object", "additionalProperties": false, "required": ["type", "id", "lane_id"], "properties": { "type": { "const": "follow_lane" }, "id": { "$ref": "#/$defs/id" }, "lane_id": { "$ref": "#/$defs/id" } } },
     "hold_position": { "type": "object", "additionalProperties": false, "required": ["type", "id"], "properties": { "type": { "const": "hold_position" }, "id": { "$ref": "#/$defs/id" } } }
   }

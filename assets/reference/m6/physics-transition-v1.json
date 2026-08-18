@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "transition_id": "hero-recovery-7",
+  "agent_ids": [7],
+  "tick_start": 20,
+  "tick_end": 30,
+  "solver": "deterministic-kinematic-reference",
+  "cache_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "recovery": "resume-walk",
+  "failure_policy": "fallback"
+}

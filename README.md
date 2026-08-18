@@ -86,6 +86,14 @@ separates the passing functional gate from the substantial UI/UX work that the
 operator spot check exposed. That deferred work, including the incomplete Figma
 artifact, is tracked in the [UI/UX roadmap](docs/ui-ux-roadmap.md#deferred-uiux-todo).
 
+M6 implementation is underway. The deterministic foundation currently covers
+versioned perception, typed blackboards, finite-resource activities, formations,
+trajectory matching, generic physics boundaries, the model-independent R0
+interaction worker, removable interaction layers, and a trace/debugger surface.
+This foundation is not full M6 acceptance: production motion data, scale and
+physics evidence, model-backed R1-R4 research gates, and the independent-user UI
+study remain separate requirements.
+
 The M1 reference concourse compiles exactly 1,000 stable agents, performs a
 strict 10,000-tick rebake, isolates a timed portal change, preserves all v1
 playback channels, supports a reversible one-agent pin, and renders from a
@@ -183,6 +191,9 @@ scripts/m5-blender-test.sh                            # M5 procedural playback, 
 M5_BLENDER_AGENTS=10000 scripts/m5-blender-test.sh    # the same proof at the 10K gate's population
 cargo run --release -p crowd-bench -- cache-experiment --agents 10000 --cache-frames 8 --out /tmp/blender-crowd-m5-cache-10k # M5 bounded cache preflight, not acceptance
 scripts/m5-100k-gate.sh                               # every M5 100K stage in one command; multi-hour, run it under tmux
+scripts/m6-foundation-test.sh                         # M6 deterministic contracts, R0 worker/layer, agency, motion, physics, and debugger foundation
+scripts/m6-blender-test.sh                            # M6 Blender-process trace debugger and graph-search smoke (requires Blender 5.2 LTS)
+scripts/m6-acceptance.sh                              # M6 requirement audit; exits 2 while production/UI/research gates remain open
 # Full 10K/100K procedure: docs/runbooks/m5-scale-gates.md
 # Accepted 10K gate report:  docs/benchmarks/2026-08-14-m5-10k.md
 # Accepted 100K gate report: docs/benchmarks/2026-08-18-m5-100k.md

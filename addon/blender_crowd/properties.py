@@ -209,6 +209,23 @@ class CrowdProjectProperties(PropertyGroup):
         name="Playback Tiers", default="Attach a cache and summarize"
     )
     m5_profile_status: StringProperty(name="M5 Profile Status", default="Declare a tier mix and attach a complete cache")
+    m6_trace_path: StringProperty(
+        name="M6 Trace JSON",
+        description="Versioned behavior/interaction trace to inspect",
+        subtype="FILE_PATH",
+    )
+    m6_graph_path: StringProperty(
+        name="M6 Graph JSON",
+        description="Versioned behavior graph to search",
+        subtype="FILE_PATH",
+    )
+    m6_graph_search: StringProperty(name="Graph Search", default="")
+    m6_graph_matches: StringProperty(name="Graph Matches", default="No graph search run")
+    m6_graph_highlight_path: StringProperty(name="Graph Highlight Path", default="No graph path")
+    m6_debug_tier: StringProperty(name="Debug Tier", default="hero")
+    m6_trace_summary: StringProperty(name="M6 Trace Summary", default="No M6 trace inspected")
+    m6_trace_timeline: StringProperty(name="M6 Timeline", default="No M6 timeline loaded")
+    m6_unavailable_evidence: StringProperty(name="M6 Evidence Availability", default="No degraded evidence reported")
     diagnostics: CollectionProperty(type=CrowdDiagnosticProperties)
     active_diagnostic_index: IntProperty(default=0, min=0)
     diagnostic_sequence: IntProperty(default=0, min=0)

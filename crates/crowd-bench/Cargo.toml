@@ -12,6 +12,10 @@ path = "src/lib.rs"
 name = "crowd-bench"
 path = "src/main.rs"
 
+[[bin]]
+name = "m6-interaction-worker"
+path = "src/bin/m6_interaction_worker.rs"
+
 [dependencies]
 crowd-cache = { path = "../crowd-cache" }
 crowd-core = { path = "../crowd-core" }

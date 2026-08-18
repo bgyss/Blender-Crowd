@@ -16,6 +16,9 @@ cargo test -p crowd-core --test behavior_graph            # M2 typed graph schem
 scripts/m2-foundation-test.sh                             # implemented M2 compiler/data-layer checks
 scripts/m4-foundation-test.sh                             # M4 layer composition, migration, bridge, and profile checks
 scripts/m5-foundation-test.sh                             # M5 tier scheduler, per-tier gate, transitions, CPU fallback
+scripts/m6-foundation-test.sh                             # M6 typed perception/brain/activity/motion/physics contracts and R0 interaction foundation
+scripts/m6-blender-test.sh                                # M6 Blender-process debugger/graph-search smoke; requires Blender 5.2 LTS
+scripts/m6-acceptance.sh                                  # M6 requirement audit; exits nonzero until all higher gates have evidence
 cargo run --release -p crowd-bench -- m5-gate --report REPORT.json --out ADJUDICATION.json # fixed per-tier M5 thresholds
 scripts/m5-blender-test.sh                                # M5 procedural playback, render, and scale/profiling UI proof
 M5_BLENDER_AGENTS=10000 scripts/m5-blender-test.sh        # the same proof at the 10K gate's population

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "scene_id": "sloped-platform",
+  "terrain_id": "ramp-reference",
+  "max_slope_millionths": 300000,
+  "ground_height_millimeters": 0,
+  "foot_locks": [
+    { "foot": "left_foot", "tick_start": 10, "tick_end": 20, "position_millimeters": [100, 200, 0] }
+  ],
+  "navigation_feedback": "warp_stride"
+}

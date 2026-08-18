@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/activity-v1.schema.json",
+  "title": "Blender Crowd Scheduled Activity v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "windows", "resources", "failure_policy"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "windows": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["start_tick", "end_tick", "priority"],
+        "properties": {
+          "start_tick": { "type": "integer", "minimum": 0 },
+          "end_tick": { "type": "integer", "minimum": 0 },
+          "priority": { "type": "integer" }
+        }
+      }
+    },
+    "resources": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "failure_policy": { "enum": ["retry", "release", "fallback", "fail"] },
+    "needs": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["key", "target_millionths", "decay_per_tick"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "target_millionths": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+          "decay_per_tick": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "paired_action": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["action_id", "participant_roles"],
+      "properties": {
+        "action_id": { "type": "string", "minLength": 1 },
+        "participant_roles": { "type": "array", "minItems": 2, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "capacity": { "type": "integer", "minimum": 1 }
+  }
+}

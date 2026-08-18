@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/perception-v1.schema.json",
+  "title": "Blender Crowd Typed Perception v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "agent_id", "tick", "observations", "memory"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "agent_id": { "type": "integer", "minimum": 0 },
+    "tick": { "type": "integer", "minimum": 0 },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["channel", "value"],
+        "properties": {
+          "channel": { "type": "string", "minLength": 1 },
+          "value": {
+            "oneOf": [
+              { "type": ["boolean", "integer", "number", "string"] },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type", "value"],
+                "properties": {
+                  "type": { "type": "string", "minLength": 1 },
+                  "value": {}
+                }
+              }
+            ]
+          },
+          "source_agent_id": { "type": ["integer", "null"], "minimum": 0 },
+          "key": { "type": ["string", "null"], "minLength": 1 }
+        }
+      }
+    },
+    "memory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "value", "expires_tick"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "value": {
+            "oneOf": [
+              { "type": ["boolean", "integer", "number", "string"] },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type", "value"],
+                "properties": {
+                  "type": { "type": "string", "minLength": 1 },
+                  "value": {}
+                }
+              }
+            ]
+          },
+          "expires_tick": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

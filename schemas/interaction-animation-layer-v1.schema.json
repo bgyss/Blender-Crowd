@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/interaction-animation-layer-v1.schema.json",
+  "title": "Blender Crowd Interaction Animation Layer v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "layer_id", "interaction_id", "base_cache_hash", "target_agent_ids", "tick_start", "tick_end", "priority", "enabled", "provenance", "edits", "fallback"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "layer_id": { "type": "string", "minLength": 1 },
+    "interaction_id": { "type": "string", "minLength": 1 },
+    "base_cache_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "target_agent_ids": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 0 } },
+    "tick_start": { "type": "integer", "minimum": 0 },
+    "tick_end": { "type": "integer", "minimum": 0 },
+    "priority": { "type": "integer" },
+    "enabled": { "type": "boolean" },
+    "provenance": { "type": "string", "minLength": 1 },
+    "edits": {
+      "type": "array", "minItems": 1, "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["agent_id", "tick", "clip_id", "phase_millionths"],
+        "properties": {
+          "agent_id": { "type": "integer", "minimum": 0 },
+          "tick": { "type": "integer", "minimum": 0 },
+          "clip_id": { "type": "integer", "minimum": 0, "maximum": 65535 },
+          "phase_millionths": { "type": "integer", "minimum": 0, "maximum": 1000000 }
+        }
+      }
+    },
+    "fallback": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clip_set_id", "clip_id", "reason"],
+      "properties": {
+        "clip_set_id": { "type": "string", "minLength": 1 },
+        "clip_id": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

@@ -13,8 +13,8 @@ pub mod spawn;
 pub mod steer;
 
 pub use animate::{
-    animate, animate_scheduled, AnimateConfig, AnimateReport, IDLE_CLIP_ID, JOG_CLIP_ID,
-    WALK_CLIP_ID,
+    animate, animate_scheduled, animate_with_motion_matcher, apply_motion_matches, AnimateConfig,
+    AnimateReport, IDLE_CLIP_ID, JOG_CLIP_ID, WALK_CLIP_ID,
 };
 pub use decide::{decide, DecideConfig};
 pub use integrate::{integrate, IntegrateConfig, IntegrateReport, IntegrateScratch};

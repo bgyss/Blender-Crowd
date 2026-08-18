@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "request_id": "request-pair-7-9",
+  "participants": [
+    { "agent_id": 7, "root_samples": [
+      { "tick": 10, "translation": [0.0, 0.0, 0.0], "yaw": 0.0 },
+      { "tick": 15, "translation": [0.25, 0.0, 0.0], "yaw": 0.0 },
+      { "tick": 20, "translation": [0.5, 0.0, 0.0], "yaw": 0.0 }
+    ], "skeletal_channels": [] },
+    { "agent_id": 9, "root_samples": [
+      { "tick": 10, "translation": [1.0, 0.0, 0.0], "yaw": 3.141592653589793 },
+      { "tick": 15, "translation": [0.75, 0.0, 0.0], "yaw": 3.141592653589793 },
+      { "tick": 20, "translation": [0.5, 0.0, 0.0], "yaw": 3.141592653589793 }
+    ], "skeletal_channels": [] }
+  ],
+  "contacts": [
+    { "contact_id": "touch-7-9", "label": "touch", "owner_agent_id": 7, "other_agent_id": 9, "tick": 15, "distance_m": 0.0 }
+  ],
+  "provenance": { "backend": "authored-paired-clip", "model_hash": null, "seed": 2026, "config_hash": "reference-v1" },
+  "diagnostics": [],
+  "fallback": { "clip_set_id": "pedestrian_basic", "clip_id": "walk", "reason": "deterministic baseline" }
+}

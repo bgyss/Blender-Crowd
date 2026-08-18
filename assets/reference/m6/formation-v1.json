@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "family-formation",
+  "leader_agent_id": 7,
+  "roles": [
+    { "agent_id": 7, "role": "leader", "offset_millimeters": [0, 0] },
+    { "agent_id": 9, "role": "left", "offset_millimeters": [-1000, 0] },
+    { "agent_id": 11, "role": "right", "offset_millimeters": [1000, 0] }
+  ],
+  "max_separation_millimeters": 3000,
+  "split_policy": "regroup"
+}

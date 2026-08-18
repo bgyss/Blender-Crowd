@@ -19,6 +19,7 @@ from . import (
     geometry_nodes,
     health,
     layout_editor,
+    m6_debugger,
     m4_layout,
     m5_scale,
     overrides,
@@ -779,6 +780,73 @@ class CROWD_OT_validate_authorable_project(Operator):
         return {"FINISHED"}
 
 
+class CROWD_OT_inspect_m6_trace(Operator):
+    bl_idname = "crowd.inspect_m6_trace"
+    bl_label = "Inspect M6 Trace"
+    bl_description = "Load synchronized M6 brain, motion, contact, and group evidence"
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        if not props.m6_trace_path:
+            self.report({"ERROR"}, "choose an M6 trace JSON file")
+            return {"CANCELLED"}
+        try:
+            with open(bpy.path.abspath(props.m6_trace_path), encoding="utf-8") as handle:
+                trace = json.load(handle)
+            agent_id = int(props.selected_agent_id)
+            summary = m6_debugger.build_trace_summary(trace, agent_id, props.m6_debug_tier)
+            props.m6_trace_summary = "agent {} · tick {} · graph {} · decisive node {}".format(
+                summary["agent_id"],
+                summary["tick"],
+                summary["current_graph_state"]["graph_id"] or "<none>",
+                summary["decisive_node"] or "<none>",
+            )
+            props.m6_trace_timeline = "visited: {} · observations: {} · interrupts: {}".format(
+                " → ".join(summary["current_graph_state"]["visited_nodes"]),
+                ", ".join(summary["observations"]) or "none",
+                ", ".join(summary["interrupts"]) or "none",
+            )
+            props.m6_unavailable_evidence = "unavailable: {}".format(
+                ", ".join(summary["unavailable_evidence"]) or "none"
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            props.m6_trace_summary = "M6 trace invalid: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        health.record(
+            context.scene,
+            "INFO",
+            "M6 trace inspected",
+            "{}\n{}".format(props.m6_trace_summary, props.m6_unavailable_evidence),
+            props.m6_trace_path,
+        )
+        self.report({"INFO"}, props.m6_trace_summary)
+        return {"FINISHED"}
+
+
+class CROWD_OT_search_m6_graph(Operator):
+    bl_idname = "crowd.search_m6_graph"
+    bl_label = "Search M6 Graph"
+    bl_description = "Find graph nodes and highlight the traceable parent/child path"
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        if not props.m6_graph_path:
+            self.report({"ERROR"}, "choose an M6 graph JSON file")
+            return {"CANCELLED"}
+        try:
+            with open(bpy.path.abspath(props.m6_graph_path), encoding="utf-8") as handle:
+                graph = json.load(handle)
+            result = m6_debugger.search_graph(graph, props.m6_graph_search)
+            props.m6_graph_matches = ", ".join(result["matches"]) or "No matching nodes"
+            props.m6_graph_highlight_path = " → ".join(result["highlight_path"]) or "No traceable path"
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        self.report({"INFO"}, props.m6_graph_matches)
+        return {"FINISHED"}
+
+
 class CROWD_OT_add_m2_semantic(Operator):
     bl_idname = "crowd.add_m2_semantic"
     bl_label = "Add M2 Semantic"
@@ -1353,6 +1421,8 @@ _CLASSES = (
     CROWD_OT_validate_project,
     CROWD_OT_validate_behavior_graph,
     CROWD_OT_validate_authorable_project,
+    CROWD_OT_inspect_m6_trace,
+    CROWD_OT_search_m6_graph,
     CROWD_OT_add_m2_semantic,
     CROWD_OT_remove_m2_semantic,
     CROWD_OT_add_group,

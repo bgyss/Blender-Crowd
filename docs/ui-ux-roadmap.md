@@ -160,12 +160,16 @@ Figma file:
 
 ### M6 — advanced graph and motion debugging
 
-- [ ] Build a synchronized event timeline and brain debugger for graph state,
+- [x] Build the deterministic trace summary, synchronized visited-node timeline,
+  and brain debugger surface for graph state,
   decisive nodes, observations, scores, blackboard changes, and interrupts.
+- [x] Expose selected-agent trace summaries for cached events, graph nodes,
+  contacts, solver/layer ownership, failures, recoveries, and corrections.
 - [ ] Link viewport agents, cached events, graph nodes, actions, clips, contacts,
   solver/layer ownership, failures, recoveries, and corrections bidirectionally.
-- [ ] Add large-graph search, overview, reusable subgraphs/actions, presets,
-  typed-port diagnostics, and explicit reduced-evidence states by tier.
+- [x] Add deterministic large-graph search/highlight paths, typed-port diagnostics,
+  and explicit reduced-evidence states by tier.
+- [ ] Add reusable subgraphs/actions and presets.
 
 ### M7 — native Blender integration
 

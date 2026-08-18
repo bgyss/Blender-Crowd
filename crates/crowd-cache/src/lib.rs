@@ -6,6 +6,7 @@ mod checksum;
 mod codec;
 mod defaults;
 mod error;
+mod interaction_layers;
 mod layout;
 mod manifest;
 mod override_layer;
@@ -25,6 +26,10 @@ pub use codec::{
 };
 pub use defaults::{CacheDefaults, CACHE_V1_DEFAULTS};
 pub use error::CacheError;
+pub use interaction_layers::{
+    compose_interaction_frame_v1, AnimationEditV1, AnimationLayerV1, FallbackClipV1,
+    InteractionLayerError, INTERACTION_LAYER_SCHEMA_VERSION,
+};
 pub use layout::{
     compose_layout_frame_v1, extract_procedural_instances_v1, invalidate_dependents_v1,
     mark_dependents_stale_v1, migrate_override_layer_v1, read_usda_crowd_profile_v1,

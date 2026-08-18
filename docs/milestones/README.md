@@ -80,6 +80,11 @@ M2 engineering and operator evidence is consolidated in the
 UI/UX and Figma work is deliberately deferred and tracked in the
 [UI/UX roadmap](../ui-ux-roadmap.md#deferred-uiux-todo); it does not reopen M2.
 
+M6's deterministic foundation and model-independent R0 interaction evidence are
+recorded in the [2026-08-18 foundation report](../benchmarks/2026-08-18-m6-foundation.md).
+That report is intentionally partial: it does not promote the full M6 gate,
+the R1-R4 research track, or the independent-user UI gate.
+
 Implemented: a Rust workspace of five crates (`crowd-core`, `crowd-cache`,
 `crowd-trace`, `crowd-blender`, and `crowd-bench`); versioned project/cache
 schemas; a deterministic checked reference project; the Blender extension;

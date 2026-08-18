@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "scene_id": "mixed-tier-interaction",
+  "base_cache_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tiers": [
+    { "simulation_tier": "s0", "render_tier": "r0", "agent_count": 2, "diagnostics": ["interaction", "contact", "motion"] },
+    { "simulation_tier": "s1", "render_tier": "r1", "agent_count": 8, "diagnostics": ["group", "trajectory"] },
+    { "simulation_tier": "s2", "render_tier": "r2", "agent_count": 90, "diagnostics": ["degraded_evidence"] }
+  ],
+  "promoted_interaction_groups": ["pair-7-9"]
+}

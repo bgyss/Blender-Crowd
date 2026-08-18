@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/terrain-motion-v1.schema.json",
+  "title": "Blender Crowd Terrain Motion Fixture v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scene_id", "terrain_id", "max_slope_millionths", "ground_height_millimeters", "foot_locks", "navigation_feedback"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "scene_id": { "type": "string", "minLength": 1 },
+    "terrain_id": { "type": "string", "minLength": 1 },
+    "max_slope_millionths": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "ground_height_millimeters": { "type": "integer" },
+    "foot_locks": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["foot", "tick_start", "tick_end", "position_millimeters"],
+        "properties": {
+          "foot": { "enum": ["left_foot", "right_foot", "both_feet"] },
+          "tick_start": { "type": "integer", "minimum": 0 },
+          "tick_end": { "type": "integer", "minimum": 0 },
+          "position_millimeters": { "type": "array", "prefixItems": [{ "type": "integer" }, { "type": "integer" }, { "type": "integer" }], "minItems": 3, "maxItems": 3 }
+        }
+      }
+    },
+    "navigation_feedback": { "enum": ["accept", "warp_stride", "adjust_turn", "fallback_clip"] }
+  }
+}

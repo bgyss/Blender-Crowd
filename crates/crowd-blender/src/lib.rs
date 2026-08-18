@@ -392,6 +392,11 @@ impl Session {
                     detail: event.detail,
                     graph_id: event.graph_id,
                     decisive_node: event.decisive_node,
+                    utility_scores: event.utility_scores,
+                    fuzzy_scores: event.fuzzy_scores,
+                    perception_channels: event.perception_channels,
+                    blackboard_values: event.blackboard_values,
+                    degraded_evidence: event.degraded_evidence,
                 });
             }
         }
@@ -1004,6 +1009,16 @@ fn behavior_event_kind(kind: crowd_core::BehaviorRuntimeEventKind) -> BehaviorEv
         crowd_core::BehaviorRuntimeEventKind::QueueReleased => BehaviorEventKindV1::QueueReleased,
         crowd_core::BehaviorRuntimeEventKind::GroupSplit => BehaviorEventKindV1::GroupSplit,
         crowd_core::BehaviorRuntimeEventKind::GroupRegrouped => BehaviorEventKindV1::GroupRegrouped,
+        crowd_core::BehaviorRuntimeEventKind::ActivityGranted => {
+            BehaviorEventKindV1::ActivityGranted
+        }
+        crowd_core::BehaviorRuntimeEventKind::ActivityWaiting => {
+            BehaviorEventKindV1::ActivityWaiting
+        }
+        crowd_core::BehaviorRuntimeEventKind::ActivityReleased => {
+            BehaviorEventKindV1::ActivityReleased
+        }
+        crowd_core::BehaviorRuntimeEventKind::ActivityFailed => BehaviorEventKindV1::ActivityFailed,
     }
 }
 

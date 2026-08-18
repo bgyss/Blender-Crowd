@@ -363,7 +363,36 @@ class CROWD_PT_m4_layout(Panel):
         layout.label(text="Unsupported profile features report as warnings.", icon="INFO")
 
 
-_CLASSES = (CROWD_UL_diagnostics, CROWD_UL_m4_layers, CROWD_PT_workflow, CROWD_PT_project, CROWD_PT_m5_scale_profile, CROWD_PT_m4_layout)
+class CROWD_PT_m6_debugger(Panel):
+    bl_label = "M6 Brain and Motion Debugger"
+    bl_idname = "CROWD_PT_m6_debugger"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "scene"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.crowd_project
+        layout.label(text="Trace, graph, contact, and layer ownership", icon="CONSOLE")
+        layout.prop(props, "selected_agent_id")
+        layout.prop(props, "m6_debug_tier")
+        layout.prop(props, "m6_trace_path")
+        layout.operator("crowd.inspect_m6_trace", icon="VIEWZOOM")
+        summary = layout.box()
+        summary.label(text=props.m6_trace_summary)
+        summary.label(text=props.m6_trace_timeline)
+        summary.label(text=props.m6_unavailable_evidence, icon="INFO")
+        layout.separator()
+        layout.label(text="Large graph navigation")
+        layout.prop(props, "m6_graph_path")
+        layout.prop(props, "m6_graph_search")
+        layout.operator("crowd.search_m6_graph", icon="VIEWZOOM")
+        layout.label(text=props.m6_graph_matches)
+        layout.label(text=props.m6_graph_highlight_path, icon="NODETREE")
+
+
+_CLASSES = (CROWD_UL_diagnostics, CROWD_UL_m4_layers, CROWD_PT_workflow, CROWD_PT_project, CROWD_PT_m5_scale_profile, CROWD_PT_m4_layout, CROWD_PT_m6_debugger)
 
 
 def register():
