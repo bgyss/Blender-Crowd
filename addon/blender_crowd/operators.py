@@ -14,12 +14,14 @@ import blender_crowd_native
 # so an absolute `from blender_crowd.x import y` fails with "package not found".
 from .trace_playback import TracePlayback
 from . import (
+    behavior_editor,
     cache_playback,
     debug_overlay,
     geometry_nodes,
     health,
     layout_editor,
     m6_debugger,
+    m6_library,
     m4_layout,
     m5_scale,
     overrides,
@@ -809,6 +811,8 @@ class CROWD_OT_inspect_m6_trace(Operator):
             props.m6_unavailable_evidence = "unavailable: {}".format(
                 ", ".join(summary["unavailable_evidence"]) or "none"
             )
+            if props.m6_graph_path:
+                _refresh_m6_navigation(props)
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
             props.m6_trace_summary = "M6 trace invalid: {}".format(error)
             self.report({"ERROR"}, str(error))
@@ -840,10 +844,106 @@ class CROWD_OT_search_m6_graph(Operator):
             result = m6_debugger.search_graph(graph, props.m6_graph_search)
             props.m6_graph_matches = ", ".join(result["matches"]) or "No matching nodes"
             props.m6_graph_highlight_path = " → ".join(result["highlight_path"]) or "No traceable path"
+            if props.m6_trace_path:
+                _refresh_m6_navigation(props)
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
         self.report({"INFO"}, props.m6_graph_matches)
+        return {"FINISHED"}
+
+
+def _refresh_m6_navigation(props):
+    with open(bpy.path.abspath(props.m6_trace_path), encoding="utf-8") as handle:
+        trace = json.load(handle)
+    with open(bpy.path.abspath(props.m6_graph_path), encoding="utf-8") as handle:
+        graph = json.load(handle)
+    index = m6_debugger.build_navigation_index(trace, graph)
+    props.m6_navigation_index_json = json.dumps(index, sort_keys=True, separators=(",", ":"))
+    if index:
+        preferred = next((record for record in index if record["target_kind"] == "node"), index[0])
+        props.m6_navigation_target = "{}::{}".format(preferred["target_kind"], preferred["target_id"])
+    return index
+
+
+def _navigation_target_id(index, target_kind):
+    record = next((record for record in index if record["target_kind"] == target_kind), None)
+    return record["target_id"] if record else "No {} selected".format(target_kind)
+
+
+class CROWD_OT_navigate_m6_context(Operator):
+    bl_idname = "crowd.navigate_m6_context"
+    bl_label = "Navigate M6 Context"
+    bl_description = "Resolve a derived M6 context selector without copying a stable ID"
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        try:
+            if not props.m6_navigation_index_json or props.m6_navigation_index_json == "[]":
+                index = _refresh_m6_navigation(props)
+            else:
+                index = json.loads(props.m6_navigation_index_json)
+            target_kind, separator, target_id = props.m6_navigation_target.partition("::")
+            if not separator or target_kind == "none" or not target_id:
+                raise ValueError("choose a derived M6 navigation context")
+            record = m6_debugger.resolve_navigation(index, target_kind, target_id)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            props.m6_navigation_status = "M6 navigation unavailable: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+
+        props.selected_agent_id = str(record["agent_id"])
+        props.selected_agent_tick = record["tick"]
+        props.selected_agent_decisive_node = record["graph_node_id"]
+        props.m6_navigation_event = _navigation_target_id(index, "event")
+        props.m6_navigation_node = record["graph_node_id"] or "No graph node selected"
+        props.m6_navigation_action = record["action_id"] or "No action selected"
+        props.m6_navigation_clip = record["motion_clip_id"] or "No clip selected"
+        props.m6_navigation_contact = record["contact_id"] or "No contact selected"
+        props.m6_navigation_layer = record["layer_id"] or "No layer selected"
+        props.m6_navigation_correction = record["correction_id"] or "No correction selected"
+        props.m6_graph_highlight_path = record["graph_node_id"] or "No traceable path"
+        behavior_editor.highlight_node(record["graph_node_id"])
+        props.selection_context = "M6 {} {} for agent {} at tick {}".format(
+            record["target_kind"], record["target_id"], record["agent_id"], record["tick"]
+        )
+        props.m6_navigation_status = "Navigated to {} {}".format(record["target_kind"], record["target_id"])
+        self.report({"INFO"}, props.m6_navigation_status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_apply_m6_brain_preset(Operator):
+    bl_idname = "crowd.apply_m6_brain_preset"
+    bl_label = "Apply M6 Brain Preset"
+    bl_description = "Instantiate a checked declarative M6 preset into the bounded behavior editor"
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        if not props.m6_brain_library_path:
+            self.report({"ERROR"}, "choose an M6 brain library JSON file")
+            return {"CANCELLED"}
+        if props.m6_brain_preset_id == "none":
+            self.report({"ERROR"}, "choose a checked M6 brain preset")
+            return {"CANCELLED"}
+        try:
+            with open(bpy.path.abspath(props.m6_brain_library_path), encoding="utf-8") as handle:
+                library = json.load(handle)
+            parameters = json.loads(props.m6_brain_parameters_json)
+            graph = m6_library.instantiate_preset(
+                library,
+                props.m6_brain_preset_id,
+                props.m6_brain_instance_id,
+                parameters,
+            )
+            behavior_editor.ensure_reference_tree(graph)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            props.status = "M6 preset invalid: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.status = "M6 preset applied: {} as {}".format(
+            props.m6_brain_preset_id, props.m6_brain_instance_id
+        )
+        self.report({"INFO"}, props.status)
         return {"FINISHED"}
 
 
@@ -1423,6 +1523,8 @@ _CLASSES = (
     CROWD_OT_validate_authorable_project,
     CROWD_OT_inspect_m6_trace,
     CROWD_OT_search_m6_graph,
+    CROWD_OT_navigate_m6_context,
+    CROWD_OT_apply_m6_brain_preset,
     CROWD_OT_add_m2_semantic,
     CROWD_OT_remove_m2_semantic,
     CROWD_OT_add_group,

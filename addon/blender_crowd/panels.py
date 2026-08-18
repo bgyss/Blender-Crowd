@@ -390,6 +390,28 @@ class CROWD_PT_m6_debugger(Panel):
         layout.operator("crowd.search_m6_graph", icon="VIEWZOOM")
         layout.label(text=props.m6_graph_matches)
         layout.label(text=props.m6_graph_highlight_path, icon="NODETREE")
+        layout.separator()
+        layout.label(text="Derived context navigation", icon="SORTALPHA")
+        layout.prop(props, "m6_navigation_target")
+        layout.operator("crowd.navigate_m6_context", icon="RESTRICT_SELECT_OFF")
+        layout.label(text=props.m6_navigation_status)
+        for name in (
+            "m6_navigation_event",
+            "m6_navigation_node",
+            "m6_navigation_action",
+            "m6_navigation_clip",
+            "m6_navigation_contact",
+            "m6_navigation_layer",
+            "m6_navigation_correction",
+        ):
+            layout.label(text=getattr(props, name))
+        layout.separator()
+        layout.label(text="Checked reusable brain preset", icon="NODETREE")
+        layout.prop(props, "m6_brain_library_path")
+        layout.prop(props, "m6_brain_preset_id")
+        layout.prop(props, "m6_brain_instance_id")
+        layout.prop(props, "m6_brain_parameters_json")
+        layout.operator("crowd.apply_m6_brain_preset", icon="ADD")
 
 
 _CLASSES = (CROWD_UL_diagnostics, CROWD_UL_m4_layers, CROWD_PT_workflow, CROWD_PT_project, CROWD_PT_m5_scale_profile, CROWD_PT_m4_layout, CROWD_PT_m6_debugger)

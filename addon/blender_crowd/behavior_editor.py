@@ -124,6 +124,20 @@ def graph_from_tree(tree=None):
     return graph
 
 
+def highlight_node(logical_id, tree=None):
+    """Select one bounded graph node when an M6 navigation record resolves it."""
+    tree = tree or bpy.data.node_groups.get(TREE_NAME)
+    if tree is None or tree.bl_idname != TREE_ID:
+        return False
+    matched = False
+    for node in tree.nodes:
+        node.select = node.bl_idname == NODE_ID and node.logical_id == logical_id
+        if node.select:
+            tree.nodes.active = node
+            matched = True
+    return matched
+
+
 _CLASSES = (CrowdBehaviorTree, CrowdBehaviorNode)
 
 

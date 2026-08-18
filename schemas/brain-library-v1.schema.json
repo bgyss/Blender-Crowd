@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/brain-library-v1.schema.json",
+  "title": "Blender Crowd Brain Library Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "actions", "subgraphs", "presets"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "$ref": "#/$defs/id" },
+    "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+    "subgraphs": { "type": "array", "items": { "$ref": "#/$defs/subgraph" } },
+    "presets": { "type": "array", "items": { "$ref": "#/$defs/preset" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "pattern": "^(?!.*::).+$" },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["bool", "number_i32", "string", "stable_id"] }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "channel", "parameters"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "channel": { "$ref": "#/$defs/id" },
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": {
+          "enum": [
+            "selector", "sequence", "fallback", "utility_selector", "state_switch",
+            "interrupt", "timer", "probability", "event", "blackboard_compare",
+            "navigate", "wait", "queue", "follow_lane", "hold_position"
+          ]
+        },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "action_id": { "$ref": "#/$defs/id" },
+        "parameters": { "type": "object", "additionalProperties": { "type": ["boolean", "integer", "string"] } }
+      }
+    },
+    "subgraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "entry_id", "parameters", "nodes"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "entry_id": { "$ref": "#/$defs/id" },
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } },
+        "nodes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/node" } }
+      }
+    },
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "subgraph_id", "parameters"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "subgraph_id": { "$ref": "#/$defs/id" },
+        "parameters": { "type": "object", "additionalProperties": { "type": ["boolean", "integer", "string"] } }
+      }
+    }
+  }
+}

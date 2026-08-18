@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 import addon_utils
 import bpy
@@ -27,10 +28,10 @@ def main():
         from addon import blender_crowd
 
         blender_crowd.register()
-        from addon.blender_crowd import m6_debugger
+        from addon.blender_crowd import behavior_editor, m6_debugger
     else:
         addon_utils.enable(EXTENSION, default_set=True)
-        from bl_ext.user_default.blender_crowd import m6_debugger
+        from bl_ext.user_default.blender_crowd import behavior_editor, m6_debugger
 
     props = bpy.context.scene.crowd_project
     props.selected_agent_id = "7"
@@ -38,7 +39,14 @@ def main():
     trace = {
         "agent_id": 7,
         "tick": 12,
+        "event_id": "event-7-12",
         "graph_id": "traceable_brain",
+        "graph_node_id": "hold",
+        "action_id": "hold_position",
+        "motion_clip_id": "idle_ready",
+        "contact_id": "right_hand_guard",
+        "layer_id": "interaction-pair-7-9",
+        "correction_id": "mute-pair-7-9",
         "decisive_node": "hold",
         "visited_nodes": ["choose", "respond", "hold"],
         "observations": ["Hearing"],
@@ -52,10 +60,10 @@ def main():
     }
     graph = {
         "nodes": [
-            {"id": "choose", "kind": "utility", "children": ["respond", "travel"]},
-            {"id": "respond", "kind": "interrupt", "child": "hold"},
-            {"id": "hold", "kind": "action"},
-            {"id": "travel", "kind": "action"},
+            {"id": "choose", "type": "utility_selector", "children": ["respond", "travel"]},
+            {"id": "respond", "type": "interrupt", "child": "hold"},
+            {"id": "hold", "type": "hold_position", "action_id": "hold_position"},
+            {"id": "travel", "type": "navigate"},
         ]
     }
     with tempfile.TemporaryDirectory(prefix="blender-crowd-m6-") as directory:
@@ -75,6 +83,42 @@ def main():
         require(props.m6_graph_highlight_path == "choose → respond → hold", "graph path was not highlighted")
         summary = m6_debugger.build_trace_summary(trace, 7, "hero")
         require(summary["degraded_evidence"] == "full evidence", "hero evidence was incorrectly degraded")
+        require(not hasattr(props, "m6_navigation_target_id"), "navigation added a copied-ID field")
+        targets = [
+            ("node", "hold"),
+            ("agent", "7"),
+            ("event", "event-7-12"),
+            ("action", "hold_position"),
+            ("clip", "idle_ready"),
+            ("contact", "right_hand_guard"),
+            ("layer", "interaction-pair-7-9"),
+            ("correction", "mute-pair-7-9"),
+        ]
+        for target_kind, target_id in targets + list(reversed(targets)):
+            props.m6_navigation_target = "{}::{}".format(target_kind, target_id)
+            require(
+                bpy.ops.crowd.navigate_m6_context() == {"FINISHED"},
+                "M6 navigation failed for {}".format(target_kind),
+            )
+            require(props.selected_agent_id == "7", "navigation lost selected agent")
+            require(props.m6_navigation_node == "hold", "navigation lost graph context")
+            require(props.m6_navigation_action == "hold_position", "navigation lost action context")
+            require(props.m6_navigation_clip == "idle_ready", "navigation lost clip context")
+            require(props.m6_navigation_contact == "right_hand_guard", "navigation lost contact context")
+            require(props.m6_navigation_layer == "interaction-pair-7-9", "navigation lost layer context")
+            require(props.m6_navigation_correction == "mute-pair-7-9", "navigation lost correction context")
+        library_path = Path(__file__).resolve().parents[2] / "assets" / "reference" / "m6" / "brain-library-v1.json"
+        props.m6_brain_library_path = str(library_path)
+        props.m6_brain_preset_id = "guarded_exit"
+        props.m6_brain_instance_id = "north"
+        props.m6_brain_parameters_json = '{"destination":"exit_n"}'
+        require(bpy.ops.crowd.apply_m6_brain_preset() == {"FINISHED"}, "M6 preset operator failed")
+        serialized = behavior_editor.graph_from_tree()
+        require(serialized["entry_id"] == "north::root", "preset entry did not serialize through the behavior editor")
+        require(
+            {node["id"] for node in serialized["nodes"]} == {"north::root", "north::leave", "north::hold"},
+            "preset graph did not remain bounded and namespaced",
+        )
     print("M6 debugger Blender smoke: PASS")
     bpy.ops.wm.quit_blender()
 

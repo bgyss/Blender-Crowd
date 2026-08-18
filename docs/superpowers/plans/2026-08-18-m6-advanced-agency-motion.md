@@ -326,9 +326,9 @@ git commit -m "Compose removable M6 interaction animation layers"
 - [x] **Step 3: Implement the pure summary model, Blender properties/operators/panel, and channel declarations; keep Blender calls coarse-grained.**
 - [x] **Step 4: Run Python tests and the M6 debugger headless runner with normal host Metal access.**
 - [x] **Step 5: Record trace-to-node and degraded-evidence behavior as automated M6 evidence; defer independent-user claims to M9.**
-- [ ] **Step 6: Implement and test bidirectional navigation among viewport agent, event, node, action, clip, contact, owning layer, and correction without copied IDs.**
-- [ ] **Step 7: Implement and test reusable subgraphs/actions and presets through the bounded typed graph surface.**
-- [ ] **Step 8: Extend the Blender smoke so every M6 automated UI goal has an observable assertion.**
+- [x] **Step 6: Implement and test bidirectional navigation among viewport agent, event, node, action, clip, contact, owning layer, and correction without copied IDs.**
+- [x] **Step 7: Implement and test reusable subgraphs/actions and presets through the bounded typed graph surface.**
+- [x] **Step 8: Extend the Blender smoke so every M6 automated UI goal has an observable assertion.**
 
 ### Task 9: Add the M6 runners, reports, documentation, and completion audit
 
@@ -385,7 +385,7 @@ git commit -m "Compose removable M6 interaction animation layers"
   context, and readable status. `crowd.apply_m6_brain_preset` instantiates the
   selected checked preset into the bounded behavior editor.
 
-- [ ] **Step 1: Write failing pure-Python navigation and library tests.**
+- [x] **Step 1: Write failing pure-Python navigation and library tests.**
 
 ```python
 def test_navigation_resolves_every_context_without_copied_ids():
@@ -412,28 +412,28 @@ def test_preset_instantiation_is_namespaced_and_deterministic():
     assert {node["id"] for node in first["nodes"]} == {"north::root", "north::leave", "north::hold"}
 ```
 
-- [ ] **Step 2: Run the focused tests and verify the APIs are absent.**
+- [x] **Step 2: Run the focused tests and verify the APIs are absent.**
 
 Run: `python3 -m unittest -q tests/test_m6_debugger_navigation.py tests/test_m6_library.py`
 
 Expected: FAIL because `build_navigation_index`, `resolve_navigation`, and
 `m6_library` do not exist.
 
-- [ ] **Step 3: Add the versioned library fixture/schema and implement the pure
+- [x] **Step 3: Add the versioned library fixture/schema and implement the pure
   navigation/library functions.**
 
 Reject duplicate IDs, missing references, unknown parameters, unsupported node
 kinds, empty instance IDs, source-code fields, and namespace collisions. Sort
 all emitted actions/nodes by namespaced ID.
 
-- [ ] **Step 4: Add Blender properties/operators/panel controls and extend the
+- [x] **Step 4: Add Blender properties/operators/panel controls and extend the
   headless test.**
 
 The Blender test must navigate from node to agent, event, action, clip, contact,
 layer, and correction in both directions, instantiate a preset, serialize it
 through `behavior_editor.graph_from_tree`, and assert no copied-ID field is used.
 
-- [ ] **Step 5: Run pure Python, Blender, schema, and regression checks.**
+- [x] **Step 5: Run pure Python, Blender, schema, and regression checks.**
 
 Run:
 
@@ -446,7 +446,7 @@ git diff --check
 Expected: all focused tests and the Blender lane pass; the audit no longer lists
 the two debugger/library gates as open.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add schemas/brain-library-v1.schema.json assets/reference/m6/brain-library-v1.json addon/blender_crowd tests scripts/m6-acceptance.sh

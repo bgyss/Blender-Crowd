@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "id": "m6-reference-library",
+  "actions": [
+    {
+      "id": "hold_position",
+      "channel": "locomotion",
+      "parameters": []
+    },
+    {
+      "id": "leave",
+      "channel": "navigation",
+      "parameters": [
+        { "id": "destination", "type": "stable_id" }
+      ]
+    }
+  ],
+  "subgraphs": [
+    {
+      "id": "guarded_exit",
+      "entry_id": "root",
+      "parameters": [
+        { "id": "destination", "type": "stable_id" }
+      ],
+      "nodes": [
+        {
+          "id": "root",
+          "type": "utility_selector",
+          "children": ["leave", "hold"]
+        },
+        {
+          "id": "leave",
+          "type": "navigate",
+          "action_id": "leave",
+          "parameters": { "destination": "$destination" }
+        },
+        {
+          "id": "hold",
+          "type": "hold_position",
+          "action_id": "hold_position"
+        }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "id": "guarded_exit",
+      "subgraph_id": "guarded_exit",
+      "parameters": { "destination": "exit_n" }
+    }
+  ]
+}
