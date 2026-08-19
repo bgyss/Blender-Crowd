@@ -29,5 +29,45 @@ class ClipPlaneTest(unittest.TestCase):
         self.assertEqual(far, 4000.0)
 
 
+class LinearTrackTest(unittest.TestCase):
+    def test_fits_an_exact_line_exactly(self):
+        samples = [(i, 2.0 * i + 10.0) for i in range(20)]
+        slope, intercept = crowd_framing.fit_linear_track(samples)
+        self.assertAlmostEqual(slope, 2.0)
+        self.assertAlmostEqual(intercept, 10.0)
+
+    def test_tolerates_gaps_in_the_sampled_ticks(self):
+        # Ticks with no tracked agent are dropped rather than interpolated,
+        # so the fit has to take explicit indices instead of assuming
+        # consecutive ones.
+        samples = [(0, 10.0), (5, 20.0), (17, 44.0)]
+        slope, intercept = crowd_framing.fit_linear_track(samples)
+        self.assertAlmostEqual(slope, 2.0)
+        self.assertAlmostEqual(intercept, 10.0)
+
+    def test_single_sample_yields_a_stationary_track(self):
+        slope, intercept = crowd_framing.fit_linear_track([(7, 42.0)])
+        self.assertEqual(slope, 0.0)
+        self.assertEqual(intercept, 42.0)
+
+    def test_no_samples_is_an_error_not_a_silent_zero(self):
+        with self.assertRaisesRegex(ValueError, "no samples"):
+            crowd_framing.fit_linear_track([])
+
+    def test_residuals_of_an_exact_line_are_zero(self):
+        samples = [(i, 3.0 * i - 4.0) for i in range(10)]
+        worst, rms = crowd_framing.track_residuals(
+            samples, crowd_framing.fit_linear_track(samples)
+        )
+        self.assertAlmostEqual(worst, 0.0)
+        self.assertAlmostEqual(rms, 0.0)
+
+    def test_residuals_report_the_worst_deviation(self):
+        samples = [(0, 0.0), (1, 1.0), (2, 2.0), (3, 3.0)]
+        worst, rms = crowd_framing.track_residuals(samples, (1.0, 0.5))
+        self.assertAlmostEqual(worst, 0.5)
+        self.assertAlmostEqual(rms, 0.5)
+
+
 if __name__ == "__main__":
     unittest.main()
