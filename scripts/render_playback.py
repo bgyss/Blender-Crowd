@@ -32,6 +32,12 @@ import addon_utils
 import bpy
 import mathutils
 
+# Blender runs this file by path, so the directory holding it is not on
+# sys.path the way it would be for an imported module.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import crowd_framing
+
 EXTENSION = "bl_ext.user_default.blender_crowd"
 
 # Scene extents are NOT hardcoded. Scene geometry scales with the population
@@ -230,6 +236,18 @@ def build_camera(centre, extent):
     target = mathutils.Vector((centre[0], centre[1], 0.0))
     direction = target - camera.location
     camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+
+    # Clip planes must scale with the scene too. A new camera's clip_end is
+    # 1000, but the camera stands back proportionally to `extent`, and extent
+    # grows with the square root of the population: m5_city_flow at 100,000
+    # agents spans ~2,400 units and puts the camera ~2,100 units from the
+    # centre, so at the default every last object -- agents and ground alike
+    # -- falls beyond the far plane and the render is nothing but the world
+    # background. Derive both planes from the actual camera-to-centre
+    # distance so framing and clipping can never disagree.
+    distance = (camera.location - target).length
+    camera_data.clip_start, camera_data.clip_end = crowd_framing.clip_planes(distance)
+
     bpy.context.scene.camera = camera
     return camera
 
