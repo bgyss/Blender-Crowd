@@ -24,7 +24,15 @@ const EMPTY_SLOT: AgentRecord = AgentRecord {
     render_tier: 0,
 };
 
-/// Step `sim` for `ticks` ticks, writing one trace record per agent per tick.
+/// Step `sim` for `ticks` ticks, writing one trace record per agent every
+/// `interval` ticks.
+///
+/// `interval` exists because a trace is one record per agent per tick, 34
+/// bytes each: the full 100,000-agent scale fixture is 142,302 ticks, which is
+/// 484 GB written at `interval == 1`. Recording a clip does not need every
+/// tick — the renderer samples every Nth tick anyway — so subsampling here is
+/// what makes a trace of that run fit on a disk. The simulation still steps
+/// every tick; only the writing is sparse, so the motion is unchanged.
 ///
 /// The header declares `sim.scene().total_agents()` records per tick — the
 /// scene's total spawn count, fixed for the whole run — not `world.len()`,
@@ -34,13 +42,27 @@ const EMPTY_SLOT: AgentRecord = AgentRecord {
 /// world's own stable order (spawns only append; nothing is ever removed).
 /// Returns the number of ticks written.
 pub fn write_trace(sim: &mut Simulation, path: &Path, ticks: u64) -> Result<u64, TraceError> {
+    write_trace_sampled(sim, path, ticks, 1)
+}
+
+/// [`write_trace`], writing only every `interval`-th tick.
+pub fn write_trace_sampled(
+    sim: &mut Simulation,
+    path: &Path,
+    ticks: u64,
+    interval: u64,
+) -> Result<u64, TraceError> {
+    let interval = interval.max(1);
     let agent_count = sim.scene().total_agents();
     let mut writer =
         TraceWriter::create(path, agent_count, DEFAULT_TICKS_PER_SECOND, WORLD_TO_METER)?;
 
     let mut batch: Vec<AgentRecord> = Vec::with_capacity(agent_count as usize);
-    for _ in 0..ticks {
+    for tick in 0..ticks {
         sim.step();
+        if (tick + 1) % interval != 0 {
+            continue;
+        }
         batch.clear();
         let world = sim.world();
         for slot in 0..world.len() {

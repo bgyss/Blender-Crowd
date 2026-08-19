@@ -329,6 +329,8 @@ mod tests {
             svg: false,
             frames: false,
             frame_interval: crate::frames::DEFAULT_FRAME_INTERVAL_TICKS,
+            trace_interval: 1,
+            max_ticks: 0,
             out_dir: std::env::temp_dir().join("crowd_bench_baseline_test"),
             solver: crate::report::SolverKind::SampledVelocity,
             trace: false,

@@ -64,6 +64,14 @@ def clear_scene():
     bpy.ops.object.delete(use_global=False)
 
 
+# Which axis separates the two travel directions. "diagonal" (the default)
+# suits the crossing scene, whose streams enter from adjacent sides. "y" suits a
+# scene whose opposing lanes are stacked, with CROWD_STREAM_SPLIT naming the y
+# that divides them.
+STREAM_AXIS = os.environ.get("CROWD_STREAM_AXIS", "diagonal")
+STREAM_SPLIT = float(os.environ.get("CROWD_STREAM_SPLIT", "0"))
+
+
 def scan_trace(playback, data):
     """Walk the whole trace once for stream labels and framing bounds.
 
@@ -105,9 +113,18 @@ def scan_trace(playback, data):
         newly_spawned = live & (stream < 0)
         if np.any(newly_spawned):
             spawned_xy = xy[newly_spawned]
-            stream[newly_spawned] = np.where(
-                spawned_xy[:, 0] < spawned_xy[:, 1], 0, 1
-            )
+            if STREAM_AXIS == "y":
+                # m5_city_flow stacks its two one-way lane blocks along y, so
+                # the diagonal test below splits each block roughly in half
+                # instead of separating the directions. Splitting on y is exact
+                # there. Opt in per scene; the default is unchanged.
+                stream[newly_spawned] = np.where(
+                    spawned_xy[:, 1] < STREAM_SPLIT, 0, 1
+                )
+            else:
+                stream[newly_spawned] = np.where(
+                    spawned_xy[:, 0] < spawned_xy[:, 1], 0, 1
+                )
 
     if np.any(stream < 0):
         # Not fatal for a recording: a slot that never holds an agent never

@@ -34,7 +34,7 @@ const REPORT_DIR: &str = "benchmarks/reports";
 
 fn usage() -> &'static str {
     "usage:
-  crowd-bench run [--scene NAME] [--agents N] [--seed N] [--svg] [--frames] [--frame-interval N] [--out DIR] [--solver NAME] [--trace]
+  crowd-bench run [--scene NAME] [--agents N] [--seed N] [--svg] [--frames] [--frame-interval N] [--out DIR] [--solver NAME] [--trace] [--trace-interval N] [--max-ticks N]
   crowd-bench sweep [--scene NAME] [--seed N]
   crowd-bench baseline [--scene NAME] [--agents N] [--seed N] [--solver NAME]
   crowd-bench check [--agents N] [--seed N] [--solver NAME]
@@ -62,6 +62,8 @@ struct Args {
     out: PathBuf,
     solver: crate::report::SolverKind,
     trace: bool,
+    trace_interval: u64,
+    max_ticks: u64,
     cache_frames: u32,
 }
 
@@ -76,6 +78,8 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         out: PathBuf::from(REPORT_DIR),
         solver: crate::report::SolverKind::SampledVelocity,
         trace: false,
+        trace_interval: 1,
+        max_ticks: 0,
         cache_frames: 120,
     };
     let mut index = 0;
@@ -108,6 +112,28 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
             "--svg" => args.svg = true,
             "--frames" => args.frames = true,
             "--trace" => args.trace = true,
+            "--trace-interval" => {
+                index += 1;
+                args.trace_interval = raw
+                    .get(index)
+                    .ok_or("--trace-interval needs a value")?
+                    .parse()
+                    .map_err(|_| "--trace-interval must be a number")?;
+                if args.trace_interval == 0 {
+                    return Err("--trace-interval must be positive".to_string());
+                }
+            }
+            "--max-ticks" => {
+                index += 1;
+                args.max_ticks = raw
+                    .get(index)
+                    .ok_or("--max-ticks needs a value")?
+                    .parse()
+                    .map_err(|_| "--max-ticks must be a number")?;
+                if args.max_ticks == 0 {
+                    return Err("--max-ticks must be positive".to_string());
+                }
+            }
             "--cache-frames" => {
                 index += 1;
                 args.cache_frames = raw
@@ -173,6 +199,8 @@ fn options_for(scene: &str, args: &Args) -> RunOptions {
         svg: args.svg,
         frames: args.frames,
         frame_interval: args.frame_interval,
+        trace_interval: args.trace_interval,
+        max_ticks: args.max_ticks,
         out_dir: args.out.clone(),
         solver: args.solver,
         trace: args.trace,
@@ -205,6 +233,9 @@ fn command_sweep(args: &Args) -> Result<(), String> {
             // Never record SVGs, frames, or a trace during a sweep: the
             // per-tick sampling would skew the very timing numbers the
             // sweep exists to measure.
+            // Sweep, compare, and baseline stay full-length and untruncated:
+            // they are measurement paths, and --max-ticks/--trace-interval are
+            // recording aids that would silently change what they report.
             let sweep_args = Args {
                 scene: Some(scene.clone()),
                 agents,
@@ -212,6 +243,8 @@ fn command_sweep(args: &Args) -> Result<(), String> {
                 svg: false,
                 frames: false,
                 frame_interval: args.frame_interval,
+                trace_interval: 1,
+                max_ticks: 0,
                 out: args.out.clone(),
                 solver: args.solver,
                 trace: false,
@@ -268,6 +301,8 @@ fn command_check(args: &Args) -> Result<bool, String> {
                 svg: false,
                 frames: false,
                 frame_interval: args.frame_interval,
+                trace_interval: 1,
+                max_ticks: 0,
                 out: args.out.clone(),
                 solver: args.solver,
                 trace: false,
@@ -326,6 +361,8 @@ fn command_compare(args: &Args) -> Result<(), String> {
                     svg: false,
                     frames: false,
                     frame_interval: args.frame_interval,
+                    trace_interval: 1,
+                    max_ticks: 0,
                     out_dir: args.out.clone(),
                     solver,
                     trace: false,

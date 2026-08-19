@@ -76,6 +76,18 @@ pub struct RunOptions {
     /// `run_to_completion`. Like `svg`/`frames`, this samples every tick, so
     /// a traced run's `ticks_per_second` is not a performance measurement.
     pub trace: bool,
+    /// Write only every Nth tick to the trace. `0` or `1` writes every tick.
+    ///
+    /// A trace is 34 bytes per agent per tick, so the 100,000-agent fixture is
+    /// 484 GB at every tick. Recording is the only caller that wants this.
+    pub trace_interval: u64,
+    /// Stop the run after this many ticks instead of the scene's declared
+    /// duration. `0` runs the scene to completion.
+    ///
+    /// For recording a clip, not for evidence: a truncated run's report is not
+    /// comparable with a full one, and its completion rate is meaningless
+    /// because agents that would have arrived later never get the chance.
+    pub max_ticks: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -247,7 +259,11 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
 
     let scene_hash = scene.scene_hash();
     let ticks_per_second = scene.ticks_per_second;
-    let duration_ticks = scene.duration_ticks;
+    let duration_ticks = if options.max_ticks > 0 {
+        scene.duration_ticks.min(options.max_ticks)
+    } else {
+        scene.duration_ticks
+    };
 
     let fidelity = if options.scene == "m5_city_flow" {
         Some(FidelityPolicy::m5_10k_profile())
@@ -332,8 +348,13 @@ pub fn run_scene(options: &RunOptions) -> Result<Report, String> {
             .out_dir
             .join(format!("{}-{}.crowdtrace", options.scene, options.agents));
         let remaining = duration_ticks.saturating_sub(sim.clock().tick());
-        let ticks = crowd_bench::trace_out::write_trace(&mut sim, &path, remaining)
-            .map_err(|e| format!("writing trace: {e}"))?;
+        let ticks = crowd_bench::trace_out::write_trace_sampled(
+            &mut sim,
+            &path,
+            remaining,
+            options.trace_interval,
+        )
+        .map_err(|e| format!("writing trace: {e}"))?;
         println!("trace: {} ({ticks} ticks)", path.display());
     } else {
         sim.run_to_completion();
@@ -427,6 +448,8 @@ mod tests {
             out_dir: std::env::temp_dir().join("crowd_bench_test"),
             solver: SolverKind::SampledVelocity,
             trace: false,
+            trace_interval: 1,
+            max_ticks: 0,
         }
     }
 

@@ -25,7 +25,10 @@ use crowd_core::sim::{SimConfig, Simulation};
 use crowd_core::FidelityPolicy;
 
 fn env_u64(key: &str, default: u64) -> u64 {
-    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 #[test]
@@ -58,14 +61,24 @@ fn dump_a_frame_where_the_population_is_actually_concurrent() {
     );
 
     println!("bounds {:?} .. {:?}", bounds.min, bounds.max);
-    println!("{:>8} {:>10} {:>8} {:>26}", "tick", "present", "share", "x span of each direction");
+    println!(
+        "{:>8} {:>10} {:>8} {:>26}",
+        "tick", "present", "share", "x span of each direction"
+    );
     for tick in 1..=target {
         sim.step();
         let dump = ticks.contains(&tick);
         if tick % 2500 == 0 || dump {
             let w = sim.world();
-            let present = (0..w.len()).filter(|s| !w.arrived[*s] && !w.unrouted[*s]).count();
-            println!("{:>8} {:>10} {:>7.1}%", tick, present, 100.0 * present as f64 / agents as f64);
+            let present = (0..w.len())
+                .filter(|s| !w.arrived[*s] && !w.unrouted[*s])
+                .count();
+            println!(
+                "{:>8} {:>10} {:>7.1}%",
+                tick,
+                present,
+                100.0 * present as f64 / agents as f64
+            );
         }
         if !dump {
             continue;
@@ -73,7 +86,8 @@ fn dump_a_frame_where_the_population_is_actually_concurrent() {
 
         let w = sim.world();
         let out = format!("{stem}-{tick}.csv");
-        let mut f = std::io::BufWriter::new(std::fs::File::create(&out).expect("cannot write frame"));
+        let mut f =
+            std::io::BufWriter::new(std::fs::File::create(&out).expect("cannot write frame"));
         writeln!(f, "x,y,tier,speed").unwrap();
         let mut present = 0u64;
         for slot in 0..w.len() {
@@ -83,10 +97,21 @@ fn dump_a_frame_where_the_population_is_actually_concurrent() {
             present += 1;
             let p = w.position(slot as u32);
             let v = w.velocity(slot as u32);
-            writeln!(f, "{:.3},{:.3},{},{:.3}", p.x, p.y, w.simulation_tier[slot] as usize, v.length()).unwrap();
+            writeln!(
+                f,
+                "{:.3},{:.3},{},{:.3}",
+                p.x,
+                p.y,
+                w.simulation_tier[slot] as usize,
+                v.length()
+            )
+            .unwrap();
         }
         drop(f);
-        println!("   -> {out}: {present} agents ({:.1}%)", 100.0 * present as f64 / agents as f64);
+        println!(
+            "   -> {out}: {present} agents ({:.1}%)",
+            100.0 * present as f64 / agents as f64
+        );
         assert!(
             present as f64 / agents as f64 > 0.95,
             "only {present} of {agents} agents present at tick {tick}; not a concurrent frame"
