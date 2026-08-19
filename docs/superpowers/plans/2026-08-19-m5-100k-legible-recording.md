@@ -614,10 +614,36 @@ CROWD_FRAME_DIR=/tmp/crowd-plan-check/frames-after \
 CROWD_TICK_STEP=2000 CROWD_RES_X=640 \
 /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
   --python scripts/render_playback.py
-diff -r /tmp/crowd-plan-check/frames /tmp/crowd-plan-check/frames-after && echo IDENTICAL
 ```
 
-Expected: `IDENTICAL`. If the frames differ, the refactor changed the default path and must be corrected before moving on.
+Then compare the frames pixel for pixel:
+
+```bash
+python3 - <<'EOF'
+from PIL import Image
+import numpy as np
+import pathlib
+
+before = sorted(pathlib.Path("/tmp/crowd-plan-check/frames").glob("*.png"))
+after = sorted(pathlib.Path("/tmp/crowd-plan-check/frames-after").glob("*.png"))
+assert before, "no baseline frames -- rerun the Task 1 Step 6 render first"
+assert len(before) == len(after), (len(before), len(after))
+for b, a in zip(before, after):
+    x = np.array(Image.open(b).convert("RGBA"), dtype=np.int16)
+    y = np.array(Image.open(a).convert("RGBA"), dtype=np.int16)
+    assert x.shape == y.shape and not np.any(x - y), b.name
+print("IDENTICAL: {} frames match pixel for pixel".format(len(before)))
+EOF
+```
+
+Expected: `IDENTICAL: 3 frames match pixel for pixel`. If any frame differs, the
+refactor changed the default path and must be corrected before moving on.
+
+Compare pixels rather than bytes: Blender stamps `Date` and `RenderTime` into
+each PNG's `tEXt` chunks, so two renders of an identical scene are never
+byte-identical and `diff`/`cmp` would always report a difference. This was
+measured before the plan was executed -- the pixels came back bit-identical
+while the files did not.
 
 - [ ] **Step 7: Commit**
 
@@ -890,10 +916,36 @@ CROWD_FRAME_DIR=/tmp/crowd-plan-check/frames-task5 \
 CROWD_TICK_STEP=2000 CROWD_RES_X=640 \
 /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
   --python scripts/render_playback.py
-diff -r /tmp/crowd-plan-check/frames /tmp/crowd-plan-check/frames-task5 && echo IDENTICAL
 ```
 
-Expected: `IDENTICAL`.
+Then compare the frames pixel for pixel:
+
+```bash
+python3 - <<'EOF'
+from PIL import Image
+import numpy as np
+import pathlib
+
+before = sorted(pathlib.Path("/tmp/crowd-plan-check/frames").glob("*.png"))
+after = sorted(pathlib.Path("/tmp/crowd-plan-check/frames-task5").glob("*.png"))
+assert before, "no baseline frames -- rerun the Task 1 Step 6 render first"
+assert len(before) == len(after), (len(before), len(after))
+for b, a in zip(before, after):
+    x = np.array(Image.open(b).convert("RGBA"), dtype=np.int16)
+    y = np.array(Image.open(a).convert("RGBA"), dtype=np.int16)
+    assert x.shape == y.shape and not np.any(x - y), b.name
+print("IDENTICAL: {} frames match pixel for pixel".format(len(before)))
+EOF
+```
+
+Expected: `IDENTICAL: 3 frames match pixel for pixel`. If any frame differs, the
+refactor changed the default path and must be corrected before moving on.
+
+Compare pixels rather than bytes: Blender stamps `Date` and `RenderTime` into
+each PNG's `tEXt` chunks, so two renders of an identical scene are never
+byte-identical and `diff`/`cmp` would always report a difference. This was
+measured before the plan was executed -- the pixels came back bit-identical
+while the files did not.
 
 - [ ] **Step 7: Commit**
 
@@ -1074,4 +1126,7 @@ of the population at a time, so it is never mistaken for a picture of
 
 - Run the Blender steps with normal host access. A restricted automation sandbox returns no Metal device on macOS and crashes Blender before Python starts, which looks like a Python error but is not one.
 - `scripts/crowd_framing.py` is deliberately dependency-free. If you find yourself wanting `numpy` in it, put the `numpy` part in `render_playback.py` and keep the pure maths in the module, or the test file stops working outside Blender.
+- Blender PNGs are never byte-identical between runs: `Date` and `RenderTime`
+  go into the file's `tEXt` chunks. Compare rendered frames by pixel, never
+  with `diff` or `cmp`.
 - The 3 GB trace at `~/blender-crowd-m5/recording/m5_city_flow-100000.crowdtrace` already exists. Do not re-bake it; that stage is multi-hour.
