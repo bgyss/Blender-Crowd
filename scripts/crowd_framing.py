@@ -66,3 +66,48 @@ def track_residuals(samples, fit):
     worst = max(abs(deviation) for deviation in deviations)
     rms = math.sqrt(sum(d * d for d in deviations) / len(deviations))
     return worst, rms
+
+
+def grid_line_positions(low, high, spacing):
+    """Multiples of `spacing` lying within `[low, high]`.
+
+    Anchored on world zero rather than on `low`, so the lines stay put as
+    the tracking camera moves and read as a fixed surface rather than as
+    something following the camera.
+    """
+    if spacing <= 0:
+        raise ValueError("grid spacing must be positive")
+    first = math.ceil(low / spacing)
+    last = math.floor(high / spacing)
+    return [index * spacing for index in range(first, last + 1)]
+
+
+def grid_mesh(minimum, maximum, spacing, line_width, z):
+    """Vertices and quad faces for a lattice of thin bars on the ground.
+
+    Returned as plain lists so the caller can hand them straight to
+    `Mesh.from_pydata`. The grid has to be geometry rather than a texture:
+    the renderer is Workbench with `use_nodes = False`, which reads
+    `diffuse_color` only and would ignore a node-based texture entirely.
+
+    Without it a tracking camera crossing a featureless plane looks like a
+    static camera watching agents mill in place.
+    """
+    half = line_width / 2.0
+    low_x, low_y = minimum
+    high_x, high_y = maximum
+    vertices = []
+    faces = []
+
+    def add_quad(x0, y0, x1, y1):
+        base = len(vertices)
+        vertices.extend(
+            [(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)]
+        )
+        faces.append((base, base + 1, base + 2, base + 3))
+
+    for x in grid_line_positions(low_x, high_x, spacing):
+        add_quad(x - half, low_y, x + half, high_y)
+    for y in grid_line_positions(low_y, high_y, spacing):
+        add_quad(low_x, y - half, high_x, y + half)
+    return vertices, faces

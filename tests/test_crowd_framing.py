@@ -69,5 +69,52 @@ class LinearTrackTest(unittest.TestCase):
         self.assertAlmostEqual(rms, 0.5)
 
 
+class GroundGridTest(unittest.TestCase):
+    def test_lines_land_on_multiples_of_the_spacing(self):
+        self.assertEqual(crowd_framing.grid_line_positions(0.0, 100.0, 50.0),
+                         [0.0, 50.0, 100.0])
+
+    def test_lines_outside_the_range_are_excluded(self):
+        self.assertEqual(crowd_framing.grid_line_positions(10.0, 90.0, 50.0), [50.0])
+
+    def test_spacing_must_be_positive(self):
+        with self.assertRaisesRegex(ValueError, "positive"):
+            crowd_framing.grid_line_positions(0.0, 100.0, 0.0)
+
+    def test_mesh_has_one_quad_per_line_in_both_axes(self):
+        vertices, faces = crowd_framing.grid_mesh(
+            (0.0, 0.0), (100.0, 100.0), 50.0, 1.0, -0.83
+        )
+        # 3 lines along x plus 3 along y.
+        self.assertEqual(len(faces), 6)
+        self.assertEqual(len(vertices), 24)
+        self.assertTrue(all(len(face) == 4 for face in faces))
+
+    def test_every_vertex_sits_at_the_requested_height(self):
+        vertices, _faces = crowd_framing.grid_mesh(
+            (0.0, 0.0), (100.0, 100.0), 50.0, 1.0, -0.83
+        )
+        self.assertTrue(all(vertex[2] == -0.83 for vertex in vertices))
+
+    def test_a_line_spans_the_full_perpendicular_extent(self):
+        vertices, faces = crowd_framing.grid_mesh(
+            (0.0, 0.0), (100.0, 100.0), 50.0, 1.0, 0.0
+        )
+        first = [vertices[index] for index in faces[0]]
+        xs = sorted({round(vertex[0], 6) for vertex in first})
+        ys = sorted({round(vertex[1], 6) for vertex in first})
+        # A bar 1.0 wide standing on x = 0, running the whole y range.
+        self.assertEqual(xs, [-0.5, 0.5])
+        self.assertEqual(ys, [0.0, 100.0])
+
+    def test_face_indices_stay_inside_the_vertex_list(self):
+        vertices, faces = crowd_framing.grid_mesh(
+            (63.0, 62.0), (2466.0, 1202.0), 50.0, 0.25, -0.83
+        )
+        for face in faces:
+            for index in face:
+                self.assertLess(index, len(vertices))
+
+
 if __name__ == "__main__":
     unittest.main()
