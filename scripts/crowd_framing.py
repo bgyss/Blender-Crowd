@@ -111,3 +111,14 @@ def grid_mesh(minimum, maximum, spacing, line_width, z):
     for y in grid_line_positions(low_y, high_y, spacing):
         add_quad(low_x, y - half, high_x, y + half)
     return vertices, faces
+
+
+def crop_camera_placement(view_width, tilt_ratio):
+    """`(standoff along -y, height along +z)` for a crop-mode camera.
+
+    Mirrors the whole-scene camera's geometry but measured from the width
+    of the crop window rather than the extent of the scene, so the shot
+    reads the same at any zoom.
+    """
+    height = view_width * 0.8
+    return height * tilt_ratio, height

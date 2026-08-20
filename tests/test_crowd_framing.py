@@ -1,6 +1,7 @@
 """Framing maths for the recording renderer, tested without launching Blender."""
 
 import importlib.util
+import math
 import unittest
 from pathlib import Path
 
@@ -114,6 +115,28 @@ class GroundGridTest(unittest.TestCase):
         for face in faces:
             for index in face:
                 self.assertLess(index, len(vertices))
+
+
+class CropCameraTest(unittest.TestCase):
+    def test_placement_derives_from_the_window_not_the_scene(self):
+        standoff, height = crowd_framing.crop_camera_placement(250.0, 1.23)
+        self.assertAlmostEqual(height, 200.0)
+        self.assertAlmostEqual(standoff, 246.0)
+
+    def test_tilt_is_scale_invariant(self):
+        # A 250 m window and a 2500 m window must read as the same shot,
+        # so standoff and height stay in proportion.
+        near_standoff, near_height = crowd_framing.crop_camera_placement(250.0, 1.23)
+        far_standoff, far_height = crowd_framing.crop_camera_placement(2500.0, 1.23)
+        self.assertAlmostEqual(far_height / near_height, 10.0)
+        self.assertAlmostEqual(far_standoff / near_standoff, 10.0)
+
+    def test_crop_camera_stays_inside_its_own_clip_planes(self):
+        standoff, height = crowd_framing.crop_camera_placement(250.0, 1.23)
+        distance = math.hypot(standoff, height)
+        near, far = crowd_framing.clip_planes(distance)
+        self.assertLess(near, distance)
+        self.assertGreater(far, distance)
 
 
 if __name__ == "__main__":

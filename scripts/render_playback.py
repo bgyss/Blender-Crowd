@@ -211,28 +211,37 @@ def build_ground(centre, extent):
     return ground
 
 
-def build_camera(centre, extent):
+def build_camera(centre, extent, view_width=None):
     """An orthographic three-quarter view fitted to the occupied area.
 
     Orthographic on purpose: the interesting content is the shape of the two
     flows and where they jam, and perspective would make agents at the far
     corner smaller than identical agents at the near one.
+
+    `view_width` opts into crop mode: `ortho_scale` becomes exactly that
+    width with no framing margin, so a 250 m window means 250 m, and the
+    camera's standoff and height derive from the window rather than from
+    the scene extent.
     """
     camera_data = bpy.data.cameras.new("camera")
     camera_data.type = "ORTHO"
-    camera_data.ortho_scale = extent * FRAMING_MARGIN
+    camera_data.ortho_scale = (
+        view_width if view_width is not None else extent * FRAMING_MARGIN
+    )
     camera = bpy.data.objects.new("camera", camera_data)
     bpy.context.scene.collection.objects.link(camera)
 
     # Tilted back from straight overhead far enough to read as a 3D shot,
     # but still steep enough that the far side of the crowd is not hidden
     # behind the near side.
-    height = extent * 0.8
-    camera.location = (
-        centre[0],
-        centre[1] - height * CAMERA_TILT_RATIO,
-        height,
-    )
+    if view_width is not None:
+        standoff, height = crowd_framing.crop_camera_placement(
+            view_width, CAMERA_TILT_RATIO
+        )
+    else:
+        height = extent * 0.8
+        standoff = height * CAMERA_TILT_RATIO
+    camera.location = (centre[0], centre[1] - standoff, height)
     target = mathutils.Vector((centre[0], centre[1], 0.0))
     direction = target - camera.location
     camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
