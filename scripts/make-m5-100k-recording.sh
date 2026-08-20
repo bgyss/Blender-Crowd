@@ -11,6 +11,15 @@
 # completion rate is meaningless — agents that would arrive later never get the
 # chance. Nothing here should be quoted as a result.
 #
+# Why the camera is yawed. m5_city_flow runs parallel one-way lanes along +x at
+# a 2.663 m pitch at this population. A camera on the -y axis lays every lane
+# along an image row, so that pitch sums coherently across all 3840 columns and
+# the clip reads as horizontal banding -- a row-occupancy FFT of the original
+# straight-on render peaks at 25.7 px, which is exactly the 2.65 m lane pitch at
+# this crop's 0.1032 m per row. The lanes are real scene structure and are still
+# there; CAMERA_YAW only stops them from lining up with the pixel grid. At the
+# default a lane crosses out of any image row within ~3 columns.
+#
 # It is also a CROPPED view. The camera frames a 250 m window that tracks one
 # of the two lane blocks, because the whole 2,402 x 1,140 m scene rendered to
 # a single frame puts an agent at well under a pixel. So the clip shows on the
@@ -39,6 +48,7 @@
 #   TRACK_STREAM    lane block the camera follows, 0 south or 1 north
 #                   (default 0)
 #   GROUND_GRID     ground grid spacing in metres (default 50)
+#   CAMERA_YAW      degrees to swing the camera off the lane axis (default 30)
 #   STREAM_SPLIT    y that divides the two lane blocks (default: scene midpoint)
 #   FPS             output frame rate (default 30)
 #   OUT_DIR         where the mp4 lands (default ~/blender-crowd-m5/recording)
@@ -53,6 +63,7 @@ FPS="${FPS:-30}"
 CROP_WIDTH="${CROP_WIDTH:-250}"
 TRACK_STREAM="${TRACK_STREAM:-0}"
 GROUND_GRID="${GROUND_GRID:-50}"
+CAMERA_YAW="${CAMERA_YAW:-30}"
 OUT_DIR="${OUT_DIR:-$HOME/blender-crowd-m5/recording}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -81,6 +92,7 @@ printf 'ticks simulated  %s (of the scene'"'"'s 142302)\n' "$MAX_TICKS"
 printf 'trace interval   every %s ticks\n' "$TRACE_INTERVAL"
 printf 'frames           ~%s  -> ~%s s of video at %s fps\n' "$FRAMES" "$(( FRAMES / FPS ))" "$FPS"
 printf 'window           %s m, tracking stream %s\n' "$CROP_WIDTH" "$TRACK_STREAM"
+printf 'camera yaw       %s deg off the lane axis\n' "$CAMERA_YAW"
 printf 'trace size       ~%s GB\n' "$(( BYTES / 1000000000 ))"
 printf 'output           %s/%s.mp4\n\n' "$OUT_DIR" "$STEM"
 
@@ -105,6 +117,7 @@ CROWD_STREAM_SPLIT="$STREAM_SPLIT" \
 CROWD_CROP_WIDTH="$CROP_WIDTH" \
 CROWD_TRACK_STREAM="$TRACK_STREAM" \
 CROWD_GROUND_GRID="$GROUND_GRID" \
+CROWD_CAMERA_YAW="$CAMERA_YAW" \
     "$BLENDER" -b --factory-startup --python "$REPO_ROOT/scripts/render_playback.py"
 
 printf '\n=== encoding ===\n'

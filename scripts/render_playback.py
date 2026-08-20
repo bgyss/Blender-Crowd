@@ -25,6 +25,8 @@ Environment:
     CROWD_TRACK_STREAM  stream label the crop follows (0 or 1). Only read
                       when CROWD_CROP_WIDTH is set.
     CROWD_GROUND_GRID  ground grid spacing in metres. Unset draws no grid.
+    CROWD_CAMERA_YAW  degrees to swing the camera off the -y axis (default 0,
+                      the historical straight-on shot). See crowd_framing.
 """
 
 import os
@@ -86,6 +88,12 @@ STREAM_SPLIT = float(os.environ.get("CROWD_STREAM_SPLIT", "0"))
 CROP_WIDTH = float(os.environ.get("CROWD_CROP_WIDTH", "0")) or None
 TRACK_STREAM = int(os.environ.get("CROWD_TRACK_STREAM", "0"))
 GROUND_GRID = float(os.environ.get("CROWD_GROUND_GRID", "0")) or None
+# Swing the camera off the lane axis. m5_city_flow's lanes run along +x, so a
+# camera on the -y axis lays them along image rows and their 2.663 m pitch
+# reads as banding rather than as lanes. This changes the angle onto the
+# crowd only -- never the crowd. Default 0 leaves every other recording's
+# framing byte-identical.
+CAMERA_YAW = float(os.environ.get("CROWD_CAMERA_YAW", "0"))
 
 # Guards on the tracked-lane fit's residual (percent of CROWD_CROP_WIDTH).
 # On the 100K trace the residual is 4.22%, comfortably under both. They exist
@@ -297,6 +305,11 @@ def build_camera(centre, extent, view_width=None):
     width with no framing margin, so a 250 m window means 250 m, and the
     camera's standoff and height derive from the window rather than from
     the scene extent.
+
+    Returns `(camera, offset_x)`. `offset_x` is how far the camera sits from
+    its target along x once yawed, and the tracking loop has to add it back
+    when it slides the camera: at yaw 0 it is zero and the camera's x *is*
+    the target's, but at any other yaw the two differ by a constant.
     """
     camera_data = bpy.data.cameras.new("camera")
     camera_data.type = "ORTHO"
@@ -316,7 +329,8 @@ def build_camera(centre, extent, view_width=None):
     else:
         height = extent * 0.8
         standoff = height * CAMERA_TILT_RATIO
-    camera.location = (centre[0], centre[1] - standoff, height)
+    offset_x, offset_y = crowd_framing.yaw_offsets(standoff, CAMERA_YAW)
+    camera.location = (centre[0] + offset_x, centre[1] + offset_y, height)
     target = mathutils.Vector((centre[0], centre[1], 0.0))
     direction = target - camera.location
     camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
@@ -329,7 +343,19 @@ def build_camera(centre, extent, view_width=None):
     camera_data.clip_start, camera_data.clip_end = crowd_framing.clip_planes(distance)
 
     bpy.context.scene.camera = camera
-    return camera
+    if CAMERA_YAW:
+        # Reported rather than left to the eye: this is the whole reason the
+        # yaw exists, and it says how far the fix went.
+        print(
+            "camera yaw: {:.1f} deg, a lane holds one image row for "
+            "{:.1f} columns (unyawed: every column)".format(
+                CAMERA_YAW,
+                crowd_framing.lane_row_coherence_columns(
+                    CAMERA_TILT_RATIO, CAMERA_YAW
+                ),
+            )
+        )
+    return camera, offset_x
 
 
 def configure_render(scene, res_x):
@@ -446,12 +472,12 @@ def main():
                 TRACK_STREAM, band_centre_y, len(band_ys)
             )
         )
-        camera = build_camera(
+        camera, camera_offset_x = build_camera(
             (fit[1], band_centre_y), extent, view_width=CROP_WIDTH
         )
     else:
         fit = None
-        camera = build_camera(centre, extent)
+        camera, camera_offset_x = build_camera(centre, extent)
     scene = bpy.context.scene
     configure_render(scene, res_x)
 
@@ -465,7 +491,7 @@ def main():
         if fit is not None:
             # Only x changes, so the camera's rotation stays correct: the
             # target slides by exactly as much as the camera does.
-            camera.location.x = fit[0] * tick + fit[1]
+            camera.location.x = fit[0] * tick + fit[1] + camera_offset_x
         scene.render.filepath = os.path.join(frame_dir, "frame-{:05d}".format(index))
         bpy.ops.render.render(write_still=True)
         if index % 25 == 0 or index == total - 1:

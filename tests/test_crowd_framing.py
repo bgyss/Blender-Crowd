@@ -200,5 +200,75 @@ class CropCameraTest(unittest.TestCase):
         self.assertGreater(far, distance)
 
 
+class CameraYawTest(unittest.TestCase):
+    """Why the recording camera is yawed off the lane axis.
+
+    m5_city_flow runs parallel one-way lanes along +x at a 2.663 m pitch
+    (16 * scale / lanes_per_direction, both at 100K). Looking straight down
+    that axis maps every lane onto image *rows*, so the lane periodicity sums
+    coherently across all 3840 columns and reads as horizontal banding. The
+    banding is real scene structure, not an encoding artefact -- a row-occupancy
+    FFT of the 100K clip peaks at 25.7 px, and 25.7 px * 0.1032 m/px = 2.65 m.
+
+    Yaw does not remove the lanes. It stops them from lining up with the pixel
+    grid, which is what made them read as bands.
+    """
+
+    def test_zero_yaw_reproduces_the_straight_on_camera(self):
+        # The whole point of the default: every existing recording that does
+        # not opt into yaw must place its camera exactly where it did before.
+        standoff, _height = crowd_framing.crop_camera_placement(250.0, 1.23)
+        offset_x, offset_y = crowd_framing.yaw_offsets(standoff, 0.0)
+        self.assertAlmostEqual(offset_x, 0.0)
+        self.assertAlmostEqual(offset_y, -standoff)
+
+    def test_yaw_preserves_the_standoff_distance(self):
+        # Yaw swings the camera around the target; it must not dolly in or
+        # out, or the shot's scale and clip planes would drift with it.
+        standoff, _height = crowd_framing.crop_camera_placement(250.0, 1.23)
+        for yaw in (0.0, 12.5, 30.0, 45.0, -30.0):
+            offset_x, offset_y = crowd_framing.yaw_offsets(standoff, yaw)
+            self.assertAlmostEqual(math.hypot(offset_x, offset_y), standoff, places=5)
+
+    def test_yaw_swings_the_camera_the_signed_way_round(self):
+        offset_x, offset_y = crowd_framing.yaw_offsets(100.0, 90.0)
+        self.assertAlmostEqual(offset_x, 100.0, places=5)
+        self.assertAlmostEqual(offset_y, 0.0, places=5)
+
+    def test_lanes_are_exactly_horizontal_without_yaw(self):
+        # This is the defect, stated as a test: at yaw 0 a lane never leaves
+        # the row it starts in, whatever the tilt.
+        self.assertAlmostEqual(crowd_framing.lane_screen_slope(1.23, 0.0), 0.0)
+
+    def test_lane_slope_grows_with_yaw(self):
+        shallow = crowd_framing.lane_screen_slope(1.23, 10.0)
+        steep = crowd_framing.lane_screen_slope(1.23, 30.0)
+        self.assertGreater(steep, shallow)
+        self.assertGreater(shallow, 0.0)
+
+    def test_lane_slope_is_foreshortened_by_the_tilt(self):
+        # A world line along +x rises on screen by tan(yaw), foreshortened by
+        # sin(elevation). tilt_ratio is standoff/height, so tan(elevation) is
+        # its reciprocal.
+        elevation = math.atan2(1.0, 1.23)
+        expected = math.tan(math.radians(30.0)) * math.sin(elevation)
+        self.assertAlmostEqual(
+            crowd_framing.lane_screen_slope(1.23, 30.0), expected
+        )
+
+    def test_thirty_degrees_destroys_row_coherence_at_4k(self):
+        # The fix, stated as a measurement rather than left to the eye: at the
+        # 100K recording's tilt, a lane crosses out of any given image row
+        # within a handful of columns, so its 2.66 m periodicity can no longer
+        # accumulate across a 3840-wide frame the way it does at yaw 0.
+        columns = crowd_framing.lane_row_coherence_columns(1.23, 30.0)
+        self.assertLess(columns, 10.0)
+
+    def test_row_coherence_is_unbounded_without_yaw(self):
+        self.assertEqual(
+            crowd_framing.lane_row_coherence_columns(1.23, 0.0), math.inf
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

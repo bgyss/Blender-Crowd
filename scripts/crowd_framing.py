@@ -165,3 +165,56 @@ def crop_camera_placement(view_width, tilt_ratio):
     """
     height = view_width * 0.8
     return height * tilt_ratio, height
+
+
+def yaw_offsets(standoff, yaw_degrees):
+    """Camera offset `(dx, dy)` from its target, swung `yaw_degrees` about +z.
+
+    At yaw 0 this is `(0, -standoff)` -- exactly where the camera stood
+    before yaw existed -- so an unyawed recording is unchanged.
+
+    Yaw exists because m5_city_flow's lanes run along +x at a 2.663 m pitch.
+    A camera on the -y axis maps each lane onto image rows, so that pitch
+    sums coherently across the full frame width and reads as horizontal
+    banding rather than as the lane structure it is. Swinging the camera off
+    the lane axis leaves the crowd untouched and only stops its periodicity
+    from aligning with the pixel grid.
+
+    The swing preserves `standoff`, so yaw changes the angle onto the crowd
+    without dollying in or out: framing, scale, and clip planes are all
+    derived from that distance and must not drift with the yaw.
+    """
+    theta = math.radians(yaw_degrees)
+    return standoff * math.sin(theta), -standoff * math.cos(theta)
+
+
+def lane_screen_slope(tilt_ratio, yaw_degrees):
+    """Screen rise-over-run of a world line along +x, as a positive ratio.
+
+    `tilt_ratio` is standoff over height, so the camera's elevation above the
+    ground is `atan2(1, tilt_ratio)`. An orthographic view at that elevation
+    scales world y by `sin(elevation)` and leaves world x alone, so a lane
+    yawed by `yaw_degrees` rises by `tan(yaw)` foreshortened by that sine.
+
+    Zero at yaw 0: that is the defect this measures, not an edge case.
+    """
+    elevation = math.atan2(1.0, tilt_ratio)
+    return abs(math.tan(math.radians(yaw_degrees))) * math.sin(elevation)
+
+
+def lane_row_coherence_columns(tilt_ratio, yaw_degrees):
+    """How many image columns a single lane stays within one image row.
+
+    This is the number the yaw is chosen against. Banding is not caused by
+    the lanes existing -- at 1:1 pixels the 100K frames read as a crowd, not
+    as stripes -- but by every column of the frame agreeing about where the
+    lanes are. While a lane holds one row across thousands of columns, its
+    periodicity accumulates down the whole frame; once it crosses rows within
+    a few columns, there is nothing for the eye to integrate.
+
+    Infinite at yaw 0, which is precisely why the straight-on camera bands.
+    """
+    slope = lane_screen_slope(tilt_ratio, yaw_degrees)
+    if slope == 0.0:
+        return math.inf
+    return 1.0 / slope
