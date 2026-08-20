@@ -285,6 +285,11 @@ class CrowdProjectProperties(PropertyGroup):
         description="Cache-bound sparse interaction animation layer JSON",
         subtype="FILE_PATH",
     )
+    m6_interaction_request_path: StringProperty(
+        name="M6 Interaction Request",
+        description="Independently authored interaction constraints and provenance JSON",
+        subtype="FILE_PATH",
+    )
     m6_interaction_motion_path: StringProperty(
         name="M6 Interaction Motion",
         description="Validated paired-motion contact and provenance JSON",

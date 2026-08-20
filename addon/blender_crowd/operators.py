@@ -1041,6 +1041,7 @@ def _clear_m6_layer_summaries(props):
 
 def _load_m6_bundle(props, playback):
     bundle = m6_interaction.load_layer_bundle(
+        bpy.path.abspath(props.m6_interaction_request_path),
         bpy.path.abspath(props.m6_interaction_layer_path),
         bpy.path.abspath(props.m6_interaction_motion_path),
         bpy.path.abspath(props.m6_physics_transition_path),
@@ -1049,6 +1050,8 @@ def _load_m6_bundle(props, playback):
     )
     validated_motion = json.loads(
         blender_crowd_native.validate_interaction_motion_attachment(
+            playback.base_cache_hash,
+            json.dumps(bundle["interaction_request"], sort_keys=True, separators=(",", ":")),
             json.dumps(bundle["interaction_layer"], sort_keys=True, separators=(",", ":")),
             json.dumps(bundle["interaction_motion"], sort_keys=True, separators=(",", ":")),
         )

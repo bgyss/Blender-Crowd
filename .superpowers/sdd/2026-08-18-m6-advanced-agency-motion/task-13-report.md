@@ -1,8 +1,14 @@
 # Task 13 — Blender physics/hero layers and mixed-tier performance
 
-Status: DONE
+Status: FIX ROUND 2 VERIFIED
 
-## Implementation
+The original completion narrative below is retained only as a historical
+pre-review snapshot. Everything from **Historical pre-review implementation
+narrative** through the first `No subagent or reviewer was dispatched` line is
+obsolete and must not be used as current evidence. Fix Rounds 1 and 2 supersede
+it; where those rounds differ, Fix Round 2 is authoritative.
+
+## Historical pre-review implementation narrative (obsolete)
 
 - Added cache-bound Blender attachment for deterministic paired-interaction,
   contact, physics-transition, and hero-support artifacts. Attachment requires
@@ -353,4 +359,160 @@ exit 0
 - The CMU candidate remains rejected at 3,587 joint-limit violations against
   the unchanged hard limit of zero; the checked CC0 baseline remains the
   accepted motion source.
+- Task 14 still owns milestone-level M6 acceptance promotion.
+
+## Fix Round 2 — 2026-08-19
+
+Status: VERIFIED. This round supersedes Fix Round 1 for interaction-motion
+authority, candidate-layout preflight, native test counts, and host Blender
+error evidence. No subagent or reviewer was dispatched.
+
+### Important finding 1: independent request authority
+
+The native API now receives four independent inputs from the live Blender
+operator:
+
+1. the complete attached Cache v1 `base_cache_hash`;
+2. the authored `InteractionRequestV1` artifact;
+3. the cache-bound `AnimationLayerV1`; and
+4. the submitted `InteractionMotionV1`.
+
+Before lowering, Rust validates:
+
+- request and layer cache hashes against the live cache;
+- layer interaction ID against request ID, then motion request ID against the
+  request;
+- exact request participant/layer target identity, then exact motion
+  participant identity;
+- request/layer intervals and motion roots against independently authored root
+  constraints;
+- required contact presence, contact windows, and forbidden contacts;
+- strict motion seed against the request seed;
+- valid request provenance, matching request/layer worker provenance, and
+  non-empty motion backend/config provenance; and
+- matching layer/motion fallback clip-set and clip IDs, with both reasons still
+  required and independently retained.
+
+The Python bundle now carries `interaction_request`, and the Blender property
+panel exposes an explicit independently authored request path. The operator no
+longer derives request roots, contacts, or seed from submitted motion.
+
+### Important finding 2: muted replacement preflight
+
+`validate_layout_layers_v1` is a non-mutating attachment preflight that
+validates every supplied layer regardless of `muted` or `solo` state. The
+native Blender cache exposes it separately from composition. `CachePlayback`
+preflights only the candidate M6 list before submitting the combined M4+M6
+stack, preserving existing M4 muted/stale semantics.
+
+If preflight fails, neither native `layout_layers` nor Python `_m6_layers` is
+modified. The host regression loads a request/layer/motion set that is
+internally consistent but targets an ID absent from the live cache; native
+preflight rejects it both unmuted and with `m6_layers_muted=true`. The old M6
+stack, M4 override, mute state, and seven evidence properties remain unchanged.
+
+### RED evidence
+
+The semantic native regression changed only the in-range middle root sample
+from `[0.25, 0.0, 0.0]` to `[0.75, 0.0, 0.0]`. Before the fix, the submitted
+motion was used as its own root authority and the test failed because validation
+returned `Ok(InteractionMotionV1)`:
+
+```text
+cargo test -p crowd-blender --lib tests::native_attachment_rejects_in_range_motion_that_disagrees_with_the_authored_request -- --exact --nocapture
+test tests::native_attachment_rejects_in_range_motion_that_disagrees_with_the_authored_request ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out
+```
+
+The muted-layer unit regression initially failed to compile because no
+validation-only API existed:
+
+```text
+cargo test -p crowd-cache --test layout attachment_preflight_rejects_an_invalid_muted_layer_that_composition_skips -- --exact --nocapture
+error[E0432]: unresolved import `crowd_cache::validate_layout_layers_v1`
+```
+
+The first host RED run reached both Blender processes with normal Metal access,
+then failed at the missing request-aware operator plumbing:
+
+```text
+M6 debugger Blender smoke: PASS
+Error: load_layer_bundle() missing 1 required positional argument: 'expected_base_hash'
+FAIL: unexpected RuntimeError: Error: load_layer_bundle() missing 1 required positional argument: 'expected_base_hash'
+```
+
+### GREEN focused evidence
+
+```text
+python3 -m unittest -v tests/test_m6_layer_bundle.py
+Ran 3 tests in 0.006s
+OK
+
+cargo test -p crowd-blender --lib
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+cargo test -p crowd-cache --test layout
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+The native attachment suite includes checked acceptance plus direct negative
+coverage for cache identity, request ID, participants, in-range root deviation,
+required-contact window, forbidden contact, strict seed, request/layer/motion
+provenance, and fallback mismatch. The layout suite separately proves that
+normal composition skips a muted invalid layer while attachment preflight
+rejects it.
+
+### GREEN host Blender / Metal evidence
+
+Command executed outside the restricted automation sandbox:
+
+```text
+scripts/m6-blender-test.sh
+```
+
+Exact significant output:
+
+```text
+M6 debugger Blender smoke: PASS
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion root deviates from its authored path at tick 15
+Error: E_INTERACTION_MOTION: motion contact touch-pair violates its declared constraint; required contact touch-pair was not observed
+Error: E_INTERACTION_MOTION: forbidden contact separate-pair was reported
+Error: E_INTERACTION_MOTION: motion provenance must name a backend/config and match the strict request seed
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion roots must cover the complete interval
+Error: E_LAYOUT_PREFLIGHT: layer m6-animation-interaction-pair-10293130296351569156-15 targets an agent absent from the base
+Info: M6 layers muted
+Error: E_LAYOUT_PREFLIGHT: layer m6-animation-interaction-pair-10293130296351569156-15 targets an agent absent from the base
+Info: M6 layers unmuted
+Info: M6 layers removed; source artifacts and base cache retained
+M6 Blender physics/hero layers: PASS
+Blender 5.2.0 LTS (hash fbe6228777e7 built 2026-07-14 01:31:22)
+```
+
+Both Blender processes reached Python with normal host Metal access; there was
+no pre-Python Metal abort.
+
+### Quality and documentation checks
+
+```text
+cargo fmt --all -- --check
+exit 0
+
+cargo clippy --workspace --all-targets -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo]
+
+git diff --check
+exit 0
+```
+
+The durable Blender benchmark report was updated at
+`docs/benchmarks/2026-08-18-m6-blender-layers.md`. The original pre-review
+completion prose at the top of this report is now explicitly marked obsolete
+instead of contradicting the current validation boundary.
+
+### Remaining boundaries
+
+- Cloth, hair, Geometry Nodes deformation, Blender rigid-body parity, and
+  neural motion remain unsupported and unmeasured as recorded in Fix Round 1.
+- The request artifact is trusted as authored input after schema validation;
+  this round does not add cryptographic signing or remote attestation.
 - Task 14 still owns milestone-level M6 acceptance promotion.

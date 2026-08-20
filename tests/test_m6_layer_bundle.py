@@ -44,6 +44,75 @@ class M6LayerBundleTests(unittest.TestCase):
                 {"agent_id": 9, "tick": 15, "clip_id": 43, "phase_millionths": 500_000},
             ],
         )
+        self.request = {
+            "schema_version": 1,
+            "request_id": "request-7-9",
+            "group_id": "pair-7-9",
+            "participants": [
+                {
+                    "agent_id": 7,
+                    "role": "initiator",
+                    "retarget_profile_id": "reference-humanoid",
+                },
+                {
+                    "agent_id": 9,
+                    "role": "responder",
+                    "retarget_profile_id": "reference-humanoid",
+                },
+            ],
+            "tick_start": 10,
+            "tick_end": 20,
+            "seed": 2026,
+            "mode": "strict",
+            "action": "approach-and-touch",
+            "outcome": "touch-then-separate",
+            "root_constraints": [
+                {
+                    "agent_id": 7,
+                    "samples": [
+                        {"tick": 10, "position": [0.0, 0.0, 0.0], "yaw": 0.0},
+                        {"tick": 20, "position": [0.5, 0.0, 0.0], "yaw": 0.0},
+                    ],
+                },
+                {
+                    "agent_id": 9,
+                    "samples": [
+                        {"tick": 10, "position": [1.0, 0.0, 0.0], "yaw": 3.141592653589793},
+                        {"tick": 20, "position": [0.5, 0.0, 0.0], "yaw": 3.141592653589793},
+                    ],
+                },
+            ],
+            "contact_constraints": [
+                {
+                    "contact_id": "touch-7-9",
+                    "owner_agent_id": 7,
+                    "other_agent_id": 9,
+                    "label": "touch",
+                    "tick_start": 14,
+                    "tick_end": 16,
+                    "required": True,
+                },
+                {
+                    "contact_id": "separate-7-9",
+                    "owner_agent_id": 7,
+                    "other_agent_id": 9,
+                    "label": "forbidden",
+                    "tick_start": 19,
+                    "tick_end": 20,
+                    "required": False,
+                },
+            ],
+            "provenance": {
+                "base_cache_hash": BASE_HASH,
+                "graph_hash": "b" * 64,
+                "worker_protocol": "authored-paired-clip-v1",
+            },
+            "budgets": {
+                "max_latency_ms": 20,
+                "max_memory_bytes": 1_048_576,
+                "max_output_bytes": 1_048_576,
+            },
+        }
         self.motion = {
             "schema_version": 1,
             "request_id": "request-7-9",
@@ -116,6 +185,7 @@ class M6LayerBundleTests(unittest.TestCase):
 
     def test_bundle_exposes_ownership_contacts_provenance_and_hero_boundaries(self):
         bundle = m6_interaction.load_layer_bundle(
+            self._write("request.json", self.request),
             self._write("interaction.json", self.layer),
             self._write("motion.json", self.motion),
             self._write("physics.json", self.transition),
@@ -156,12 +226,14 @@ class M6LayerBundleTests(unittest.TestCase):
             },
         )
         self.assertEqual(bundle["interaction_motion"], self.motion)
+        self.assertEqual(bundle["interaction_request"], self.request)
 
     def test_bundle_rejects_cross_cache_and_cross_interaction_artifacts(self):
         wrong_cache = copy.deepcopy(self.transition)
         wrong_cache["cache_hash"] = "a" * 64
         with self.assertRaisesRegex(ValueError, "another base cache"):
             m6_interaction.load_layer_bundle(
+                self._write("request.json", self.request),
                 self._write("interaction.json", self.layer),
                 self._write("motion.json", self.motion),
                 self._write("physics.json", wrong_cache),
@@ -173,6 +245,7 @@ class M6LayerBundleTests(unittest.TestCase):
         wrong_motion["request_id"] = "another-request"
         with self.assertRaisesRegex(ValueError, "does not match interaction"):
             m6_interaction.load_layer_bundle(
+                self._write("request.json", self.request),
                 self._write("interaction.json", self.layer),
                 self._write("motion.json", wrong_motion),
                 self._write("physics.json", self.transition),
@@ -184,6 +257,7 @@ class M6LayerBundleTests(unittest.TestCase):
         malformed_motion["participants"] = [None, {"agent_id": 9}]
         with self.assertRaisesRegex(ValueError, "participant"):
             m6_interaction.load_layer_bundle(
+                self._write("request.json", self.request),
                 self._write("interaction.json", self.layer),
                 self._write("motion.json", malformed_motion),
                 self._write("physics.json", self.transition),
@@ -193,6 +267,7 @@ class M6LayerBundleTests(unittest.TestCase):
 
     def test_layout_conversion_is_sparse_mutable_and_keeps_source_artifacts_unchanged(self):
         bundle = m6_interaction.load_layer_bundle(
+            self._write("request.json", self.request),
             self._write("interaction.json", self.layer),
             self._write("motion.json", self.motion),
             self._write("physics.json", self.transition),

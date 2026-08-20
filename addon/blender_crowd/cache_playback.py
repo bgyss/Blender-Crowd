@@ -221,6 +221,12 @@ class CachePlayback:
             sort_keys=True,
             separators=(",", ":"),
         )
+        candidate_m6_json = json.dumps(
+            candidate_m6,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self._cache.preflight_layout_layers(candidate_m6_json)
         self._cache.set_layout_layers(candidate_json)
         try:
             if self._current_tick is not None:

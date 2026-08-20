@@ -100,6 +100,75 @@ def main():
             {"agent_id": target_ids[1], "tick": 15, "clip_id": 43, "phase_millionths": 500_000},
         ],
     )
+    request = {
+        "schema_version": 1,
+        "request_id": "request-pair",
+        "group_id": "pair",
+        "participants": [
+            {
+                "agent_id": target_ids[0],
+                "role": "initiator",
+                "retarget_profile_id": "reference-humanoid",
+            },
+            {
+                "agent_id": target_ids[1],
+                "role": "responder",
+                "retarget_profile_id": "reference-humanoid",
+            },
+        ],
+        "tick_start": 10,
+        "tick_end": 20,
+        "seed": 2026,
+        "mode": "strict",
+        "action": "approach-and-touch",
+        "outcome": "touch-then-separate",
+        "root_constraints": [
+            {
+                "agent_id": target_ids[0],
+                "samples": [
+                    {"tick": 10, "position": [0.0, 0.0, 0.0], "yaw": 0.0},
+                    {"tick": 20, "position": [0.5, 0.0, 0.0], "yaw": 0.0},
+                ],
+            },
+            {
+                "agent_id": target_ids[1],
+                "samples": [
+                    {"tick": 10, "position": [1.0, 0.0, 0.0], "yaw": 3.141592653589793},
+                    {"tick": 20, "position": [0.5, 0.0, 0.0], "yaw": 3.141592653589793},
+                ],
+            },
+        ],
+        "contact_constraints": [
+            {
+                "contact_id": "touch-pair",
+                "owner_agent_id": target_ids[0],
+                "other_agent_id": target_ids[1],
+                "label": "touch",
+                "tick_start": 15,
+                "tick_end": 15,
+                "required": True,
+            },
+            {
+                "contact_id": "separate-pair",
+                "owner_agent_id": target_ids[0],
+                "other_agent_id": target_ids[1],
+                "label": "forbidden",
+                "tick_start": 19,
+                "tick_end": 20,
+                "required": False,
+            },
+        ],
+        "provenance": {
+            "base_cache_hash": base_hash,
+            "graph_hash": "b" * 64,
+            "worker_protocol": "authored-paired-clip-v1",
+        },
+        "budgets": {
+            "max_latency_ms": 20,
+            "max_memory_bytes": 1_048_576,
+            "max_output_bytes": 1_048_576,
+        },
+    }
     motion = {
         "schema_version": 1,
         "request_id": "request-pair",
@@ -162,8 +231,10 @@ def main():
         "failure_policy": "fallback-to-cached-body",
     }
     props = scene.crowd_project
+    valid_request_path = write_json(directory, "request.json", request)
     valid_layer_path = write_json(directory, "interaction.json", layer)
     valid_motion_path = write_json(directory, "motion.json", motion)
+    props.m6_interaction_request_path = valid_request_path
     props.m6_interaction_layer_path = valid_layer_path
     props.m6_interaction_motion_path = valid_motion_path
     props.m6_physics_transition_path = write_json(directory, "physics.json", transition)
@@ -204,13 +275,71 @@ def main():
             "m6_hero_support",
         )
     )
+    invalid_semantic_motions = []
+
+    invalid_root = copy.deepcopy(motion)
+    invalid_root["participants"][0]["root_samples"][1]["translation"] = [0.75, 0.0, 0.0]
+    invalid_semantic_motions.append(("root", invalid_root, "authored path"))
+
+    invalid_contact = copy.deepcopy(motion)
+    invalid_contact["contacts"][0]["tick"] = 17
+    invalid_semantic_motions.append(("contact", invalid_contact, "declared constraint"))
+
+    forbidden_contact = copy.deepcopy(motion)
+    forbidden_contact["contacts"].append({
+        "contact_id": "separate-pair",
+        "label": "forbidden",
+        "owner_agent_id": target_ids[0],
+        "other_agent_id": target_ids[1],
+        "tick": 19,
+        "distance_m": 0.0,
+    })
+    invalid_semantic_motions.append(("forbidden-contact", forbidden_contact, "forbidden contact"))
+
+    invalid_seed = copy.deepcopy(motion)
+    invalid_seed["provenance"]["seed"] = 2027
+    invalid_semantic_motions.append(("seed", invalid_seed, "strict request seed"))
+
+    for label, invalid_semantic_motion, expected_text in invalid_semantic_motions:
+        props.m6_interaction_motion_path = write_json(
+            directory,
+            "invalid-{}.json".format(label),
+            invalid_semantic_motion,
+        )
+        require_rejected(
+            bpy.ops.crowd.load_m6_layers,
+            "request-inconsistent {} motion was accepted by Blender".format(label),
+            expected_text,
+        )
+        require(
+            playback.inspect_agent(target_ids[0], 15)["clip_id"] == 42,
+            "invalid {} motion replaced the attached native stack".format(label),
+        )
+        require(
+            summaries_before_failed_attach
+            == tuple(
+                getattr(props, name)
+                for name in (
+                    "m6_layer_owner",
+                    "m6_layer_interval",
+                    "m6_layer_contacts",
+                    "m6_layer_provenance",
+                    "m6_layer_recovery",
+                    "m6_layer_failure_policy",
+                    "m6_hero_support",
+                )
+            ),
+            "invalid {} motion replaced attached evidence properties".format(label),
+        )
+    props.m6_interaction_motion_path = valid_motion_path
+
     invalid_motion = copy.deepcopy(motion)
     invalid_motion["participants"][0]["root_samples"] = []
     props.m6_interaction_motion_path = write_json(directory, "invalid-motion.json", invalid_motion)
     require_rejected(
         bpy.ops.crowd.load_m6_layers,
         "Rust-invalid interaction motion was accepted by Blender",
-        "root samples must cover",
+        "motion roots must cover",
     )
     require(playback.inspect_agent(target_ids[0], 15)["clip_id"] == 42, "invalid motion replaced the attached native stack")
     require(
@@ -238,8 +367,17 @@ def main():
     invalid_target_motion = copy.deepcopy(motion)
     invalid_target_motion["participants"][0]["agent_id"] = invalid_id
     invalid_target_motion["contacts"][0]["owner_agent_id"] = invalid_id
-    props.m6_interaction_layer_path = write_json(directory, "invalid-target-layer.json", invalid_layer)
-    props.m6_interaction_motion_path = write_json(directory, "invalid-target-motion.json", invalid_target_motion)
+    invalid_target_request = copy.deepcopy(request)
+    invalid_target_request["participants"][0]["agent_id"] = invalid_id
+    invalid_target_request["root_constraints"][0]["agent_id"] = invalid_id
+    for contact_constraint in invalid_target_request["contact_constraints"]:
+        contact_constraint["owner_agent_id"] = invalid_id
+    invalid_request_path = write_json(directory, "invalid-target-request.json", invalid_target_request)
+    invalid_layer_path = write_json(directory, "invalid-target-layer.json", invalid_layer)
+    invalid_motion_path = write_json(directory, "invalid-target-motion.json", invalid_target_motion)
+    props.m6_interaction_request_path = invalid_request_path
+    props.m6_interaction_layer_path = invalid_layer_path
+    props.m6_interaction_motion_path = invalid_motion_path
     require_rejected(
         bpy.ops.crowd.load_m6_layers,
         "M6 layer targeting an agent absent from the cache was accepted",
@@ -248,6 +386,7 @@ def main():
     playback.sync_to_tick(15)
     require(playback.inspect_agent(target_ids[0], 15)["clip_id"] == 42, "invalid target replaced the old M6 stack")
     require(playback.inspect_agent(unrelated_id, 15) == unrelated_m4, "invalid target replaced the M4 stack")
+    props.m6_interaction_request_path = valid_request_path
     props.m6_interaction_layer_path = valid_layer_path
     props.m6_interaction_motion_path = valid_motion_path
 
@@ -258,6 +397,40 @@ def main():
     require(playback.inspect_agent(unrelated_id, 15) == unrelated_m4, "mute replaced an unrelated M4 override")
     playback.sync_to_tick(25)
     require(playback.inspect_agent(target_ids[0], 25) == physics_baseline, "mute did not restore the physics target")
+
+    muted_stack_before_failed_attach = copy.deepcopy(playback._m6_layers)
+    props.m6_interaction_request_path = invalid_request_path
+    props.m6_interaction_layer_path = invalid_layer_path
+    props.m6_interaction_motion_path = invalid_motion_path
+    require_rejected(
+        bpy.ops.crowd.load_m6_layers,
+        "muted M6 replacement targeting an absent cache agent was accepted",
+        "absent from the base",
+    )
+    require(props.m6_layers_muted, "failed muted replacement changed the mute state")
+    require(
+        playback._m6_layers == muted_stack_before_failed_attach,
+        "failed muted replacement discarded the valid Python M6 stack",
+    )
+    require(
+        summaries_before_failed_attach
+        == tuple(
+            getattr(props, name)
+            for name in (
+                "m6_layer_owner",
+                "m6_layer_interval",
+                "m6_layer_contacts",
+                "m6_layer_provenance",
+                "m6_layer_recovery",
+                "m6_layer_failure_policy",
+                "m6_hero_support",
+            )
+        ),
+        "failed muted replacement changed attached evidence properties",
+    )
+    props.m6_interaction_request_path = valid_request_path
+    props.m6_interaction_layer_path = valid_layer_path
+    props.m6_interaction_motion_path = valid_motion_path
 
     require(bpy.ops.crowd.toggle_m6_layers_mute() == {"FINISHED"}, "M6 unmute failed")
     playback.sync_to_tick(25)

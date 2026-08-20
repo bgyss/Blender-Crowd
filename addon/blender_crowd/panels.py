@@ -414,6 +414,7 @@ class CROWD_PT_m6_debugger(Panel):
         layout.operator("crowd.apply_m6_brain_preset", icon="ADD")
         layout.separator()
         layout.label(text="Cache-bound interaction and physics/hero layers", icon="PHYSICS")
+        layout.prop(props, "m6_interaction_request_path")
         layout.prop(props, "m6_interaction_layer_path")
         layout.prop(props, "m6_interaction_motion_path")
         layout.prop(props, "m6_physics_transition_path")

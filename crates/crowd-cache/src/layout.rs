@@ -318,6 +318,31 @@ pub fn compose_layout_frame_v1(
     })
 }
 
+/// Validate a candidate attachment stack without applying edits.
+///
+/// Unlike composition, preflight validates muted and non-solo layers because
+/// attachment must never use visibility state to bypass cache, target, or
+/// payload checks.
+pub fn validate_layout_layers_v1(
+    base: &Frame,
+    base_cache_hash: &str,
+    layers: &[LayoutLayerV1],
+) -> Result<(), LayoutErrorV1> {
+    let mut index = BTreeMap::new();
+    for (position, record) in base.records.iter().enumerate() {
+        if index.insert(record.agent_id, position).is_some() {
+            return Err(LayoutErrorV1(format!(
+                "base has duplicate agent {}",
+                record.agent_id
+            )));
+        }
+    }
+    for layer in layers {
+        validate_layer(layer, base_cache_hash, &index)?;
+    }
+    Ok(())
+}
+
 pub fn invalidate_dependents_v1(
     layers: &[LayoutLayerV1],
     changed_layer_id: &str,

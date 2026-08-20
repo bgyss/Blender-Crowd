@@ -16,10 +16,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crowd_cache::{
-    compose_frame, compose_layout_frame_v1, write_usda_crowd_profile_v1, AgentStatic,
-    AnimationLayerV1, BakeSpec, BehaviorEventCompactor, BehaviorEventKindV1, BehaviorEventV1,
-    CacheReader, CacheStatus, CacheWriter, ChannelDef, Frame as CacheFrame, FrameRecord,
-    LayoutLayerV1, LocalResimulationRequestV1, OverrideLayerV1, PhysicsHandoffSpecV1,
+    compose_frame, compose_layout_frame_v1, validate_layout_layers_v1, write_usda_crowd_profile_v1,
+    AgentStatic, AnimationLayerV1, BakeSpec, BehaviorEventCompactor, BehaviorEventKindV1,
+    BehaviorEventV1, CacheReader, CacheStatus, CacheWriter, ChannelDef, Frame as CacheFrame,
+    FrameRecord, LayoutLayerV1, LocalResimulationRequestV1, OverrideLayerV1, PhysicsHandoffSpecV1,
     RecoveryInspector, RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
 };
 use crowd_core::authoring::{
@@ -28,11 +28,7 @@ use crowd_core::authoring::{
 };
 use crowd_core::avoidance::SampledVelocitySolver;
 use crowd_core::behavior::{compile_graph, BehaviorGraphV1};
-use crowd_core::interaction::{
-    ContactConstraintV1, InteractionBudgetsV1, InteractionModeV1, InteractionMotionV1,
-    InteractionParticipantV1, InteractionProvenanceV1, InteractionRequestV1, RootConstraintV1,
-    RootSampleV1,
-};
+use crowd_core::interaction::{InteractionMotionV1, InteractionRequestV1};
 use crowd_core::project::{
     compile_project as compile_core_project, CompiledAgentSpawn,
     CompiledProject as CoreCompiledProject, Diagnostic,
@@ -577,6 +573,19 @@ impl PyCache {
         self.override_layers.clear();
     }
 
+    fn preflight_layout_layers(&self, layers_json: &str) -> PyResult<()> {
+        let candidate: Vec<LayoutLayerV1> = serde_json::from_str(layers_json)
+            .map_err(|error| PyValueError::new_err(format!("E_LAYOUT_JSON: {error}")))?;
+        let reader = self.complete()?;
+        let tick = reader.manifest().tick_start;
+        let base = reader.read_tick(tick).map_err(|error| {
+            PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
+        })?;
+        validate_layout_layers_v1(&base, &self.base_cache_hash, &candidate)
+            .map_err(|error| PyValueError::new_err(format!("E_LAYOUT_PREFLIGHT: {error}")))?;
+        Ok(())
+    }
+
     fn set_layout_layers(&mut self, layers_json: &str) -> PyResult<()> {
         self.layout_layers = serde_json::from_str(layers_json)
             .map_err(|error| PyValueError::new_err(format!("E_LAYOUT_JSON: {error}")))?;
@@ -925,9 +934,13 @@ fn simulate_physics_handoff_py(spec_json: &str) -> PyResult<String> {
 }
 
 fn validate_interaction_motion_attachment_json(
+    expected_cache_hash: &str,
+    request_json: &str,
     layer_json: &str,
     motion_json: &str,
 ) -> Result<InteractionMotionV1, String> {
+    let request: InteractionRequestV1 = serde_json::from_str(request_json)
+        .map_err(|error| format!("interaction request JSON is invalid: {error}"))?;
     let layer: AnimationLayerV1 = serde_json::from_str(layer_json)
         .map_err(|error| format!("interaction layer JSON is invalid: {error}"))?;
     layer
@@ -939,66 +952,42 @@ fn validate_interaction_motion_attachment_json(
         return Err("interaction motion must contain validated contact evidence".to_owned());
     }
 
-    let request = InteractionRequestV1 {
-        schema_version: 1,
-        request_id: layer.interaction_id.clone(),
-        group_id: format!("attachment-{}", layer.layer_id),
-        participants: layer
-            .target_agent_ids
-            .iter()
-            .enumerate()
-            .map(|(index, agent_id)| InteractionParticipantV1 {
-                agent_id: *agent_id,
-                role: format!("attachment-participant-{index}"),
-                retarget_profile_id: "attachment-validated".to_owned(),
-            })
-            .collect(),
-        tick_start: layer.tick_start,
-        tick_end: layer.tick_end,
-        seed: motion.provenance.seed,
-        mode: InteractionModeV1::Strict,
-        action: "attach-validated-paired-motion".to_owned(),
-        outcome: "cache-bound-layer".to_owned(),
-        root_constraints: motion
-            .participants
-            .iter()
-            .map(|participant| RootConstraintV1 {
-                agent_id: participant.agent_id,
-                samples: participant
-                    .root_samples
-                    .iter()
-                    .map(|sample| RootSampleV1 {
-                        tick: sample.tick,
-                        position: sample.translation,
-                        yaw: sample.yaw,
-                    })
-                    .collect(),
-            })
-            .collect(),
-        contact_constraints: motion
-            .contacts
-            .iter()
-            .map(|contact| ContactConstraintV1 {
-                contact_id: contact.contact_id.clone(),
-                owner_agent_id: contact.owner_agent_id,
-                other_agent_id: contact.other_agent_id,
-                label: contact.label,
-                tick_start: contact.tick,
-                tick_end: contact.tick,
-                required: true,
-            })
-            .collect(),
-        provenance: InteractionProvenanceV1 {
-            base_cache_hash: layer.base_cache_hash.clone(),
-            graph_hash: "0".repeat(64),
-            worker_protocol: layer.provenance.clone(),
-        },
-        budgets: InteractionBudgetsV1 {
-            max_latency_ms: 1,
-            max_memory_bytes: 1,
-            max_output_bytes: 1,
-        },
-    };
+    if layer.base_cache_hash != expected_cache_hash
+        || request.provenance.base_cache_hash != expected_cache_hash
+    {
+        return Err("request and layer must match the attached base cache hash".to_owned());
+    }
+    if layer.interaction_id != request.request_id {
+        return Err("interaction layer ID must match the authored request ID".to_owned());
+    }
+    let request_participants = request
+        .participants
+        .iter()
+        .map(|participant| participant.agent_id)
+        .collect::<BTreeSet<_>>();
+    let layer_targets = layer
+        .target_agent_ids
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if request_participants != layer_targets {
+        return Err(
+            "interaction layer targets must match authored request participants".to_owned(),
+        );
+    }
+    if layer.tick_start != request.tick_start || layer.tick_end != request.tick_end {
+        return Err("interaction layer interval must match the authored request".to_owned());
+    }
+    if layer.provenance != request.provenance.worker_protocol {
+        return Err(
+            "interaction layer provenance must match the authored request protocol".to_owned(),
+        );
+    }
+    if layer.fallback.clip_set_id != motion.fallback.clip_set_id
+        || layer.fallback.clip_id != motion.fallback.clip_id
+    {
+        return Err("interaction layer and motion must name the same fallback clip".to_owned());
+    }
     motion.validate_against(&request).map_err(|issues| {
         issues
             .into_iter()
@@ -1011,11 +1000,18 @@ fn validate_interaction_motion_attachment_json(
 
 #[pyfunction(name = "validate_interaction_motion_attachment")]
 fn validate_interaction_motion_attachment_py(
+    expected_cache_hash: &str,
+    request_json: &str,
     layer_json: &str,
     motion_json: &str,
 ) -> PyResult<String> {
-    let motion = validate_interaction_motion_attachment_json(layer_json, motion_json)
-        .map_err(|error| PyValueError::new_err(format!("E_INTERACTION_MOTION: {error}")))?;
+    let motion = validate_interaction_motion_attachment_json(
+        expected_cache_hash,
+        request_json,
+        layer_json,
+        motion_json,
+    )
+    .map_err(|error| PyValueError::new_err(format!("E_INTERACTION_MOTION: {error}")))?;
     serde_json::to_string(&motion)
         .map_err(|error| PyValueError::new_err(format!("E_INTERACTION_SERIALIZE: {error}")))
 }
@@ -1552,8 +1548,9 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn checked_interaction_attachment() -> (String, String) {
+    fn checked_interaction_attachment() -> (String, String, String) {
         (
+            include_str!("../../../assets/reference/m6/interaction-request-v1.json").to_owned(),
             include_str!("../../../assets/reference/m6/interaction-animation-layer-v1.json")
                 .to_owned(),
             include_str!("../../../assets/reference/m6/interaction-motion-v1.json").to_owned(),
@@ -1562,9 +1559,14 @@ mod tests {
 
     #[test]
     fn native_attachment_accepts_interval_roots_contacts_and_provenance() {
-        let (layer, motion) = checked_interaction_attachment();
-        let validated = validate_interaction_motion_attachment_json(&layer, &motion)
-            .expect("checked paired motion must pass the Rust authority");
+        let (request, layer, motion) = checked_interaction_attachment();
+        let validated = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &motion,
+        )
+        .expect("checked paired motion must pass the Rust authority");
 
         assert_eq!(validated.request_id, "request-pair-7-9");
         assert_eq!(validated.participants.len(), 2);
@@ -1574,12 +1576,17 @@ mod tests {
 
     #[test]
     fn native_attachment_rejects_motion_without_complete_root_samples() {
-        let (layer, motion) = checked_interaction_attachment();
+        let (request, layer, motion) = checked_interaction_attachment();
         let mut motion: serde_json::Value = serde_json::from_str(&motion).unwrap();
         motion["participants"][0]["root_samples"] = serde_json::json!([]);
 
-        let error = validate_interaction_motion_attachment_json(&layer, &motion.to_string())
-            .expect_err("empty roots must not reach native layout lowering");
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &motion.to_string(),
+        )
+        .expect_err("empty roots must not reach native layout lowering");
         assert!(
             error.contains("root"),
             "unexpected validation error: {error}"
@@ -1588,11 +1595,16 @@ mod tests {
 
     #[test]
     fn native_attachment_rejects_invalid_contact_and_provenance() {
-        let (layer, motion) = checked_interaction_attachment();
+        let (request, layer, motion) = checked_interaction_attachment();
         let mut bad_contact: serde_json::Value = serde_json::from_str(&motion).unwrap();
         bad_contact["contacts"][0]["distance_m"] = serde_json::json!(-1.0);
-        let error = validate_interaction_motion_attachment_json(&layer, &bad_contact.to_string())
-            .expect_err("invalid contact must not reach native layout lowering");
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_contact.to_string(),
+        )
+        .expect_err("invalid contact must not reach native layout lowering");
         assert!(
             error.contains("contact"),
             "unexpected contact validation error: {error}"
@@ -1600,12 +1612,169 @@ mod tests {
 
         let mut bad_provenance: serde_json::Value = serde_json::from_str(&motion).unwrap();
         bad_provenance["provenance"]["backend"] = serde_json::json!("");
-        let error =
-            validate_interaction_motion_attachment_json(&layer, &bad_provenance.to_string())
-                .expect_err("invalid provenance must not reach native layout lowering");
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_provenance.to_string(),
+        )
+        .expect_err("invalid provenance must not reach native layout lowering");
         assert!(
             error.contains("provenance"),
             "unexpected provenance validation error: {error}"
+        );
+    }
+
+    #[test]
+    fn native_attachment_rejects_in_range_motion_that_disagrees_with_the_authored_request() {
+        let (request, layer, motion) = checked_interaction_attachment();
+
+        let mut bad_root: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_root["participants"][0]["root_samples"][1]["translation"] =
+            serde_json::json!([0.75, 0.0, 0.0]);
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_root.to_string(),
+        )
+        .expect_err("an in-range root must be checked against the authored request");
+        assert!(
+            error.contains("authored path"),
+            "unexpected root error: {error}"
+        );
+
+        let mut bad_contact: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_contact["contacts"][0]["tick"] = serde_json::json!(17);
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_contact.to_string(),
+        )
+        .expect_err("an in-range contact must obey the authored contact window");
+        assert!(
+            error.contains("declared constraint"),
+            "unexpected contact error: {error}"
+        );
+
+        let mut forbidden_contact: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        forbidden_contact["contacts"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "contact_id": "separate-7-9",
+                "label": "forbidden",
+                "owner_agent_id": 7,
+                "other_agent_id": 9,
+                "tick": 19,
+                "distance_m": 0.0
+            }));
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &forbidden_contact.to_string(),
+        )
+        .expect_err("a forbidden authored contact must remain forbidden");
+        assert!(
+            error.contains("forbidden contact"),
+            "unexpected forbidden-contact error: {error}"
+        );
+
+        let mut bad_seed: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_seed["provenance"]["seed"] = serde_json::json!(2027);
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_seed.to_string(),
+        )
+        .expect_err("strict motion seed must come from the authored request");
+        assert!(
+            error.contains("strict request seed"),
+            "unexpected seed error: {error}"
+        );
+    }
+
+    #[test]
+    fn native_attachment_rejects_cross_artifact_identity_and_fallback_mismatches() {
+        let (request, layer, motion) = checked_interaction_attachment();
+
+        let error = validate_interaction_motion_attachment_json(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            &request,
+            &layer,
+            &motion,
+        )
+        .expect_err("request and layer cache identity must match the live cache");
+        assert!(
+            error.contains("base cache hash"),
+            "unexpected cache error: {error}"
+        );
+
+        let mut bad_layer_id: serde_json::Value = serde_json::from_str(&layer).unwrap();
+        bad_layer_id["interaction_id"] = serde_json::json!("another-request");
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &bad_layer_id.to_string(),
+            &motion,
+        )
+        .expect_err("layer request ID must come from the authored request");
+        assert!(
+            error.contains("request ID"),
+            "unexpected request error: {error}"
+        );
+
+        let mut bad_request_participants: serde_json::Value =
+            serde_json::from_str(&request).unwrap();
+        bad_request_participants["participants"][1]["agent_id"] = serde_json::json!(11);
+        bad_request_participants["root_constraints"][1]["agent_id"] = serde_json::json!(11);
+        for constraint in bad_request_participants["contact_constraints"]
+            .as_array_mut()
+            .unwrap()
+        {
+            constraint["other_agent_id"] = serde_json::json!(11);
+        }
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &bad_request_participants.to_string(),
+            &layer,
+            &motion,
+        )
+        .expect_err("layer targets must match authored request participants");
+        assert!(
+            error.contains("participants"),
+            "unexpected participant error: {error}"
+        );
+
+        let mut bad_layer_provenance: serde_json::Value = serde_json::from_str(&layer).unwrap();
+        bad_layer_provenance["provenance"] = serde_json::json!("another-worker-v1");
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &bad_layer_provenance.to_string(),
+            &motion,
+        )
+        .expect_err("layer provenance must authenticate the request protocol");
+        assert!(
+            error.contains("provenance"),
+            "unexpected provenance error: {error}"
+        );
+
+        let mut bad_fallback: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_fallback["fallback"]["clip_id"] = serde_json::json!("run");
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_fallback.to_string(),
+        )
+        .expect_err("layer and motion fallback clips must agree");
+        assert!(
+            error.contains("fallback clip"),
+            "unexpected fallback error: {error}"
         );
     }
 

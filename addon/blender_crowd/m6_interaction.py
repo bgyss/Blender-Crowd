@@ -247,6 +247,7 @@ def validate_motion_evidence(motion, layer):
 
 
 def load_layer_bundle(
+    interaction_request_path,
     interaction_layer_path,
     interaction_motion_path,
     physics_transition_path,
@@ -255,6 +256,8 @@ def load_layer_bundle(
 ):
     """Load one cache-bound M6 interaction/physics/hero attachment bundle."""
     physics = _physics_module()
+    with Path(interaction_request_path).open(encoding="utf-8") as handle:
+        request = json.load(handle)
     layer = load_layer(interaction_layer_path, expected_base_hash)
     with Path(interaction_motion_path).open(encoding="utf-8") as handle:
         motion = validate_motion_evidence(json.load(handle), layer)
@@ -288,6 +291,7 @@ def load_layer_bundle(
             "execution_status": "declaration_only_unsupported",
             "attachment_status": "not_attached",
         },
+        "interaction_request": request,
         "interaction_layer": layer,
         "interaction_motion": motion,
         "physics_transition": transition,
