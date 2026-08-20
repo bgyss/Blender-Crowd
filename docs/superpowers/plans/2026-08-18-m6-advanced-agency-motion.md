@@ -26,6 +26,52 @@ model-independent R0 boundary and automated Blender debugger proof.
 
 ---
 
+## Checkbox reconciliation — 2026-08-20
+
+Every step box in this plan is checked. The boxes were reconciled in one pass
+against commits `d002e9b`..`105d915` on `codex/implement-milestone-m6`, because
+execution ran ahead of the bookkeeping and many completed steps were never
+ticked.
+
+**Basis, and its limit.** Each task was confirmed by locating its declared
+deliverables in the tree and identifying the commit that introduced them —
+schemas, fixtures, crates, addon modules, runners, tests, and dated reports —
+and by the passing `M6_RUN_BLENDER=1 scripts/m6-acceptance.sh` run recorded in
+[`../../benchmarks/2026-08-20-m6-acceptance.md`](../../benchmarks/2026-08-20-m6-acceptance.md).
+That is direct evidence for the *write*, *implement*, *run*, *record*, and
+*commit* steps.
+
+It is **not** direct evidence for the test-first steps of the form "run the
+tests and verify they fail before the implementation exists" (Task 9 Step 2,
+Task 11 Step 2, Task 12 Step 2, Task 13 Step 2). A red test state leaves no
+durable artifact in the tree, so those four boxes are marked from their task's
+completed deliverables rather than from observed evidence. Read them as
+"the task shipped", not as "the red state was witnessed during reconciliation".
+
+**Deviations found, all benign:**
+
+- Task 1 shipped the trajectory fixture as `assets/reference/m6/trajectory-v1.json`,
+  not the planned `assets/reference/m6/trajectory-database-v1.json`. The schema
+  `schemas/trajectory-v1.schema.json` and the consuming tests match the shipped
+  name.
+- Task 9 Step 1's runner contract test was not written as a separate Task 9
+  file. Its assertions live in `tests/test_m6_acceptance_fix_round.py`
+  (commit `871b5e1`, Task 14): required runners and evidence files must exist
+  and be referenced by the report, every criterion must carry an adjudicated
+  status, the report's expected gate matrix must agree with the freshly
+  executed gates, and the public runner cannot bypass a failed gate.
+- Task 9 Steps 5–6 and Task 14 Steps 5–6 both cover the requirement-level
+  audit; it was performed once, in commits `dc4aaa3` and `871b5e1`, and revised
+  by `105d915` when criterion 5 moved to M9.
+- The dated acceptance report shipped as
+  `docs/benchmarks/2026-08-20-m6-acceptance.md`. The `2026-08-18` name in the
+  original file lists was never used; a `2026-08-19` revision exists and is
+  retained as the superseded record.
+
+**Outcome.** M6 closed on 2026-08-20 with criteria 1–4 and 6–10 PASS and
+criterion 5 `DEFERRED TO M9`. See
+[`../../benchmarks/2026-08-20-m6-criterion-5-deferral.md`](../../benchmarks/2026-08-20-m6-criterion-5-deferral.md).
+
 ### Task 1: Add the M6 contract package and golden fixtures
 
 **Files:**
@@ -79,7 +125,7 @@ Run: `cargo test -p crowd-core --test m6_schema_fixtures`
 
 Expected: PASS with all fixtures accepted and the mutated unknown-field fixture rejected.
 
-- [ ] **Step 5: Commit the contract package.**
+- [x] **Step 5: Commit the contract package.**
 
 ```bash
 git add schemas assets/reference/m6 crates/crowd-core/tests/m6_schema_fixtures.rs
@@ -139,7 +185,7 @@ Run: `cargo test -p crowd-core --test m6_interaction --test m6_interaction_inval
 
 Expected: PASS with no warnings or ignored tests.
 
-- [ ] **Step 5: Commit the core R0 interaction implementation.**
+- [x] **Step 5: Commit the core R0 interaction implementation.**
 
 ```bash
 git add crates/crowd-core/src crates/crowd-core/tests/m6_interaction*.rs
@@ -191,7 +237,7 @@ Run: `python3 -m unittest -q tests/test_m6_interaction_layers.py tests/test_m4_l
 
 Expected: PASS; existing M4 behavior remains unchanged.
 
-- [ ] **Step 5: Commit the layer composition slice.**
+- [x] **Step 5: Commit the layer composition slice.**
 
 ```bash
 git add schemas addon/blender_crowd crates/crowd-cache tests/test_m6_interaction_layers.py
@@ -344,12 +390,12 @@ git commit -m "Compose removable M6 interaction animation layers"
 - Modify: `docs/milestones/README.md`
 - Modify: `docs/ui-ux-roadmap.md`
 
-- [ ] **Step 1: Write runner contract tests that assert every command is checked in and each report criterion has an evidence status.**
-- [ ] **Step 2: Run the runner test and verify it fails before the runners/report exist.**
+- [x] **Step 1: Write runner contract tests that assert every command is checked in and each report criterion has an evidence status.**
+- [x] **Step 2: Run the runner test and verify it fails before the runners/report exist.**
 - [x] **Step 3: Add copy-ready foundation and acceptance runners with separated local, Blender, performance, and licensed-data lanes plus an explicit M9 deferral.**
 - [x] **Step 4: Run the foundation runner, full release workspace tests, clippy, formatting, Python tests, and available Blender runner.**
-- [ ] **Step 5: Perform a requirement-by-requirement audit against all M6 contract items and write only evidence-backed statuses.**
-- [ ] **Step 6: Mark the goal complete only if every deterministic M6 acceptance criterion and automated Blender gate has authoritative evidence; otherwise leave the goal active and list the exact remaining M6 gates. M9 gates never block M6.**
+- [x] **Step 5: Perform a requirement-by-requirement audit against all M6 contract items and write only evidence-backed statuses.**
+- [x] **Step 6: Mark the goal complete only if every deterministic M6 acceptance criterion and automated Blender gate has authoritative evidence; otherwise leave the goal active and list the exact remaining M6 gates. M9 gates never block M6.**
 
 ### Task 10: Complete automated debugger navigation and reusable graph authoring
 
@@ -495,7 +541,7 @@ git commit -m "Complete M6 debugger navigation and graph presets"
   limits, and source-frame provenance; and emits the existing version-1 motion
   database input shape.
 
-- [ ] **Step 1: Write failing parser, downloader-boundary, and metric tests from
+- [x] **Step 1: Write failing parser, downloader-boundary, and metric tests from
   hand-checked mini ASF/AMC fixtures.**
 
 ```python
@@ -509,13 +555,13 @@ def test_fetch_rejects_a_hash_mismatch_before_publish():
         m6_fetch_cmu_motion.verify_download(b"wrong", "0" * 64)
 ```
 
-- [ ] **Step 2: Run tests and verify the importer/fetcher are absent.**
+- [x] **Step 2: Run tests and verify the importer/fetcher are absent.**
 
 Run: `python3 -m unittest -q tests/test_m6_cmu_motion.py`
 
 Expected: FAIL with import errors for both scripts.
 
-- [ ] **Step 3: Implement strict parsing, fixed-source fetching, provenance,
+- [x] **Step 3: Implement strict parsing, fixed-source fetching, provenance,
   retarget metadata, contact inference, and deterministic reports.**
 
 Foot contact is declared only when foot height is at most 45 mm above its local
@@ -524,7 +570,7 @@ support minimum and horizontal foot speed is at most 120 mm/s for at least two
 contacts, turn discontinuity, joint-limit violations, retarget failures, source
 hashes, and rejected frames. Do not silently smooth or repair source data.
 
-- [ ] **Step 4: Fetch the five fixed files into a temporary artifact directory,
+- [x] **Step 4: Fetch the five fixed files into a temporary artifact directory,
   ingest all three trials, and write dated derived reports only.**
 
 Run:
@@ -540,7 +586,7 @@ Expected: three clips (`35_01_walk`, `35_24_run`, `36_01_uneven_walk`), exact
 source hashes, nonzero samples, declared contacts, and no raw/converted source
 file added to Git.
 
-- [ ] **Step 5: Set and adjudicate checked M6 thresholds from the derived report.**
+- [x] **Step 5: Set and adjudicate checked M6 thresholds from the derived report.**
 
 Create the threshold file only after the baseline report exists. It must retain
 hard zero limits for root teleportation, undeclared contact, source-hash drift,
@@ -572,7 +618,7 @@ Use these exact deterministic definitions:
   smoothing/repair, and a clip fails ingestion when fewer than two retained
   30 Hz samples remain.
 
-- [ ] **Step 6: Run focused and existing motion tests, then commit code,
+- [x] **Step 6: Run focused and existing motion tests, then commit code,
   manifests, policy, tests, thresholds, and derived reports only.**
 
 Run: `python3 -m unittest -q tests/test_m6_cmu_motion.py tests/test_m6_motion_database.py tests/test_m6_motion_evaluation.py && cargo test -p crowd-core --test m6_motion_matching --test m6_motion_feedback --test m6_provenance`
@@ -597,7 +643,7 @@ Run: `python3 -m unittest -q tests/test_m6_cmu_motion.py tests/test_m6_motion_da
   scene-specific metrics, fallback count, unrelated-agent mutation count, and
   pass/fail reasons. A schema-valid report with a failed criterion exits 1.
 
-- [ ] **Step 1: Write failing binary tests for each scene and one combined
+- [x] **Step 1: Write failing binary tests for each scene and one combined
   deterministic report.**
 
 ```rust
@@ -611,15 +657,15 @@ fn integrated_scenes_are_repeatable_and_preserve_unrelated_agents() {
 }
 ```
 
-- [ ] **Step 2: Run `cargo test -p crowd-bench --test m6_acceptance_scenes` and
+- [x] **Step 2: Run `cargo test -p crowd-bench --test m6_acceptance_scenes` and
   verify the fixture/binary are absent.**
-- [ ] **Step 3: Implement the smallest integrated runner by composing the
+- [x] **Step 3: Implement the smallest integrated runner by composing the
   existing M6 runtimes; do not duplicate their decision logic in the binary.**
-- [ ] **Step 4: Run the runner twice and require identical hashes and metrics.**
+- [x] **Step 4: Run the runner twice and require identical hashes and metrics.**
 
 Run: `scripts/m6-reference-scenes-test.sh`
 
-- [ ] **Step 5: Check in the fixture, schema, runner, tests, and dated report;
+- [x] **Step 5: Check in the fixture, schema, runner, tests, and dated report;
   keep generated caches outside Git.**
 
 ### Task 13: Prove Blender physics/hero layers and mixed-tier performance
@@ -651,12 +697,12 @@ Run: `scripts/m6-reference-scenes-test.sh`
   accounting. Debug evidence is full for S0, reduced for S1, aggregate-only for
   S2, and never inferred when absent.
 
-- [ ] **Step 1: Write failing Blender layer and Rust mixed-tier tests.**
-- [ ] **Step 2: Run focused tests and verify layer UI/runtime and mixed-tier
+- [x] **Step 1: Write failing Blender layer and Rust mixed-tier tests.**
+- [x] **Step 2: Run focused tests and verify layer UI/runtime and mixed-tier
   report are absent.**
-- [ ] **Step 3: Implement coarse Blender layer attachment/inspection and the
+- [x] **Step 3: Implement coarse Blender layer attachment/inspection and the
   backend-neutral mixed-tier benchmark without per-agent Python loops.**
-- [ ] **Step 4: Run host Blender with normal Metal access and the optimized
+- [x] **Step 4: Run host Blender with normal Metal access and the optimized
   mixed-tier gate.**
 
 Run:
@@ -666,7 +712,7 @@ scripts/m6-blender-test.sh
 scripts/m6-performance-test.sh
 ```
 
-- [ ] **Step 5: Record environment, separate phase timings, memory/cache size,
+- [x] **Step 5: Record environment, separate phase timings, memory/cache size,
   tier counts, unsupported solver claims, and exact evidence paths; commit.**
 
 ### Task 14: Add external examples and close the requirement-level audit
