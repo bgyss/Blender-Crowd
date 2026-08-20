@@ -125,8 +125,10 @@ no extra I/O.
 
 ## Claims this clip does and does not support
 
-The clip shows 8,300-12,300 agents of 100,000, under 1% of the scene area. It
-must not be captioned as an image of the population; that claim belongs to
+The clip shows 8,300-12,300 agents of 100,000 at a time -- 8.3%-12.3% of the
+population, and about 2% of the scene's ground area (the 250 m window is ~223 m
+deep once the camera tilt is accounted for). It must not be captioned as an
+image of the population; that claim belongs to
 `docs/media/m5-100k-hero.png`, which is a measured positional plot asserted at
 above 95% occupancy. The script header should say so, matching the existing
 qualifiers in `make-m5-100k-recording.sh` about the run being truncated and the

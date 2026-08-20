@@ -21,6 +21,31 @@
 
 ---
 
+## Corrections after execution
+
+This plan is kept as the record of what was executed, so its task text is left
+as it was written. Two numbers in it are wrong and were corrected in the code
+and the design spec by commit `e3b38ca`. Do not quote them from here:
+
+- **The whole-scene camera distance is ~3046 units, not ~2076.** The 2076
+  figure came from a single-tick debugging probe where the occupied extent was
+  1637 m; the renderer uses the full-scan extent of 2401.6 m, which gives
+  `hypot(2401.6*0.8*1.23, 2401.6*0.8) = 3045.6`. It appears wrong in the Global
+  Constraints, in Task 1's test code and module docstring, and in Task 1's
+  commit message. The conclusion is unaffected -- Blender's default `clip_end`
+  of 1000 clips the scene at either distance.
+- **The clip shows 8.3%-12.3% of the population and ~2% of the scene's ground
+  area, not "under 1%".** The "under 1%" phrasing dates from an early estimate
+  that the 250 m window would hold only a few hundred agents; the agent count
+  was corrected to 8,300-12,300 but the percentage was not. It appears wrong in
+  the Global Constraints and in Task 6's script text and commit message.
+
+Both were found by the whole-branch review, not by any single task's review --
+each task's text was internally consistent, which is exactly why a
+task-scoped gate could not catch either one.
+
+---
+
 ### Task 1: Extract clip-plane derivation and cover it with a test
 
 The grey-frame defect is already fixed inline in `build_camera`, but untested. Move it into the new module so it has a test, and establish the module + test file the later tasks build on.
