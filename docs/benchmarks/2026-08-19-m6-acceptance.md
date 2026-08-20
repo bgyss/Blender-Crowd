@@ -54,6 +54,21 @@ Pinned BLAKE3 identities used by the scene authority are:
 - combined six-scene replay:
   `7a1e140ea825a65676e962f688cd7312736892e4d61d2c14192641d85a88c4db`.
 
+The criterion adjudication consumes these durable evidence files directly:
+
+- `docs/benchmarks/2026-08-18-m6-foundation.md`;
+- `docs/benchmarks/2026-08-18-m6-cmu-motion.md`;
+- `docs/benchmarks/2026-08-18-m6-reference-scenes.md`;
+- `docs/benchmarks/2026-08-18-m6-blender-layers.md`;
+- `docs/benchmarks/2026-08-18-m6-mixed-tier.md`;
+- `examples/m6-extension-rust.rs`;
+- `examples/m6_extension_python.py`;
+- `scripts/m6-foundation-test.sh`;
+- `scripts/m6-reference-scenes-test.sh`;
+- `scripts/m6-blender-test.sh`;
+- `scripts/m6-performance-test.sh`; and
+- `scripts/m6-extension-examples-test.sh`.
+
 ## Criterion-by-criterion adjudication
 
 PASS below means the exact deterministic M6 criterion has direct evidence at
@@ -71,7 +86,7 @@ claim.
 | 6 | Motion feedback reports and constrains infeasible motion without teleporting or hiding collisions | Integrated terrain and motion-feedback execution measures root/foot/contact evidence, reports infeasibility, records zero runtime fallbacks and hard-safety failures, and causally changes under desired-velocity/contact mutations. | PASS |
 | 7 | Interaction and recovery layers preserve unrelated agents, base caches, and lower tiers | Paired, recovery, café, and mixed-tier scenes measure zero base/unrelated mutations. Host Blender attach, failed replacement, mute, unmute, remove, and reload preserve the independent M4 stack and exact base-cache identity. | PASS |
 | 8 | Hero integrations declare solver, ownership, cache, failure, and support boundaries | The host proof exposes deterministic cached-physics ownership and lifecycle. Hero cloth is explicitly `declaration-only unsupported` and `not attached`; no hidden dependency or broad visual claim is made. | PASS |
-| 9 | Every claimed external API language passes deterministic channel, budget, version, and isolation cases | Executable Rust and Python examples declare schema/channel versions, inputs/outputs, a fixed cost budget, deterministic mode, and failure isolation; each runs an accepted call, over-budget fallback, undeclared-input rejection, and version-mismatch rejection. No C or C++ API is claimed. | PASS |
+| 9 | Every claimed external API language passes deterministic channel, budget, version, and isolation cases | The claimed-language gate executes native Rust contract tests, Python operation-failure isolation tests, and both examples twice. Rust and Python emit byte-identical output with replay SHA-256 `7132ecd92ab0feb0efc7592fdb144fd625727769b5abecad8d869726d73f83fc`; accepted and over-budget calls carry real output/fallback payloads, while undeclared-input and version-mismatch calls carry null output. A foundation or claimed-language contract failure makes this criterion non-PASS. No C or C++ API is claimed. | PASS |
 | 10 | Deterministic R0 request/response, validation, fallback, layer lifecycle, isolation, and worker-absent replay pass | Foundation, integrated paired-handoff, cache-layer, worker, and host Blender lanes cover request/response validation, source fallback, sparse composition, reload/removal, cross-cache rejection, unrelated-agent isolation, and playback from retained artifacts without a live worker. | PASS |
 
 ## Known failures and rejected inputs
@@ -83,14 +98,14 @@ claim.
   deterministic baseline consumed by the integrated scenes and fixed mixed-tier
   lane. It does not promote the rejected CMU candidate or establish a broad
   production motion corpus.
-- A fresh unmodified `scripts/m6-acceptance.sh` run was intentionally not made
-  during Task 14 because it includes the already completed
-  `cargo test --workspace --release` density-fuzz suite. The prior full release
-  result is retained below as recorded evidence, and focused Task 14 checks
-  exercise the runner's fail-closed status logic without repeating that lane.
-- No Task 14 artifact or test gap remains after the focused verification listed
-  below. The remaining OPEN item is the milestone's motion-source criterion,
-  not an omitted Task 14 deliverable.
+- The active CMU candidate is not hardcoded as the only future state. The motion
+  gate verifies report/manifest/retarget identities, source-hash relationships,
+  hard and soft threshold evidence, and the accepted CC0 fixture provenance.
+  A well-formed future production candidate that meets every unchanged measured
+  limit will return PASS; malformed or inconsistent evidence returns FAILED.
+- Focused Fix Round 1 verification still leaves criterion 5 OPEN. The remaining
+  item is the milestone's production-motion criterion, not an omitted Task 14
+  deliverable.
 
 ## Unsupported claims
 
@@ -116,8 +131,10 @@ converted into M6 failures, and do not close criterion 5.
 
 ## Verification
 
-Long-running results supplied by the preceding worker are retained as recorded
-evidence and were not repeated during Task 14:
+The long-running results below are retained from the base Task 14 verification
+record. They were not repeated during Fix Round 1; in particular,
+`cargo test --workspace --release` was not rerun. Exact focused Fix Round 1
+results are recorded in the Task 14 report.
 
 | Command | Result | Evidence boundary |
 | --- | --- | --- |
@@ -128,8 +145,25 @@ evidence and were not repeated during Task 14:
 | `scripts/m6-performance-test.sh` | PASS (recorded) | Fixed 10K mixed-tier lane exceeded 10 ticks/s twice with identical replay identity |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (recorded) | Warning-clean workspace |
 | `cargo fmt --all -- --check` | PASS (recorded) | Rust formatting clean |
+| Full repository Python suite | PASS (recorded) | Base Task 14 Python checks |
 
-Focused Task 14 commands validate the new examples, report structure, audit
-status semantics, Python syntax, Markdown hygiene, and complete diff without
-rerunning the release density fuzz. Their exact final results are recorded in
-the Task 14 report.
+The full public runner was not executed during Fix Round 1 because it includes
+the already completed release workspace and density-fuzz lane. In a future
+public run, every status is collected from commands executed by that process,
+then compared with the checked-in expected matrix below. This matrix is a
+validation contract, not a claim that every lane was rerun during this fix
+round. Any disagreement fails the acceptance-report gate.
+
+| Gate | Result |
+| --- | --- |
+| `foundation` | PASS (expected current run) |
+| `debugger_library` | PASS (expected current run) |
+| `motion_source` | OPEN (expected current run) |
+| `reference_scenes` | PASS (expected current run) |
+| `blender` | PASS (expected current run) |
+| `mixed_tier` | PASS (expected current run) |
+| `extension_examples` | PASS (expected current run) |
+| `release_workspace` | PASS (expected current run) |
+| `clippy` | PASS (expected current run) |
+| `format` | PASS (expected current run) |
+| `python` | PASS (expected current run) |

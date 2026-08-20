@@ -88,9 +88,11 @@ M6 automated verification passes when checked Blender tests cover every UI goal
 above: current-source loading, trace inspection, graph/path search and
 highlighting, bidirectional navigation without copied IDs, reusable
 subgraphs/actions and presets, typed/compile diagnostics, motion/contact/physics
-ownership, corrections, and full versus reduced evidence. The current smoke
-proves only the implemented trace/search subset. Independent-user authoring and
-repair verification is an M9 gate and is not required to accept M6.
+ownership, corrections, and full versus reduced evidence. The current host
+Blender runner now covers that automated list through its debugger and layer
+processes, including native graph compilation and correction/lifecycle failure
+paths. This is checked-fixture automation, not independent-user evidence;
+independent-user authoring and repair verification remains an M9 gate.
 
 ## Explicit exclusions
 

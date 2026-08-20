@@ -199,7 +199,8 @@ cargo run --release -p crowd-bench -- cache-experiment --agents 10000 --cache-fr
 scripts/m5-100k-gate.sh                               # every M5 100K stage in one command; multi-hour, run it under tmux
 scripts/m6-foundation-test.sh                         # M6 deterministic contracts, R0 worker/layer, agency, motion, physics, and debugger foundation
 scripts/m6-blender-test.sh                            # M6 Blender-process trace debugger and graph-search smoke (requires Blender 5.2 LTS)
-scripts/m6-acceptance.sh                              # M6 deterministic audit; exits 2 while the production-motion gate remains open
+scripts/m6-extension-examples-test.sh                 # claimed Rust/Python extension contracts, determinism, and failure isolation
+M6_RUN_BLENDER=1 scripts/m6-acceptance.sh             # complete M6 audit; currently exits 2 because production motion remains OPEN
 # Full 10K/100K procedure: docs/runbooks/m5-scale-gates.md
 # Accepted 10K gate report:  docs/benchmarks/2026-08-14-m5-10k.md
 # Accepted 100K gate report: docs/benchmarks/2026-08-18-m5-100k.md

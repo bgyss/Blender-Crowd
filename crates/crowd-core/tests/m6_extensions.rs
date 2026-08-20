@@ -43,3 +43,17 @@ fn extension_manifest_rejects_non_deterministic_or_non_isolated_channels() {
     assert!(errors.iter().any(|error| error.contains("deterministic")));
     assert!(errors.iter().any(|error| error.contains("isolated")));
 }
+
+#[test]
+fn extension_call_decisions_are_repeatable_and_rejections_do_not_mutate_the_manifest() {
+    let manifest = manifest();
+    let before = manifest.clone();
+    let first_accepted = manifest.validate_call("look_at", &["attention_target"], 50_000);
+    let second_accepted = manifest.validate_call("look_at", &["attention_target"], 50_000);
+    let first_rejected = manifest.validate_call("look_at", &["private_state"], 50_000);
+    let second_rejected = manifest.validate_call("look_at", &["private_state"], 50_000);
+
+    assert_eq!(first_accepted, second_accepted);
+    assert_eq!(first_rejected, second_rejected);
+    assert_eq!(manifest, before);
+}

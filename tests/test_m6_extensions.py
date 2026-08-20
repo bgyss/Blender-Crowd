@@ -47,17 +47,33 @@ class M6ExtensionsTest(unittest.TestCase):
             m6_extensions.validate_manifest(invalid)
 
     def test_failure_isolation_converts_extension_exceptions_to_fallback_result(self):
-        result = m6_extensions.run_isolated(
-            manifest(),
+        declared = manifest()
+        before = repr(declared)
+
+        def fail():
+            raise RuntimeError("worker failed")
+
+        first = m6_extensions.run_isolated(
+            declared,
             "look_at",
             ["attention_target"],
             50000,
-            lambda: (_ for _ in ()).throw(RuntimeError("worker failed")),
+            fail,
             fallback={"gaze_offset": [0.0, 0.0, 0.0]},
         )
-        self.assertEqual(result["status"], "fallback")
-        self.assertEqual(result["reason"], "worker failed")
-        self.assertEqual(result["value"], {"gaze_offset": [0.0, 0.0, 0.0]})
+        second = m6_extensions.run_isolated(
+            declared,
+            "look_at",
+            ["attention_target"],
+            50000,
+            fail,
+            fallback={"gaze_offset": [0.0, 0.0, 0.0]},
+        )
+        self.assertEqual(first, second)
+        self.assertEqual(first["status"], "fallback")
+        self.assertEqual(first["reason"], "worker failed")
+        self.assertEqual(first["value"], {"gaze_offset": [0.0, 0.0, 0.0]})
+        self.assertEqual(repr(declared), before)
 
 
 if __name__ == "__main__":

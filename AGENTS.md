@@ -2,13 +2,18 @@
 
 See [CLAUDE.md](CLAUDE.md) for repository guidelines.
 
-M6 checks: `scripts/m6-foundation-test.sh`; full audit: `scripts/m6-acceptance.sh`.
+M6 checks: `scripts/m6-foundation-test.sh` and
+`scripts/m6-extension-examples-test.sh`; full host audit:
+`M6_RUN_BLENDER=1 scripts/m6-acceptance.sh`.
 M6 remains unaccepted while criterion 5 is open: the CMU candidate is rejected
 at 3,587 joint-limit violations against the hard limit of zero, and the CC0
 authored motion is a checked fixture baseline only. `M6_ALLOW_OPEN=1`
 acknowledges an open audit; it does not promote the milestone. Preserve the
 unsupported-claim and M9 boundaries in
 `docs/benchmarks/2026-08-19-m6-acceptance.md`.
+The production-motion result is evidence-driven: a valid future candidate may
+PASS unchanged thresholds, the current rejected candidate is OPEN, and
+malformed or inconsistent evidence is FAILED.
 
 ## Blender automation on macOS
 

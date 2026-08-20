@@ -1,6 +1,6 @@
 # Task 14 — External examples and requirement-level audit
 
-Status: COMPLETE — TASK 14 VERIFIED; M6 REMAINS OPEN
+Status: COMPLETE — FIX ROUND 1 VERIFIED; M6 REMAINS OPEN
 
 Commit: included in the Task 14 commit identified in the final handoff. This
 report is part of that commit, so it does not embed a self-referential Git hash.
@@ -47,8 +47,9 @@ independent-user verification remain informational M9 deferrals.
   criteria and the overall audit result.
 - Preserved the CMU hard-gate failure as an OPEN milestone criterion while
   separately recording the accepted CC0 authored fixture baseline.
-- Added test-only gate simulation to prove exit and status behavior without
-  replaying long component lanes.
+- Added a separate test-only status harness to prove exit and status behavior
+  without replaying long component lanes; the public runner has no simulation
+  branch.
 - Added a machine-neutral report validator and motion-source ruling checker in
   `scripts/m6_acceptance_checks.py`.
 - Extended the foundation runner to compile and execute both examples and their
@@ -108,9 +109,9 @@ AttributeError: module 'm6_acceptance_checks' has no attribute 'check_acceptance
 
 ### GREEN 2 — report status and proof boundaries are executable
 
-The checker now requires the dated report structure, exactly nine PASS rows and
-criterion 5 OPEN, the CMU/CC0 distinction, every unsupported-claim phrase, M9
-deferrals, and no contributor-local path.
+The checker now requires the dated report structure, derives all criterion rows
+from the executed gate manifest, preserves the CMU/CC0 distinction, checks every
+unsupported-claim phrase and M9 deferral, and rejects contributor-local paths.
 
 Final focused example/audit result:
 
@@ -237,3 +238,214 @@ passing unit-test command when the function is evaluated in a shell conditional.
 - Current performance evidence is a fixed CPU fixture, not GPU, arbitrary-scene,
   long-duration, viewport/render, or Cache v1 streaming evidence.
 - Neural R1–R4 and independent-user evidence remain deferred to M9.
+
+## Fix Round 1 — evidence-driven and fail-closed audit
+
+Status: implementation and focused verification complete. This section
+supersedes the original Task 14 report wherever motion-state derivation, test
+simulation, criterion 9 dependencies, report validation, or verification
+provenance differ.
+
+No subagent or reviewer was dispatched.
+
+### Root causes and changes
+
+1. `run_open_gate` converted every valid motion ruling into OPEN, while
+   `check_motion_source` hardcoded `3587/0`. The checker now validates the
+   active report, source manifest, retarget profile, per-file SHA-256 set,
+   threshold/report relationships, reconciled clip totals, hard evidence, soft
+   evidence, and CC0 fixture provenance. It returns PASS when a well-formed
+   future candidate meets all unchanged measured limits, OPEN when valid
+   evidence exceeds a limit, and raises to produce FAILED when evidence is
+   malformed or inconsistent. The hard/soft limits, evidence-status contract,
+   zero-headroom policy, and anti-loosening rule are pinned, so changing a
+   candidate baseline cannot silently relax acceptance. The current CMU result
+   remains OPEN/rejected.
+2. The public runner's `M6_ACCEPTANCE_TEST_MODE` branch bypassed every command.
+   It is removed. A pure status module is shared by the public runner and the
+   separate `tests/m6_acceptance_status_harness.py`; only the public runner
+   supplies statuses gathered from executed commands. `M6_ALLOW_OPEN=1`
+   acknowledges OPEN and never FAILED.
+3. Criterion 9 now depends on both foundation and the claimed-language gate.
+   `scripts/m6-extension-examples-test.sh` executes native Rust contract tests,
+   Python operation-failure isolation tests, and repeated Rust/Python examples.
+   Example tests compare two executions, real accepted/fallback payloads, null
+   rejected outputs, cross-language byte equality, and replay SHA-256
+   `7132ecd92ab0feb0efc7592fdb144fd625727769b5abecad8d869726d73f83fc`.
+4. The report checker recomputes all six SHA-256 rows from current bytes,
+   requires the component reports/runners/examples to exist and be referenced,
+   requires the report argument to resolve to the canonical checked-in path,
+   and derives criterion rows from statuses supplied by the executing public
+   runner. It compares those statuses with an explicitly labeled expected-run
+   matrix; that static matrix is not presented as proof that the lanes ran in
+   this fix round. Path checks now cover Unix/macOS volumes, home aliases,
+   Windows user profiles, environment-home forms, and application paths. The
+   exact contract-listed Blender executable is allowed only in a matching
+   `BLENDER=... scripts/m6-blender-test.sh` command.
+5. The public runner now executes foundation, debugger/library, active motion
+   evidence, scenes, optional host Blender, mixed-tier, claimed-language,
+   release workspace, clippy, format, full Python, and report gates before
+   adjudication. The report check consumes the same run's gate manifest.
+
+The milestone contract's stale trace/search-only sentence was replaced with
+the current host evidence boundary: automated debugger and layer tests cover
+the complete listed M6 UI automation, while independent-user evidence remains
+M9.
+
+### RED evidence
+
+The first combined regression run was:
+
+```text
+python3 -m unittest -v tests/test_m6_acceptance_fix_round.py tests.test_m6_extension_examples.M6ExtensionExampleTests
+Ran 15 tests in 1.291s
+FAILED (failures=4, errors=14)
+```
+
+The failures reproduced all review findings:
+
+- a future `0 <= 0` candidate raised `CMU source ruling changed` instead of
+  PASS;
+- removing one source hash did not raise;
+- the status harness failed because no separate status module existed;
+- `M6_ACCEPTANCE_TEST_MODE=1` made a copied public runner return 0 even though
+  its real foundation command exited 41;
+- the report checker rejected the new call shape because it accepted no
+  repository root or fresh statuses; and
+- current motion results had no evidence-derived `gate_status`.
+
+After the evidence function existed, a dedicated CLI regression exposed the
+remaining hardcoded prose:
+
+```text
+python3 -m unittest -v tests.test_m6_acceptance_fix_round.MotionSourceStatusTests.test_future_candidate_that_meets_unchanged_hard_limits_can_pass
+AssertionError: 'candidate accepted' not found in
+'CMU source candidate remains rejected: 0 joint-limit violations > hard limit 0'
+```
+
+The first report-checker GREEN attempt also exposed a real regex defect:
+
+```text
+re.PatternError: global flags not at the start of the expression at position 67
+```
+
+The multiline flag was moved to the compile call, and the isolated report test
+fixture was completed with the missing CMU Markdown evidence file.
+
+### Focused GREEN evidence
+
+Motion PASS/OPEN/FAILED derivation:
+
+```text
+python3 -m unittest -v tests.test_m6_acceptance_fix_round.MotionSourceStatusTests
+Ran 3 tests in 0.012s
+OK
+```
+
+Report hashes, evidence references, status freshness, and private paths:
+
+```text
+python3 -m unittest -v tests.test_m6_acceptance_fix_round.AcceptanceReportCheckerTests
+Ran 5 tests in 0.106s
+OK
+```
+
+Combined status, report, examples, Python isolation, and Rust isolation:
+
+```text
+python3 -m unittest -v tests/test_m6_acceptance_fix_round.py tests/test_m6_extension_examples.py tests/test_m6_extensions.py
+Ran 18 tests in 2.162s
+OK
+
+cargo test -p crowd-core --test m6_extensions
+running 3 tests
+test result: ok. 3 passed; 0 failed
+
+scripts/m6-extension-examples-test.sh
+running 3 tests
+test result: ok. 3 passed; 0 failed
+Ran 6 tests in 0.639s
+OK
+```
+
+The copied public-runner regression uses an actual foundation stub that exits
+41 while every unrelated stub succeeds. It sets the former bypass environment
+and `M6_ALLOW_OPEN=1`; the public runner still reports FAILED and exits 2.
+
+### Final Fix Round 1 verification
+
+The required focused acceptance regressions passed at the final Fix Round 1
+source state:
+
+```text
+python3 -m unittest -v tests/test_m6_acceptance_fix_round.py
+Ran 15 tests in 1.261s
+OK
+
+python3 -m unittest -v tests/test_m6_extension_examples.py
+Ran 3 tests in 0.652s
+OK
+
+python3 -m unittest -v tests/test_m6_extensions.py
+Ran 3 tests in 0.000s
+OK
+```
+
+The native and claimed-language extension gates passed:
+
+```text
+cargo test -p crowd-core --test m6_extensions
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+scripts/m6-extension-examples-test.sh
+Rust: 3 passed; 0 failed
+Python: Ran 6 tests in 0.628s; OK
+```
+
+Syntax, formatting, source, report, and runner-surface checks all exited zero:
+
+```text
+bash -n scripts/m6-acceptance.sh scripts/m6-foundation-test.sh
+sh -n scripts/m6-extension-examples-test.sh
+python3 -m py_compile scripts/m6_acceptance_checks.py scripts/m6_acceptance_status.py tests/m6_acceptance_status_harness.py tests/test_m6_acceptance_fix_round.py tests/test_m6_extension_examples.py tests/test_m6_extensions.py examples/m6_extension_python.py
+cargo fmt --all -- --check
+scripts/m6-acceptance.sh --list
+```
+
+Exact evidence rulings were:
+
+```text
+Motion source candidate rejected: cmu-mocap-subjects-35-36-m6-v1 (joint_limit_violations observed 3587 > limit 0)
+Accepted motion baseline: checked CC0-1.0 authored data
+
+M6 acceptance report structure: PASS; milestone status: OPEN
+```
+
+The separate status harness returned the expected process results:
+
+- a future evidence-derived PASS motion status: exit 0, criterion 5 PASS,
+  overall PASS, and no remaining M6 gate;
+- current OPEN motion without acknowledgment: exit 2, criterion 5 OPEN;
+- current OPEN motion with `--allow-open`: exit 0, audit status still OPEN; and
+- failed extension gate with `--allow-open`: exit 2, criterion 9 FAILED.
+
+The copied-public-runner regression also set the removed
+`M6_ACCEPTANCE_TEST_MODE=1` environment variable while its real foundation stub
+exited 41. The public runner executed that stub, reported the foundation and
+overall audit FAILED, and exited 2 despite `M6_ALLOW_OPEN=1`.
+
+The scoped path-privacy scan found no private path in the Task 14 or M6
+acceptance reports. Its only hits were existing intentional platform interfaces
+in `CLAUDE.md`/`README.md` and an unrelated pre-existing M5 artifact example.
+
+Per the recovery instruction, `cargo test --workspace --release` was not run
+again. The base Task 14 PASS record, including the 498.29-second release
+density-fuzz lane, remains recorded evidence rather than being relabeled as a
+fresh Fix Round 1 result. The full `M6_RUN_BLENDER=1 scripts/m6-acceptance.sh`
+runner was likewise not invoked because it includes that release suite. Its
+real command execution and fail-closed environment behavior are covered by the
+focused copied-runner regression and separate status harness.
+
+Criterion 5 remains OPEN. Task 14 Fix Round 1 is verified, but M6 is not
+accepted; R1–R4 neural work and independent-user verification remain
+informational M9 deferrals.
