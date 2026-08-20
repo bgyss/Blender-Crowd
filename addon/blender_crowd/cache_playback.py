@@ -257,6 +257,10 @@ class CachePlayback:
     def inspect_layout(self, tick=None):
         return dict(self._cache.inspect_layout(int(self._current_tick if tick is None else tick)))
 
+    def inspect_native_layout_layers(self):
+        """Return the exact combined native M4/M6 stack without composing it."""
+        return json.loads(self._cache.inspect_layout_layers_json())
+
     def flatten_layout(self, tick, path):
         self._cache.flatten_layout(int(tick), str(path))
 

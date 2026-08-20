@@ -67,3 +67,43 @@ fn motion_rejects_a_missing_required_contact() {
         .iter()
         .any(|error| error.code == InteractionIssueCode::RequiredContactMissing));
 }
+
+#[test]
+fn motion_yaw_uses_wrapped_radians_and_rejects_authored_deviation() {
+    let request = fixture_request();
+    let mut equivalent_wrap = fixture_motion();
+    for participant in &mut equivalent_wrap.participants {
+        for sample in &mut participant.root_samples {
+            sample.yaw += std::f32::consts::TAU;
+        }
+    }
+    equivalent_wrap
+        .validate_against(&request)
+        .expect("a full-turn yaw wrap must preserve authored orientation");
+
+    for participant in &mut equivalent_wrap.participants {
+        for sample in &mut participant.root_samples {
+            sample.yaw += 1.0;
+        }
+    }
+    let errors = equivalent_wrap.validate_against(&request).unwrap_err();
+    assert!(errors
+        .iter()
+        .any(|error| error.code == InteractionIssueCode::RootYawDeviation));
+}
+
+#[test]
+fn request_rejects_empty_schema_required_action_and_outcome() {
+    for field in ["action", "outcome"] {
+        let mut request = fixture_request();
+        if field == "action" {
+            request.action.clear();
+        } else {
+            request.outcome.clear();
+        }
+        let errors = request.validate().unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|error| error.code == InteractionIssueCode::InvalidActionOutcome));
+    }
+}

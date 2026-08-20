@@ -12,6 +12,9 @@ pub const INTERACTION_REQUEST_SCHEMA_VERSION: u32 = 1;
 pub const INTERACTION_MOTION_SCHEMA_VERSION: u32 = 1;
 const MAX_ROOT_STEP_M: f32 = 2.0;
 const MAX_ROOT_DEVIATION_M: f32 = 0.25;
+/// Authored and submitted root yaw are radians. Ten degrees permits bounded
+/// retargeting noise while rejecting orientation changes that alter intent.
+const MAX_ROOT_YAW_DEVIATION_RADIANS: f32 = 0.174_532_92;
 const MAX_CONTACT_DISTANCE_M: f32 = 0.15;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -232,6 +235,7 @@ pub struct InteractionRequestV1 {
 pub enum InteractionIssueCode {
     UnsupportedVersion,
     EmptyId,
+    InvalidActionOutcome,
     InvalidTickRange,
     TooFewParticipants,
     DuplicateParticipant,
@@ -250,6 +254,7 @@ pub enum InteractionIssueCode {
     InvalidMotionRoots,
     RootDiscontinuity,
     RootDeviation,
+    RootYawDeviation,
     InvalidSkeletalChannel,
     UnknownContact,
     InvalidContact,
@@ -351,6 +356,12 @@ impl InteractionRequestV1 {
             issues.push(InteractionIssue::new(
                 InteractionIssueCode::EmptyId,
                 "request_id and group_id must be non-empty",
+            ));
+        }
+        if self.action.is_empty() || self.outcome.is_empty() {
+            issues.push(InteractionIssue::new(
+                InteractionIssueCode::InvalidActionOutcome,
+                "interaction action and outcome must be non-empty",
             ));
         }
         if self.tick_start > self.tick_end {
@@ -786,6 +797,16 @@ fn validate_motion_roots(
                 ),
             ));
         }
+        let target_yaw = interpolate_root_yaw(expected.samples.as_slice(), sample.tick);
+        if wrapped_angle_distance(target_yaw, sample.yaw) > MAX_ROOT_YAW_DEVIATION_RADIANS {
+            issues.push(InteractionIssue::new(
+                InteractionIssueCode::RootYawDeviation,
+                format!(
+                    "agent {} motion root yaw deviates from its authored path at tick {}",
+                    expected.agent_id, sample.tick
+                ),
+            ));
+        }
         previous = Some(sample.tick);
     }
 }
@@ -830,6 +851,31 @@ fn interpolate_root(samples: &[RootSampleV1], tick: u64) -> [f32; 3] {
         before.position[1] + (after.position[1] - before.position[1]) * amount,
         before.position[2] + (after.position[2] - before.position[2]) * amount,
     ]
+}
+
+fn interpolate_root_yaw(samples: &[RootSampleV1], tick: u64) -> f32 {
+    if let Some(exact) = samples.iter().find(|sample| sample.tick == tick) {
+        return exact.yaw;
+    }
+    let Some(after_index) = samples.iter().position(|sample| sample.tick > tick) else {
+        return samples.last().map_or(0.0, |sample| sample.yaw);
+    };
+    if after_index == 0 {
+        return samples[0].yaw;
+    }
+    let before = &samples[after_index - 1];
+    let after = &samples[after_index];
+    let span = (after.tick - before.tick) as f32;
+    let amount = (tick - before.tick) as f32 / span;
+    before.yaw + wrapped_angle_delta(after.yaw - before.yaw) * amount
+}
+
+fn wrapped_angle_delta(angle: f32) -> f32 {
+    (angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+}
+
+fn wrapped_angle_distance(left: f32, right: f32) -> f32 {
+    wrapped_angle_delta(left - right).abs()
 }
 
 fn distance(left: [f32; 3], right: [f32; 3]) -> f32 {

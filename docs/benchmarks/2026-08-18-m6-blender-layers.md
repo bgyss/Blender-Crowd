@@ -1,6 +1,6 @@
 # M6 Blender physics and hero layer proof
 
-Status: PASS on 2026-08-19 with normal macOS host Metal access.
+Status: PASS on 2026-08-20 with normal macOS host Metal access.
 
 This proof loads the current source add-on and a freshly built native wheel,
 validates paired motion through Rust, attaches deterministic interaction and
@@ -21,9 +21,12 @@ interaction layer, motion artifact, and live cache hash to
 layout composition. The Rust authority validates cache hash, request ID,
 participants, interval, authored roots, required and forbidden contacts,
 strict seed, request/layer/motion provenance, and the layer/motion fallback
-clip. The live smoke proves a valid artifact passes and rejects shape-valid
-in-range root, contact, forbidden-contact, and seed mutations before they can
-replace the attached stack.
+clip. Authored root position uses a 0.25-meter tolerance; authored root yaw uses
+shortest-path wrapped radians with a 0.17453292-radian (10-degree) tolerance.
+Canonical request validation also rejects empty schema-required `action` and
+`outcome`. The live smoke proves a valid artifact passes and rejects
+shape-valid in-range translation, yaw, contact, forbidden-contact, and seed
+mutations before they can replace the attached stack.
 
 Hero cloth remains an explicit declaration-only boundary. The UI identifies
 its requested cache, targets, interval, solver, cache policy, and render tiers,
@@ -50,7 +53,9 @@ M6 and then verified all of the following:
 - a layer targeting an ID absent from the cache was rejected by native layout
   validation, with both the prior M6 stack and M4 transform preserved;
 - the same absent-target replacement was rejected while every candidate M6
-  layer was muted, preserving the old muted Python/native stack and evidence;
+  layer was muted; read-only native stack inspection before any valid reload
+  proved the exact old M4+M6 list and target/unrelated composed state were
+  unchanged alongside the Python stack and evidence;
 - mute restored interaction and physics targets while retaining M4;
 - unmute restored the interaction and physics effects;
 - remove detached M6, preserved M4, and reset all seven evidence labels to
@@ -80,6 +85,7 @@ Significant output:
 ```text
 M6 debugger Blender smoke: PASS
 Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion root deviates from its authored path at tick 15
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion root yaw deviates from its authored path at tick 10; agent 2506968674689638394 motion root yaw deviates from its authored path at tick 15; agent 2506968674689638394 motion root yaw deviates from its authored path at tick 20; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 10; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 15; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 20
 Error: E_INTERACTION_MOTION: motion contact touch-pair violates its declared constraint; required contact touch-pair was not observed
 Error: E_INTERACTION_MOTION: forbidden contact separate-pair was reported
 Error: E_INTERACTION_MOTION: motion provenance must name a backend/config and match the strict request seed
@@ -103,23 +109,28 @@ Environment:
 
 ```text
 python3 -m unittest -v tests/test_m6_layer_bundle.py
-Ran 3 tests in 0.005s
+Ran 3 tests in 0.008s
 OK
 
 cargo test -p crowd-blender --lib
-test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 cargo test -p crowd-cache --test layout
 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+cargo test -p crowd-core --test m6_interaction_invalid
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
 The native attachment cases accept the checked independent request and reject
-cache, ID, participant, root, required/forbidden contact, seed, provenance, and
-fallback mismatches. The cache layout case proves composition may skip a muted
-layer while attachment preflight still rejects its absent target. The pure
-Python cases verify bundle plumbing, explicit hero status, physics/hero
-bindings, complete physics intervals, sparse lowering, and immutable source
-artifacts.
+cache, ID, participant, translation/yaw root, required/forbidden contact, seed,
+provenance, fallback, and empty action/outcome mismatches. Core tests prove
+wrapped-yaw equivalence and deviation. The cache layout case proves composition
+may skip a muted invalid layer while attachment preflight still rejects it. The
+host's read-only native list proves failed muted replacement preserves native
+M4/M6 identities and composed state. The pure Python cases verify bundle
+plumbing, explicit hero status, physics/hero bindings, complete physics
+intervals, sparse lowering, and immutable source artifacts.
 
 ## Unsupported claims
 

@@ -1,12 +1,12 @@
 # Task 13 — Blender physics/hero layers and mixed-tier performance
 
-Status: FIX ROUND 2 VERIFIED
+Status: FIX ROUND 3 VERIFIED
 
 The original completion narrative below is retained only as a historical
 pre-review snapshot. Everything from **Historical pre-review implementation
 narrative** through the first `No subagent or reviewer was dispatched` line is
-obsolete and must not be used as current evidence. Fix Rounds 1 and 2 supersede
-it; where those rounds differ, Fix Round 2 is authoritative.
+obsolete and must not be used as current evidence. Fix Rounds 1 through 3
+supersede it; where those rounds differ, Fix Round 3 is authoritative.
 
 ## Historical pre-review implementation narrative (obsolete)
 
@@ -516,3 +516,158 @@ instead of contradicting the current validation boundary.
 - The request artifact is trusted as authored input after schema validation;
   this round does not add cryptographic signing or remote attestation.
 - Task 14 still owns milestone-level M6 acceptance promotion.
+
+## Fix Round 3 — 2026-08-20
+
+Status: VERIFIED. Fix Round 2 evidence is retained unchanged above. This round
+supersedes it only for authored root-yaw validation, canonical request
+action/outcome validation, native layer-stack observability, focused test
+counts, and host Blender output. No subagent or reviewer was dispatched.
+
+### Finding 1: authored root yaw
+
+`InteractionMotionV1` root yaw is now validated against independently authored
+`InteractionRequestV1.root_constraints` in radians. The validator interpolates
+authored yaw along the shortest wrapped angular path, compares wrapped angular
+distance, and allows at most `0.17453292` radians (10 degrees). This mirrors the
+existing bounded translation check (`0.25` meters) while making units explicit.
+
+The core regression proves both sides of the contract: adding exactly `2π` to
+every submitted yaw remains equivalent, while adding one further radian with
+unchanged translations produces `RootYawDeviation`. The native attachment and
+real Blender regressions mutate every yaw by one radian while preserving
+translations, ticks, contacts, seed, provenance, and fallback.
+
+### Finding 2: native muted-stack proof
+
+The native Cache bridge now exposes a read-only JSON serialization of its exact
+combined `layout_layers` state. `CachePlayback.inspect_native_layout_layers()`
+decodes that state without composing or mutating it.
+
+During the host smoke, after the valid M6 stack is muted and before the invalid
+replacement, the test asserts that native state equals the exact old list
+`[m4_override] + muted_m6_layers`. It also captures native composed records for
+the interaction target and unrelated M4 target. After the muted absent-target
+replacement is rejected—and before paths are restored or a valid reload is
+attempted—the test asserts:
+
+- the combined native M4/M6 layer list is byte-for-byte structurally equal;
+- the target and unrelated-agent native composed records are unchanged;
+- the Python M6 list and mute state are unchanged; and
+- all seven evidence properties are unchanged.
+
+This directly proves that preflight failure preserves the old native stack and
+state rather than inferring native atomicity from Python state.
+
+### Finding 3: canonical action and outcome
+
+The canonical schema already requires `action` and `outcome` strings with
+`minLength: 1`. `InteractionRequestV1::validate` now enforces the same rule and
+emits `InvalidActionOutcome` when either field is empty. Because the native
+attachment path invokes `motion.validate_against(request)`, malformed authored
+requests are rejected by Rust before attachment; Python does not duplicate or
+weaken the authority.
+
+### RED evidence
+
+Before yaw validation, the native attachment accepted all mutated yaws and the
+negative test failed:
+
+```text
+cargo test -p crowd-blender --lib tests::native_attachment_rejects_wrapped_yaw_deviation_with_valid_translations -- --exact --nocapture
+test tests::native_attachment_rejects_wrapped_yaw_deviation_with_valid_translations ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out
+```
+
+Before canonical action/outcome validation, the native attachment accepted the
+empty `action` request and the negative test failed:
+
+```text
+cargo test -p crowd-blender --lib tests::native_attachment_rejects_empty_authored_action_and_outcome -- --exact --nocapture
+test tests::native_attachment_rejects_empty_authored_action_and_outcome ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 15 filtered out
+```
+
+The Fix Round 3 host RED run reached both Blender processes with normal Metal
+access and rejected the yaw mutation, then stopped at the missing read-only
+native stack API:
+
+```text
+M6 debugger Blender smoke: PASS
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion root yaw deviates from its authored path at tick 10; agent 2506968674689638394 motion root yaw deviates from its authored path at tick 15; agent 2506968674689638394 motion root yaw deviates from its authored path at tick 20; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 10; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 15; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 20
+Info: M6 layers muted
+FAIL: unexpected AttributeError: 'CachePlayback' object has no attribute 'inspect_native_layout_layers'
+```
+
+### GREEN focused evidence
+
+```text
+python3 -m unittest -v tests/test_m6_layer_bundle.py
+Ran 3 tests in 0.008s
+OK
+
+cargo test -p crowd-blender --lib
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+cargo test -p crowd-cache --test layout
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+cargo test -p crowd-core --test m6_interaction_invalid
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+### GREEN host Blender / Metal evidence
+
+Command executed outside the restricted automation sandbox:
+
+```text
+scripts/m6-blender-test.sh
+```
+
+Exact significant output:
+
+```text
+M6 debugger Blender smoke: PASS
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion root deviates from its authored path at tick 15
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion root yaw deviates from its authored path at tick 10; agent 2506968674689638394 motion root yaw deviates from its authored path at tick 15; agent 2506968674689638394 motion root yaw deviates from its authored path at tick 20; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 10; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 15; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 20
+Error: E_INTERACTION_MOTION: motion contact touch-pair violates its declared constraint; required contact touch-pair was not observed
+Error: E_INTERACTION_MOTION: forbidden contact separate-pair was reported
+Error: E_INTERACTION_MOTION: motion provenance must name a backend/config and match the strict request seed
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion roots must cover the complete interval
+Error: E_LAYOUT_PREFLIGHT: layer m6-animation-interaction-pair-10293130296351569156-15 targets an agent absent from the base
+Info: M6 layers muted
+Error: E_LAYOUT_PREFLIGHT: layer m6-animation-interaction-pair-10293130296351569156-15 targets an agent absent from the base
+Info: M6 layers unmuted
+Info: M6 layers removed; source artifacts and base cache retained
+M6 Blender physics/hero layers: PASS
+Blender 5.2.0 LTS (hash fbe6228777e7 built 2026-07-14 01:31:22)
+```
+
+Both Blender processes reached Python with normal host Metal access; there was
+no pre-Python Metal abort. The native stack/state equality assertions execute
+after the second `E_LAYOUT_PREFLIGHT` line and before `Info: M6 layers unmuted`.
+
+### Quality and documentation checks
+
+```text
+cargo fmt --all -- --check
+exit 0
+
+cargo clippy --workspace --all-targets -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo]
+
+git diff --check
+exit 0
+```
+
+The repository documentation path/privacy scan found no personal-machine or
+temporary paths in this report or the Blender benchmark report.
+
+### Remaining boundaries
+
+- Root yaw is intentionally a bounded authored-path check, not full skeletal
+  orientation, foot-lock, or visual-quality validation.
+- Native stack inspection is read-only diagnostic evidence; it does not add a
+  second layer authority or mutation path.
+- Cloth, rigid-body parity, neural motion, cryptographic request attestation,
+  and Task 14 milestone promotion remain outside this round.

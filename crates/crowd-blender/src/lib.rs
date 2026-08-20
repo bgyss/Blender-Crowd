@@ -592,6 +592,11 @@ impl PyCache {
         Ok(())
     }
 
+    fn inspect_layout_layers_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.layout_layers)
+            .map_err(|error| PyValueError::new_err(format!("E_LAYOUT_SERIALIZE: {error}")))
+    }
+
     fn clear_layout_layers(&mut self) {
         self.layout_layers.clear();
     }
@@ -1698,6 +1703,29 @@ mod tests {
     }
 
     #[test]
+    fn native_attachment_rejects_wrapped_yaw_deviation_with_valid_translations() {
+        let (request, layer, motion) = checked_interaction_attachment();
+        let mut bad_yaw: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        for participant in bad_yaw["participants"].as_array_mut().unwrap() {
+            for sample in participant["root_samples"].as_array_mut().unwrap() {
+                sample["yaw"] = serde_json::json!(sample["yaw"].as_f64().unwrap() + 1.0);
+            }
+        }
+
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_yaw.to_string(),
+        )
+        .expect_err("motion yaw must be checked against the authored request roots");
+        assert!(
+            error.contains("yaw deviates"),
+            "unexpected yaw error: {error}"
+        );
+    }
+
+    #[test]
     fn native_attachment_rejects_cross_artifact_identity_and_fallback_mismatches() {
         let (request, layer, motion) = checked_interaction_attachment();
 
@@ -1776,6 +1804,26 @@ mod tests {
             error.contains("fallback clip"),
             "unexpected fallback error: {error}"
         );
+    }
+
+    #[test]
+    fn native_attachment_rejects_empty_authored_action_and_outcome() {
+        let (request, layer, motion) = checked_interaction_attachment();
+        for field in ["action", "outcome"] {
+            let mut invalid_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            invalid_request[field] = serde_json::json!("");
+            let error = validate_interaction_motion_attachment_json(
+                "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+                &invalid_request.to_string(),
+                &layer,
+                &motion,
+            )
+            .expect_err("schema-required request action/outcome must be non-empty");
+            assert!(
+                error.contains("action and outcome"),
+                "unexpected {field} error: {error}"
+            );
+        }
     }
 
     #[test]

@@ -281,6 +281,12 @@ def main():
     invalid_root["participants"][0]["root_samples"][1]["translation"] = [0.75, 0.0, 0.0]
     invalid_semantic_motions.append(("root", invalid_root, "authored path"))
 
+    invalid_yaw = copy.deepcopy(motion)
+    for participant in invalid_yaw["participants"]:
+        for sample in participant["root_samples"]:
+            sample["yaw"] += 1.0
+    invalid_semantic_motions.append(("yaw", invalid_yaw, "yaw deviates"))
+
     invalid_contact = copy.deepcopy(motion)
     invalid_contact["contacts"][0]["tick"] = 17
     invalid_semantic_motions.append(("contact", invalid_contact, "declared constraint"))
@@ -399,6 +405,15 @@ def main():
     require(playback.inspect_agent(target_ids[0], 25) == physics_baseline, "mute did not restore the physics target")
 
     muted_stack_before_failed_attach = copy.deepcopy(playback._m6_layers)
+    native_stack_before_failed_attach = playback.inspect_native_layout_layers()
+    require(
+        native_stack_before_failed_attach == [m4_override] + muted_stack_before_failed_attach,
+        "native stack did not contain the old M4 plus muted M6 lists before rejection",
+    )
+    native_state_before_failed_attach = {
+        "target": playback.inspect_agent(target_ids[0], 15),
+        "unrelated": playback.inspect_agent(unrelated_id, 15),
+    }
     props.m6_interaction_request_path = invalid_request_path
     props.m6_interaction_layer_path = invalid_layer_path
     props.m6_interaction_motion_path = invalid_motion_path
@@ -411,6 +426,18 @@ def main():
     require(
         playback._m6_layers == muted_stack_before_failed_attach,
         "failed muted replacement discarded the valid Python M6 stack",
+    )
+    require(
+        playback.inspect_native_layout_layers() == native_stack_before_failed_attach,
+        "failed muted replacement changed the native M4/M6 layer stack",
+    )
+    require(
+        {
+            "target": playback.inspect_agent(target_ids[0], 15),
+            "unrelated": playback.inspect_agent(unrelated_id, 15),
+        }
+        == native_state_before_failed_attach,
+        "failed muted replacement changed native composed state",
     )
     require(
         summaries_before_failed_attach
