@@ -1013,12 +1013,30 @@ def _set_m6_layer_summaries(props, bundle):
         bundle["physics_failure_policy"],
         hero["failure_policy"],
     )
-    props.m6_hero_support = "{} · solver {} · cache {} · tiers {}".format(
+    binding = bundle["hero_binding"]
+    props.m6_hero_support = (
+        "{} · declaration-only unsupported · not attached · requested cache {} · "
+        "targets {} · interval {}..{} · solver {} · cache policy {} · tiers {}"
+    ).format(
         hero["integration_id"],
+        binding["base_cache_hash"],
+        ", ".join(str(agent_id) for agent_id in binding["target_agent_ids"]),
+        binding["tick_start"],
+        binding["tick_end"],
         hero["solver"],
         hero["cache_policy"],
         ", ".join(hero["supported_render_tiers"]),
     )
+
+
+def _clear_m6_layer_summaries(props):
+    props.m6_layer_owner = "No M6 layer loaded"
+    props.m6_layer_interval = "No M6 layer loaded"
+    props.m6_layer_contacts = "No M6 contact evidence loaded"
+    props.m6_layer_provenance = "No M6 provenance loaded"
+    props.m6_layer_recovery = "No M6 recovery loaded"
+    props.m6_layer_failure_policy = "No M6 failure policy loaded"
+    props.m6_hero_support = "No M6 hero boundary loaded"
 
 
 def _load_m6_bundle(props, playback):
@@ -1029,6 +1047,16 @@ def _load_m6_bundle(props, playback):
         bpy.path.abspath(props.m6_hero_boundary_path),
         playback.base_cache_hash,
     )
+    validated_motion = json.loads(
+        blender_crowd_native.validate_interaction_motion_attachment(
+            json.dumps(bundle["interaction_layer"], sort_keys=True, separators=(",", ":")),
+            json.dumps(bundle["interaction_motion"], sort_keys=True, separators=(",", ":")),
+        )
+    )
+    bundle["interaction_motion"] = validated_motion
+    bundle["contacts"] = validated_motion["contacts"]
+    bundle["motion_provenance"] = validated_motion["provenance"]
+    bundle["motion_fallback"] = validated_motion["fallback"]
     samples = _m6_physics_samples(playback, bundle)
     layers = m6_interaction.build_layout_layers(bundle, samples, props.m6_layers_muted)
     playback.set_m6_layers(layers)
@@ -1106,6 +1134,7 @@ class CROWD_OT_remove_m6_layers(Operator):
         playback.clear_m6_layers()
         props.m6_layers_attached = False
         props.m6_layers_muted = False
+        _clear_m6_layer_summaries(props)
         props.status = "M6 layers removed; source artifacts and base cache retained"
         self.report({"INFO"}, props.status)
         return {"FINISHED"}

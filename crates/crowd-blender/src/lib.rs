@@ -16,11 +16,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crowd_cache::{
-    compose_frame, compose_layout_frame_v1, write_usda_crowd_profile_v1, AgentStatic, BakeSpec,
-    BehaviorEventCompactor, BehaviorEventKindV1, BehaviorEventV1, CacheReader, CacheStatus,
-    CacheWriter, ChannelDef, Frame as CacheFrame, FrameRecord, LayoutLayerV1,
-    LocalResimulationRequestV1, OverrideLayerV1, PhysicsHandoffSpecV1, RecoveryInspector,
-    RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
+    compose_frame, compose_layout_frame_v1, write_usda_crowd_profile_v1, AgentStatic,
+    AnimationLayerV1, BakeSpec, BehaviorEventCompactor, BehaviorEventKindV1, BehaviorEventV1,
+    CacheReader, CacheStatus, CacheWriter, ChannelDef, Frame as CacheFrame, FrameRecord,
+    LayoutLayerV1, LocalResimulationRequestV1, OverrideLayerV1, PhysicsHandoffSpecV1,
+    RecoveryInspector, RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
 };
 use crowd_core::authoring::{
     compile_authorable_project as compile_core_authorable_project, migrate_project_v1,
@@ -28,6 +28,11 @@ use crowd_core::authoring::{
 };
 use crowd_core::avoidance::SampledVelocitySolver;
 use crowd_core::behavior::{compile_graph, BehaviorGraphV1};
+use crowd_core::interaction::{
+    ContactConstraintV1, InteractionBudgetsV1, InteractionModeV1, InteractionMotionV1,
+    InteractionParticipantV1, InteractionProvenanceV1, InteractionRequestV1, RootConstraintV1,
+    RootSampleV1,
+};
 use crowd_core::project::{
     compile_project as compile_core_project, CompiledAgentSpawn,
     CompiledProject as CoreCompiledProject, Diagnostic,
@@ -738,6 +743,10 @@ impl PyCache {
                 .map(|composed| composed.visible)
                 .unwrap_or(record.visible),
         )?;
+        out.set_item(
+            "physics_active",
+            layout_record.is_some_and(|composed| composed.physics_active),
+        )?;
 
         let cache_hit = self.cached_behavior_query.as_ref().is_some_and(
             |(cached_agent, cached_tick, _trace)| *cached_agent == agent_id && *cached_tick == tick,
@@ -913,6 +922,102 @@ fn simulate_physics_handoff_py(spec_json: &str) -> PyResult<String> {
         .map_err(|error| PyValueError::new_err(format!("E_PHYSICS_SPEC: {error}")))?;
     serde_json::to_string(&samples)
         .map_err(|error| PyValueError::new_err(format!("E_PHYSICS_SERIALIZE: {error}")))
+}
+
+fn validate_interaction_motion_attachment_json(
+    layer_json: &str,
+    motion_json: &str,
+) -> Result<InteractionMotionV1, String> {
+    let layer: AnimationLayerV1 = serde_json::from_str(layer_json)
+        .map_err(|error| format!("interaction layer JSON is invalid: {error}"))?;
+    layer
+        .validate()
+        .map_err(|error| format!("interaction layer is invalid: {error}"))?;
+    let motion: InteractionMotionV1 = serde_json::from_str(motion_json)
+        .map_err(|error| format!("interaction motion JSON is invalid: {error}"))?;
+    if motion.contacts.is_empty() {
+        return Err("interaction motion must contain validated contact evidence".to_owned());
+    }
+
+    let request = InteractionRequestV1 {
+        schema_version: 1,
+        request_id: layer.interaction_id.clone(),
+        group_id: format!("attachment-{}", layer.layer_id),
+        participants: layer
+            .target_agent_ids
+            .iter()
+            .enumerate()
+            .map(|(index, agent_id)| InteractionParticipantV1 {
+                agent_id: *agent_id,
+                role: format!("attachment-participant-{index}"),
+                retarget_profile_id: "attachment-validated".to_owned(),
+            })
+            .collect(),
+        tick_start: layer.tick_start,
+        tick_end: layer.tick_end,
+        seed: motion.provenance.seed,
+        mode: InteractionModeV1::Strict,
+        action: "attach-validated-paired-motion".to_owned(),
+        outcome: "cache-bound-layer".to_owned(),
+        root_constraints: motion
+            .participants
+            .iter()
+            .map(|participant| RootConstraintV1 {
+                agent_id: participant.agent_id,
+                samples: participant
+                    .root_samples
+                    .iter()
+                    .map(|sample| RootSampleV1 {
+                        tick: sample.tick,
+                        position: sample.translation,
+                        yaw: sample.yaw,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        contact_constraints: motion
+            .contacts
+            .iter()
+            .map(|contact| ContactConstraintV1 {
+                contact_id: contact.contact_id.clone(),
+                owner_agent_id: contact.owner_agent_id,
+                other_agent_id: contact.other_agent_id,
+                label: contact.label,
+                tick_start: contact.tick,
+                tick_end: contact.tick,
+                required: true,
+            })
+            .collect(),
+        provenance: InteractionProvenanceV1 {
+            base_cache_hash: layer.base_cache_hash.clone(),
+            graph_hash: "0".repeat(64),
+            worker_protocol: layer.provenance.clone(),
+        },
+        budgets: InteractionBudgetsV1 {
+            max_latency_ms: 1,
+            max_memory_bytes: 1,
+            max_output_bytes: 1,
+        },
+    };
+    motion.validate_against(&request).map_err(|issues| {
+        issues
+            .into_iter()
+            .map(|issue| issue.message)
+            .collect::<Vec<_>>()
+            .join("; ")
+    })?;
+    Ok(motion)
+}
+
+#[pyfunction(name = "validate_interaction_motion_attachment")]
+fn validate_interaction_motion_attachment_py(
+    layer_json: &str,
+    motion_json: &str,
+) -> PyResult<String> {
+    let motion = validate_interaction_motion_attachment_json(layer_json, motion_json)
+        .map_err(|error| PyValueError::new_err(format!("E_INTERACTION_MOTION: {error}")))?;
+    serde_json::to_string(&motion)
+        .map_err(|error| PyValueError::new_err(format!("E_INTERACTION_SERIALIZE: {error}")))
 }
 
 #[pyfunction(name = "resimulate_local_kinematic")]
@@ -1447,6 +1552,63 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    fn checked_interaction_attachment() -> (String, String) {
+        (
+            include_str!("../../../assets/reference/m6/interaction-animation-layer-v1.json")
+                .to_owned(),
+            include_str!("../../../assets/reference/m6/interaction-motion-v1.json").to_owned(),
+        )
+    }
+
+    #[test]
+    fn native_attachment_accepts_interval_roots_contacts_and_provenance() {
+        let (layer, motion) = checked_interaction_attachment();
+        let validated = validate_interaction_motion_attachment_json(&layer, &motion)
+            .expect("checked paired motion must pass the Rust authority");
+
+        assert_eq!(validated.request_id, "request-pair-7-9");
+        assert_eq!(validated.participants.len(), 2);
+        assert_eq!(validated.contacts.len(), 1);
+        assert_eq!(validated.provenance.backend, "authored-paired-clip");
+    }
+
+    #[test]
+    fn native_attachment_rejects_motion_without_complete_root_samples() {
+        let (layer, motion) = checked_interaction_attachment();
+        let mut motion: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        motion["participants"][0]["root_samples"] = serde_json::json!([]);
+
+        let error = validate_interaction_motion_attachment_json(&layer, &motion.to_string())
+            .expect_err("empty roots must not reach native layout lowering");
+        assert!(
+            error.contains("root"),
+            "unexpected validation error: {error}"
+        );
+    }
+
+    #[test]
+    fn native_attachment_rejects_invalid_contact_and_provenance() {
+        let (layer, motion) = checked_interaction_attachment();
+        let mut bad_contact: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_contact["contacts"][0]["distance_m"] = serde_json::json!(-1.0);
+        let error = validate_interaction_motion_attachment_json(&layer, &bad_contact.to_string())
+            .expect_err("invalid contact must not reach native layout lowering");
+        assert!(
+            error.contains("contact"),
+            "unexpected contact validation error: {error}"
+        );
+
+        let mut bad_provenance: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_provenance["provenance"]["backend"] = serde_json::json!("");
+        let error =
+            validate_interaction_motion_attachment_json(&layer, &bad_provenance.to_string())
+                .expect_err("invalid provenance must not reach native layout lowering");
+        assert!(
+            error.contains("provenance"),
+            "unexpected provenance validation error: {error}"
+        );
+    }
+
     #[test]
     fn only_declared_fidelity_profiles_are_accepted() {
         assert!(parse_fidelity_profile(None).unwrap().is_none());
@@ -1807,6 +1969,10 @@ fn blender_crowd_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compile_authorable_project_py, m)?)?;
     m.add_function(wrap_pyfunction!(compile_authorable_runtime_py, m)?)?;
     m.add_function(wrap_pyfunction!(simulate_physics_handoff_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        validate_interaction_motion_attachment_py,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(resimulate_local_kinematic_py, m)?)?;
     m.add_function(wrap_pyfunction!(inspect_cache, m)?)?;
     Ok(())

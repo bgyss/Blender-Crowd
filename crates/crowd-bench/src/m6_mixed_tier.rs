@@ -6,7 +6,7 @@
 //! independently inspectable.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::mem::size_of;
+use std::mem::{size_of, size_of_val};
 use std::time::Instant;
 
 use crowd_cache::content_hash;
@@ -18,7 +18,7 @@ use crowd_core::blackboard::{
     BlackboardChannelV1, BlackboardStateV1, BlackboardTypeV1, BlackboardValueV1,
 };
 use crowd_core::fidelity::{FidelityPolicy, RenderTier, SimulationTier};
-use crowd_core::formation::FormationV1;
+use crowd_core::formation::{FormationRoleV1, FormationSplitPolicyV1, FormationV1};
 use crowd_core::ids::AgentId;
 use crowd_core::interaction::{
     InteractionGroupStatusV1, InteractionRequestV1, InteractionSchedulerV1,
@@ -48,7 +48,8 @@ const S1_COUNT: u32 = 990;
 const S2_COUNT: u32 = 9_000;
 const PROMOTED_COUNT: u32 = S0_COUNT + S1_COUNT;
 const MIN_TICKS_PER_SECOND: f64 = 10.0;
-const CACHE_RECORD_BYTES: usize = 16;
+const CACHE_RECORD_BYTES: usize = 59;
+const ACTIVITY_RESOURCE_CAPACITY: usize = 10;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MixedTierFixture {
@@ -132,6 +133,11 @@ pub struct TierEvidence {
     pub evidence_level: String,
     pub individual_records: u32,
     pub aggregate_records: u32,
+    pub phase_operations: BTreeMap<String, u64>,
+    pub cache_records: u64,
+    pub fallbacks: u64,
+    pub hard_safety_failures: u64,
+    pub unrelated_agent_mutations: u64,
     pub unavailable_evidence: Vec<String>,
 }
 
@@ -158,6 +164,7 @@ pub struct MixedTierReport {
     pub agent_count: u32,
     pub ticks: u32,
     pub tier_counts: BTreeMap<String, u32>,
+    pub tier_counts_source: String,
     pub promoted_agent_count: u32,
     pub phase_timings: Vec<PhaseTiming>,
     pub elapsed_nanos: u64,
@@ -167,6 +174,7 @@ pub struct MixedTierReport {
     pub min_ticks_per_second: f64,
     pub working_set_bytes: u64,
     pub working_set_method: String,
+    pub working_set_components: BTreeMap<String, u64>,
     pub cache_payload_bytes: u64,
     pub cache_records: u64,
     pub cache_record_bytes: u32,
@@ -193,6 +201,21 @@ struct AgentState {
     clip_id: u16,
     phase_millionths: u32,
     interaction_state: u8,
+    perception_operations: u32,
+    brain_operations: u32,
+    activity_operations: u32,
+    group_operations: u32,
+    motion_operations: u32,
+    interaction_operations: u32,
+    fallbacks: u32,
+    hard_safety_failures: u32,
+    unrelated_agent_mutations: u32,
+    cache_records: u32,
+}
+
+struct GroupFixture {
+    formation: FormationV1,
+    positions: BTreeMap<AgentId, Vec2>,
 }
 
 #[derive(Default)]
@@ -222,16 +245,12 @@ impl TimingAccumulator {
 pub fn run_fixture(fixture: &MixedTierFixture) -> Result<MixedTierReport, String> {
     fixture.validate()?;
     let mut state = build_state();
-    let mut promoted_world = build_promoted_world()?;
+    let mut world = build_world(&state)?;
     let mut neighbors = NeighborArena::new();
     let mut perception = PerceptionEngine::new(PerceptionConfigV1::default());
     perception.set_group_members("hero-pair", vec![AgentId(7), AgentId(9)]);
     let mut blackboards = build_blackboards()?;
-    let formation: FormationV1 = serde_json::from_str(include_str!(
-        "../../../assets/reference/m6/formation-v1.json"
-    ))
-    .map_err(|error| format!("formation fixture: {error}"))?;
-    formation.validate().map_err(|error| error.to_string())?;
+    let groups = build_group_fixtures()?;
     let (matcher, motion_source) = build_motion_matcher()?;
     let motion_query = MotionQueryV1 {
         desired_velocity_millimeters_per_second: [1_000, 0],
@@ -248,13 +267,34 @@ pub fn run_fixture(fixture: &MixedTierFixture) -> Result<MixedTierReport, String
     interaction_request
         .validate()
         .map_err(|issues| format!("interaction fixture: {issues:?}"))?;
+    let interaction_requests = build_interaction_requests(&interaction_request)?;
+    let activity_resources = (0..fixture.agent_count as usize / ACTIVITY_RESOURCE_CAPACITY)
+        .map(|index| ResourceV1 {
+            id: format!("fixture-resource-{index}"),
+            capacity: ACTIVITY_RESOURCE_CAPACITY,
+        })
+        .collect::<Vec<_>>();
+    let activity_requests = (0..u64::from(fixture.agent_count))
+        .map(|agent_id| ActivityRequestV1 {
+            agent_id,
+            resource_id: format!(
+                "fixture-resource-{}",
+                agent_id as usize / ACTIVITY_RESOURCE_CAPACITY
+            ),
+            priority: 10,
+        })
+        .collect::<Vec<_>>();
 
     let mut timings = TimingAccumulator::default();
     let mut hard_safety_failures = 0u64;
     let mut motion_fallbacks = 0u64;
     let mut activity_fallbacks = 0u64;
+    let mut brain_fallbacks = 0u64;
+    let mut group_fallbacks = 0u64;
+    let mut perception_fallbacks = 0u64;
     let mut interaction_fallbacks = 0u64;
     let mut unrelated_agent_mutations = 0u64;
+    let mut tier_cache_records = BTreeMap::<String, u64>::new();
     let mut cache_payload = Vec::with_capacity(
         fixture.agent_count as usize * fixture.ticks as usize * CACHE_RECORD_BYTES,
     );
@@ -262,13 +302,31 @@ pub fn run_fixture(fixture: &MixedTierFixture) -> Result<MixedTierReport, String
 
     for tick in 0..fixture.ticks {
         let started = Instant::now();
-        neighbors.begin(promoted_world.len());
-        for slot in 0..promoted_world.len() {
+        neighbors.begin(world.len());
+        for slot in 0..world.len() {
             neighbors.push(slot, &[]);
         }
-        let snapshots = perception.observe(&promoted_world, &neighbors, u64::from(tick));
-        hard_safety_failures += u64::from(snapshots.len() != PROMOTED_COUNT as usize);
-        timings.record("perception", started, PROMOTED_COUNT as u64);
+        let snapshots = perception.observe(&world, &neighbors, u64::from(tick));
+        for agent_id in snapshots.keys() {
+            let index = agent_id.0 as usize;
+            if state
+                .get(index)
+                .is_some_and(|agent| u64::from(agent.agent_id) == agent_id.0)
+            {
+                state[index].perception_operations += 1;
+            } else {
+                hard_safety_failures += 1;
+            }
+        }
+        for agent in &mut state {
+            if agent.perception_operations != tick + 1 {
+                perception_fallbacks += 1;
+                hard_safety_failures += 1;
+                agent.fallbacks += 1;
+                agent.hard_safety_failures += 1;
+            }
+        }
+        timings.record("perception", started, snapshots.len() as u64);
 
         let started = Instant::now();
         let mut brain_operations = 0u64;
@@ -279,52 +337,65 @@ pub fn run_fixture(fixture: &MixedTierFixture) -> Result<MixedTierReport, String
                 .is_err()
             {
                 hard_safety_failures += 1;
+                brain_fallbacks += 1;
+                state[index].fallbacks += 1;
+                state[index].hard_safety_failures += 1;
+                continue;
             }
             let _ = blackboard.drain_changes();
             state[index].activity_state = u8::from(urgency >= 500);
+            state[index].brain_operations += 1;
             brain_operations += 1;
         }
         timings.record("brain", started, brain_operations);
 
         let started = Instant::now();
-        let requests = (0..100u64)
-            .map(|agent_id| ActivityRequestV1 {
-                agent_id,
-                resource_id: "fixture-resource".to_owned(),
-                priority: 10,
-            })
-            .collect::<Vec<_>>();
-        let mut activity = ReservationRuntimeV1::new(vec![ResourceV1 {
-            id: "fixture-resource".to_owned(),
-            capacity: 100,
-        }])
-        .map_err(|error| error.to_string())?;
-        let results = activity.request_batch(&requests);
-        activity_fallbacks += results
-            .iter()
-            .filter(|result| matches!(result.status, ReservationStatusV1::Failed { .. }))
-            .count() as u64;
-        let owners = activity.owners("fixture-resource");
-        hard_safety_failures += u64::from(
-            owners.len() != 100 || owners.iter().copied().collect::<BTreeSet<_>>().len() != 100,
-        );
-        for owner in owners {
-            state[owner as usize].activity_state = 2;
+        let mut activity = ReservationRuntimeV1::new(activity_resources.clone())
+            .map_err(|error| error.to_string())?;
+        let results = activity.request_batch(&activity_requests);
+        for result in &results {
+            let index = result.agent_id as usize;
+            if matches!(result.status, ReservationStatusV1::Granted) {
+                state[index].activity_state = 2;
+                state[index].activity_operations += 1;
+            } else {
+                activity_fallbacks += 1;
+                hard_safety_failures += 1;
+                state[index].fallbacks += 1;
+                state[index].hard_safety_failures += 1;
+            }
         }
+        let owners = activity_resources
+            .iter()
+            .flat_map(|resource| activity.owners(&resource.id))
+            .collect::<Vec<_>>();
+        hard_safety_failures += u64::from(
+            owners.len() != fixture.agent_count as usize
+                || owners.iter().copied().collect::<BTreeSet<_>>().len()
+                    != fixture.agent_count as usize,
+        );
         timings.record("activity", started, results.len() as u64);
 
         let started = Instant::now();
-        let positions = BTreeMap::from([
-            (AgentId(7), Vec2::new(0.0, 0.0)),
-            (AgentId(9), Vec2::new(-1.0, 0.0)),
-            (AgentId(11), Vec2::new(1.0, 0.0)),
-        ]);
-        let group_report = formation.evaluate(&positions, &[]);
-        hard_safety_failures += u64::from(group_report.missing_members != 0 || group_report.split);
-        for agent_id in [7usize, 9, 11] {
-            state[agent_id].group_state = 1;
+        let mut group_operations = 0u64;
+        for group in &groups {
+            let group_report = group.formation.evaluate(&group.positions, &[]);
+            let failed = group_report.missing_members != 0 || group_report.split;
+            for role in &group.formation.roles {
+                let index = role.agent_id.0 as usize;
+                state[index].group_operations += 1;
+                group_operations += 1;
+                if failed {
+                    group_fallbacks += 1;
+                    hard_safety_failures += 1;
+                    state[index].fallbacks += 1;
+                    state[index].hard_safety_failures += 1;
+                } else {
+                    state[index].group_state = 1;
+                }
+            }
         }
-        timings.record("group", started, formation.roles.len() as u64);
+        timings.record("group", started, group_operations);
 
         let started = Instant::now();
         let mut motion_operations = 0u64;
@@ -335,19 +406,18 @@ pub fn run_fixture(fixture: &MixedTierFixture) -> Result<MixedTierReport, String
                     AgentId(u64::from(agent.agent_id)),
                     u64::from(tick),
                 );
-            if promoted {
+            if promoted || background_due {
                 let selected = matcher
                     .select(&motion_query)
                     .map_err(|error| error.to_string())?;
                 motion_fallbacks += u64::from(selected.used_fallback);
+                agent.fallbacks += u32::from(selected.used_fallback);
                 agent.clip_id = if selected.clip_id == "walk-reference" {
                     1
                 } else {
                     2
                 };
-                motion_operations += 1;
-            } else if background_due {
-                agent.clip_id = 1;
+                agent.motion_operations += 1;
                 motion_operations += 1;
             }
             agent.phase_millionths =
@@ -356,40 +426,71 @@ pub fn run_fixture(fixture: &MixedTierFixture) -> Result<MixedTierReport, String
         timings.record("motion", started, motion_operations);
 
         let started = Instant::now();
+        let mut interaction_operations = 0u64;
         let before_interaction = state
             .iter()
             .map(|agent| agent.interaction_state)
             .collect::<Vec<_>>();
-        let mut scheduler = InteractionSchedulerV1::new(1);
-        scheduler.enqueue(interaction_request.clone())?;
-        let promoted = scheduler.promote_next();
-        let locked = [7u64, 9]
+        let mut expected_interaction_mutations = BTreeSet::new();
+        for request in interaction_requests
             .iter()
-            .all(|agent_id| scheduler.active_group_for(*agent_id) == promoted.as_deref());
-        let completed = scheduler.complete(&interaction_request.request_id);
-        if promoted.as_deref() == Some(interaction_request.request_id.as_str())
-            && locked
-            && completed == Some(InteractionGroupStatusV1::Completed)
+            .enumerate()
+            .filter(|(index, _)| *index % fixture.ticks as usize == tick as usize)
+            .map(|(_, request)| request)
         {
-            state[7].interaction_state = 1;
-            state[9].interaction_state = 1;
-        } else {
-            hard_safety_failures += 1;
-            interaction_fallbacks += 1;
+            let mut scheduler = InteractionSchedulerV1::new(1);
+            scheduler.enqueue(request.clone())?;
+            let promoted = scheduler.promote_next();
+            let locked = request.participants.iter().all(|participant| {
+                scheduler.active_group_for(participant.agent_id) == promoted.as_deref()
+            });
+            let completed = scheduler.complete(&request.request_id);
+            let released = request
+                .participants
+                .iter()
+                .all(|participant| scheduler.active_group_for(participant.agent_id).is_none());
+            if promoted.as_deref() == Some(request.request_id.as_str())
+                && locked
+                && completed == Some(InteractionGroupStatusV1::Completed)
+                && released
+            {
+                for participant in &request.participants {
+                    let agent = &mut state[participant.agent_id as usize];
+                    agent.interaction_state = 1;
+                    agent.interaction_operations += 1;
+                    expected_interaction_mutations.insert(participant.agent_id);
+                    interaction_operations += 1;
+                }
+            } else {
+                interaction_fallbacks += 1;
+                hard_safety_failures += 1;
+                for participant in &request.participants {
+                    let agent = &mut state[participant.agent_id as usize];
+                    agent.fallbacks += 1;
+                    agent.hard_safety_failures += 1;
+                }
+            }
         }
-        unrelated_agent_mutations += state
-            .iter()
-            .zip(before_interaction)
-            .filter(|(agent, before)| {
-                ![7, 9].contains(&agent.agent_id) && agent.interaction_state != *before
-            })
-            .count() as u64;
-        timings.record("interaction", started, 1);
+        for (index, (before, agent)) in before_interaction.iter().zip(&mut state).enumerate() {
+            if *before != agent.interaction_state
+                && !expected_interaction_mutations.contains(&u64::from(agent.agent_id))
+            {
+                debug_assert_eq!(index, agent.agent_id as usize);
+                unrelated_agent_mutations += 1;
+                agent.unrelated_agent_mutations += 1;
+            }
+        }
+        timings.record("interaction", started, interaction_operations);
 
-        append_cache_tick(&mut cache_payload, tick, &state);
-        for (slot, agent) in state.iter().enumerate().take(promoted_world.len()) {
-            promoted_world.clip_id[slot] = agent.clip_id;
-            promoted_world.clip_phase[slot] = agent.phase_millionths as f32 / 1_000_000.0;
+        append_cache_tick(
+            &mut cache_payload,
+            tick,
+            &mut state,
+            &mut tier_cache_records,
+        );
+        for (slot, agent) in state.iter().enumerate() {
+            world.clip_id[slot] = agent.clip_id;
+            world.clip_phase[slot] = agent.phase_millionths as f32 / 1_000_000.0;
         }
     }
 
@@ -411,12 +512,12 @@ pub fn run_fixture(fixture: &MixedTierFixture) -> Result<MixedTierReport, String
         },
         FallbackAccounting {
             phase: "brain".to_owned(),
-            count: 0,
+            count: brain_fallbacks,
             reason: "typed blackboard write rejected".to_owned(),
         },
         FallbackAccounting {
             phase: "group".to_owned(),
-            count: 0,
+            count: group_fallbacks,
             reason: "formation incomplete or outside the checked cohesion bound".to_owned(),
         },
         FallbackAccounting {
@@ -431,13 +532,50 @@ pub fn run_fixture(fixture: &MixedTierFixture) -> Result<MixedTierReport, String
         },
         FallbackAccounting {
             phase: "perception".to_owned(),
-            count: 0,
-            reason: "promoted perception snapshot unavailable".to_owned(),
+            count: perception_fallbacks,
+            reason: "authoritative perception snapshot unavailable".to_owned(),
         },
     ];
+    let tier_counts = derive_tier_counts(&state);
+    if tier_counts != fixture.tier_counts {
+        hard_safety_failures += 1;
+    }
+    let tier_evidence = derive_tier_evidence(&state, fixture.ticks, &tier_cache_records);
+    for evidence in &tier_evidence {
+        let expected_agents = fixture
+            .tier_counts
+            .get(&evidence.tier)
+            .copied()
+            .unwrap_or(0);
+        if evidence.agent_count != expected_agents
+            || evidence.cache_records != u64::from(expected_agents) * u64::from(fixture.ticks)
+            || PHASE_NAMES
+                .iter()
+                .any(|phase| evidence.phase_operations.get(*phase).copied().unwrap_or(0) == 0)
+        {
+            hard_safety_failures += 1;
+        }
+    }
+    for timing in &phase_timings {
+        let tier_operations = tier_evidence
+            .iter()
+            .map(|evidence| {
+                evidence
+                    .phase_operations
+                    .get(&timing.phase)
+                    .copied()
+                    .unwrap_or(0)
+            })
+            .sum::<u64>();
+        if timing.operations != tier_operations {
+            hard_safety_failures += 1;
+        }
+    }
     let deterministic_replay_hash = hex_hash(
         &serde_json::to_vec(&(
             fixture,
+            &tier_counts,
+            &tier_evidence,
             &final_state_hash,
             &cache_payload_hash,
             &motion_source,
@@ -452,40 +590,31 @@ pub fn run_fixture(fixture: &MixedTierFixture) -> Result<MixedTierReport, String
     } else {
         f64::from(fixture.ticks) * 1_000_000_000.0 / elapsed_nanos as f64
     };
-    let working_set_bytes = state.capacity() * size_of::<AgentState>()
-        + cache_payload.capacity()
-        + blackboards.capacity() * size_of::<BlackboardStateV1>()
-        + promoted_world.agent_id.capacity() * size_of::<AgentId>();
-    let tier_evidence = vec![
-        TierEvidence {
-            tier: "S0".to_owned(),
-            agent_count: S0_COUNT,
-            evidence_level: "full".to_owned(),
-            individual_records: S0_COUNT,
-            aggregate_records: 0,
-            unavailable_evidence: Vec::new(),
-        },
-        TierEvidence {
-            tier: "S1".to_owned(),
-            agent_count: S1_COUNT,
-            evidence_level: "reduced".to_owned(),
-            individual_records: S1_COUNT,
-            aggregate_records: 0,
-            unavailable_evidence: vec!["full per-node trace".to_owned()],
-        },
-        TierEvidence {
-            tier: "S2".to_owned(),
-            agent_count: S2_COUNT,
-            evidence_level: "aggregate_only".to_owned(),
-            individual_records: 0,
-            aggregate_records: 1,
-            unavailable_evidence: vec![
-                "individual perception snapshots".to_owned(),
-                "individual brain traces".to_owned(),
-                "individual interaction diagnostics".to_owned(),
-            ],
-        },
-    ];
+    let working_set_components = BTreeMap::from([
+        (
+            "activity_inputs".to_owned(),
+            activity_input_bytes(&activity_resources, &activity_requests) as u64,
+        ),
+        (
+            "agent_state".to_owned(),
+            (state.capacity() * size_of::<AgentState>()) as u64,
+        ),
+        (
+            "blackboards".to_owned(),
+            (blackboards.capacity() * size_of::<BlackboardStateV1>()) as u64,
+        ),
+        ("cache_payload".to_owned(), cache_payload.capacity() as u64),
+        (
+            "group_runtime".to_owned(),
+            group_runtime_bytes(&groups) as u64,
+        ),
+        (
+            "interaction_requests".to_owned(),
+            interaction_request_bytes(&interaction_requests) as u64,
+        ),
+        ("world".to_owned(), world_capacity_bytes(&world) as u64),
+    ]);
+    let working_set_bytes = working_set_components.values().sum::<u64>();
     let mut failure_reasons = Vec::new();
     if ticks_per_second < fixture.min_ticks_per_second {
         failure_reasons.push(format!(
@@ -514,18 +643,21 @@ pub fn run_fixture(fixture: &MixedTierFixture) -> Result<MixedTierReport, String
         seed: fixture.seed,
         agent_count: fixture.agent_count,
         ticks: fixture.ticks,
-        tier_counts: fixture.tier_counts.clone(),
-        promoted_agent_count: fixture.promoted_agent_count(),
+        tier_counts: tier_counts.clone(),
+        tier_counts_source: "runtime_state".to_owned(),
+        promoted_agent_count: tier_counts.get("S0").copied().unwrap_or(0)
+            + tier_counts.get("S1").copied().unwrap_or(0),
         phase_timings,
         elapsed_nanos,
         phase_nanos,
         overhead_nanos: elapsed_nanos.saturating_sub(phase_nanos),
         ticks_per_second,
         min_ticks_per_second: fixture.min_ticks_per_second,
-        working_set_bytes: working_set_bytes as u64,
+        working_set_bytes,
         working_set_method:
-            "owned Vec capacities for fixture state, cache payload, blackboards, and promoted IDs"
+            "owned-capacity lower bound derived from the full 10K runtime state, world, blackboards, group/interaction inputs, and deterministic per-agent fixture evidence payload"
                 .to_owned(),
+        working_set_components,
         cache_payload_bytes: cache_payload.len() as u64,
         cache_records,
         cache_record_bytes: CACHE_RECORD_BYTES as u32,
@@ -567,14 +699,25 @@ fn build_state() -> Vec<AgentState> {
                 clip_id: 0,
                 phase_millionths: 0,
                 interaction_state: 0,
+                perception_operations: 0,
+                brain_operations: 0,
+                activity_operations: 0,
+                group_operations: 0,
+                motion_operations: 0,
+                interaction_operations: 0,
+                fallbacks: 0,
+                hard_safety_failures: 0,
+                unrelated_agent_mutations: 0,
+                cache_records: 0,
             }
         })
         .collect()
 }
 
-fn build_promoted_world() -> Result<World, String> {
+fn build_world(state: &[AgentState]) -> Result<World, String> {
     let mut world = World::new();
-    for agent_id in 0..PROMOTED_COUNT {
+    for agent in state {
+        let agent_id = agent.agent_id;
         let slot = world
             .spawn(
                 AgentSpawn {
@@ -590,21 +733,25 @@ fn build_promoted_world() -> Result<World, String> {
                 },
                 0,
             )
-            .map_err(|error| format!("promoted spawn failed: {error:?}"))?;
+            .map_err(|error| format!("mixed-tier spawn failed: {error:?}"))?;
         let index = slot as usize;
-        if agent_id < S0_COUNT {
-            world.simulation_tier[index] = SimulationTier::S0;
-            world.render_fidelity_tier[index] = RenderTier::R0;
-        } else {
-            world.simulation_tier[index] = SimulationTier::S1;
-            world.render_fidelity_tier[index] = RenderTier::R1;
-        }
+        world.simulation_tier[index] = match agent.tier {
+            value if value == SimulationTier::S0 as u8 => SimulationTier::S0,
+            value if value == SimulationTier::S1 as u8 => SimulationTier::S1,
+            _ => SimulationTier::S2,
+        };
+        world.render_fidelity_tier[index] = match agent.render_tier {
+            value if value == RenderTier::R0 as u8 => RenderTier::R0,
+            value if value == RenderTier::R1 as u8 => RenderTier::R1,
+            _ => RenderTier::R2,
+        };
+        world.render_tier[index] = agent.render_tier;
     }
     Ok(world)
 }
 
 fn build_blackboards() -> Result<Vec<BlackboardStateV1>, String> {
-    (0..PROMOTED_COUNT)
+    (0..AGENT_COUNT)
         .map(|_| {
             BlackboardStateV1::new(vec![BlackboardChannelV1::new(
                 "urgency",
@@ -612,6 +759,94 @@ fn build_blackboards() -> Result<Vec<BlackboardStateV1>, String> {
                 BlackboardValueV1::NumberI32(0),
             )])
             .map_err(|error| error.to_string())
+        })
+        .collect()
+}
+
+fn build_group_fixtures() -> Result<Vec<GroupFixture>, String> {
+    (0..AGENT_COUNT)
+        .step_by(3)
+        .enumerate()
+        .map(|(group_index, first)| {
+            let ids = (first..(first + 3).min(AGENT_COUNT))
+                .map(|agent_id| AgentId(u64::from(agent_id)))
+                .collect::<Vec<_>>();
+            let offsets = [[0, 0], [-1_000, 0], [1_000, 0]];
+            let roles = ids
+                .iter()
+                .enumerate()
+                .map(|(index, agent_id)| FormationRoleV1 {
+                    agent_id: *agent_id,
+                    role: match index {
+                        0 => "leader",
+                        1 => "left",
+                        _ => "right",
+                    }
+                    .to_owned(),
+                    offset_millimeters: offsets[index],
+                })
+                .collect::<Vec<_>>();
+            let positions = ids
+                .iter()
+                .enumerate()
+                .map(|(index, agent_id)| {
+                    (
+                        *agent_id,
+                        Vec2::new(
+                            offsets[index][0] as f32 / 1_000.0,
+                            offsets[index][1] as f32 / 1_000.0,
+                        ),
+                    )
+                })
+                .collect();
+            let formation = FormationV1::new(
+                format!("mixed-tier-group-{group_index}"),
+                ids[0],
+                roles,
+                3_000,
+                FormationSplitPolicyV1::Regroup,
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(GroupFixture {
+                formation,
+                positions,
+            })
+        })
+        .collect()
+}
+
+fn build_interaction_requests(
+    template: &InteractionRequestV1,
+) -> Result<Vec<InteractionRequestV1>, String> {
+    (0..AGENT_COUNT)
+        .step_by(2)
+        .enumerate()
+        .map(|(group_index, first)| {
+            let participant_ids = [u64::from(first), u64::from(first + 1)];
+            let mut request = template.clone();
+            request.request_id = format!("mixed-tier-pair-{group_index}");
+            request.group_id = format!("mixed-tier-group-{group_index}");
+            for (participant, agent_id) in request.participants.iter_mut().zip(participant_ids) {
+                participant.agent_id = agent_id;
+            }
+            for (constraint, agent_id) in request.root_constraints.iter_mut().zip(participant_ids) {
+                constraint.agent_id = agent_id;
+            }
+            for (contact_index, constraint) in request.contact_constraints.iter_mut().enumerate() {
+                constraint.contact_id = format!("mixed-tier-contact-{group_index}-{contact_index}");
+                constraint.owner_agent_id = participant_ids[0];
+                constraint.other_agent_id = participant_ids[1];
+            }
+            request
+                .validate()
+                .map_err(|issues| {
+                    issues
+                        .into_iter()
+                        .map(|issue| issue.message)
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .map(|_| request)
         })
         .collect()
 }
@@ -719,15 +954,245 @@ fn build_motion_matcher() -> Result<(MotionMatcher, MotionSourceEvidence), Strin
     ))
 }
 
-fn append_cache_tick(payload: &mut Vec<u8>, tick: u32, state: &[AgentState]) {
+fn derive_tier_counts(state: &[AgentState]) -> BTreeMap<String, u32> {
+    let mut counts = BTreeMap::new();
     for agent in state {
+        *counts.entry(tier_name(agent.tier).to_owned()).or_default() += 1;
+    }
+    counts
+}
+
+fn derive_tier_evidence(
+    state: &[AgentState],
+    ticks: u32,
+    tier_cache_records: &BTreeMap<String, u64>,
+) -> Vec<TierEvidence> {
+    [
+        ("S0", "full", Vec::new()),
+        ("S1", "reduced", vec!["full per-node trace".to_owned()]),
+        (
+            "S2",
+            "aggregate_only",
+            vec![
+                "individual perception snapshots".to_owned(),
+                "individual brain traces".to_owned(),
+                "individual interaction diagnostics".to_owned(),
+            ],
+        ),
+    ]
+    .into_iter()
+    .map(|(tier, evidence_level, unavailable_evidence)| {
+        let agents = state
+            .iter()
+            .filter(|agent| tier_name(agent.tier) == tier)
+            .collect::<Vec<_>>();
+        let phase_operations = BTreeMap::from([
+            (
+                "activity".to_owned(),
+                agents
+                    .iter()
+                    .map(|agent| u64::from(agent.activity_operations))
+                    .sum(),
+            ),
+            (
+                "brain".to_owned(),
+                agents
+                    .iter()
+                    .map(|agent| u64::from(agent.brain_operations))
+                    .sum(),
+            ),
+            (
+                "group".to_owned(),
+                agents
+                    .iter()
+                    .map(|agent| u64::from(agent.group_operations))
+                    .sum(),
+            ),
+            (
+                "interaction".to_owned(),
+                agents
+                    .iter()
+                    .map(|agent| u64::from(agent.interaction_operations))
+                    .sum(),
+            ),
+            (
+                "motion".to_owned(),
+                agents
+                    .iter()
+                    .map(|agent| u64::from(agent.motion_operations))
+                    .sum(),
+            ),
+            (
+                "perception".to_owned(),
+                agents
+                    .iter()
+                    .map(|agent| u64::from(agent.perception_operations))
+                    .sum(),
+            ),
+        ]);
+        let agent_count = agents.len() as u32;
+        TierEvidence {
+            tier: tier.to_owned(),
+            agent_count,
+            evidence_level: evidence_level.to_owned(),
+            individual_records: if tier == "S2" { 0 } else { agent_count },
+            aggregate_records: if tier == "S2" { ticks } else { 0 },
+            phase_operations,
+            cache_records: tier_cache_records.get(tier).copied().unwrap_or(0),
+            fallbacks: agents.iter().map(|agent| u64::from(agent.fallbacks)).sum(),
+            hard_safety_failures: agents
+                .iter()
+                .map(|agent| u64::from(agent.hard_safety_failures))
+                .sum(),
+            unrelated_agent_mutations: agents
+                .iter()
+                .map(|agent| u64::from(agent.unrelated_agent_mutations))
+                .sum(),
+            unavailable_evidence,
+        }
+    })
+    .collect()
+}
+
+fn tier_name(tier: u8) -> &'static str {
+    match tier {
+        value if value == SimulationTier::S0 as u8 => "S0",
+        value if value == SimulationTier::S1 as u8 => "S1",
+        _ => "S2",
+    }
+}
+
+fn append_cache_tick(
+    payload: &mut Vec<u8>,
+    tick: u32,
+    state: &mut [AgentState],
+    tier_cache_records: &mut BTreeMap<String, u64>,
+) {
+    for agent in state {
+        agent.cache_records += 1;
+        *tier_cache_records
+            .entry(tier_name(agent.tier).to_owned())
+            .or_default() += 1;
+        let record_start = payload.len();
         payload.extend_from_slice(&agent.agent_id.to_le_bytes());
         payload.extend_from_slice(&tick.to_le_bytes());
         payload.push(agent.tier);
         payload.push(agent.render_tier);
+        payload.push(agent.activity_state);
+        payload.push(agent.group_state);
+        payload.push(agent.interaction_state);
         payload.extend_from_slice(&agent.clip_id.to_le_bytes());
         payload.extend_from_slice(&agent.phase_millionths.to_le_bytes());
+        for value in [
+            agent.perception_operations,
+            agent.brain_operations,
+            agent.activity_operations,
+            agent.group_operations,
+            agent.motion_operations,
+            agent.interaction_operations,
+            agent.fallbacks,
+            agent.hard_safety_failures,
+            agent.unrelated_agent_mutations,
+            agent.cache_records,
+        ] {
+            payload.extend_from_slice(&value.to_le_bytes());
+        }
+        debug_assert_eq!(payload.len() - record_start, CACHE_RECORD_BYTES);
     }
+}
+
+fn group_runtime_bytes(groups: &[GroupFixture]) -> usize {
+    size_of_val(groups)
+        + groups
+            .iter()
+            .map(|group| {
+                group.formation.id.capacity()
+                    + group.formation.roles.capacity() * size_of::<FormationRoleV1>()
+                    + group
+                        .formation
+                        .roles
+                        .iter()
+                        .map(|role| role.role.capacity())
+                        .sum::<usize>()
+                    + group.positions.len() * size_of::<(AgentId, Vec2)>()
+            })
+            .sum::<usize>()
+}
+
+fn interaction_request_bytes(requests: &[InteractionRequestV1]) -> usize {
+    size_of_val(requests)
+        + requests
+            .iter()
+            .map(|request| serde_json::to_vec(request).map_or(0, |bytes| bytes.len()))
+            .sum::<usize>()
+}
+
+fn activity_input_bytes(resources: &[ResourceV1], requests: &[ActivityRequestV1]) -> usize {
+    size_of_val(resources)
+        + resources
+            .iter()
+            .map(|resource| resource.id.capacity())
+            .sum::<usize>()
+        + size_of_val(requests)
+        + requests
+            .iter()
+            .map(|request| request.resource_id.capacity())
+            .sum::<usize>()
+}
+
+fn vec_capacity_bytes<T>(values: &Vec<T>) -> usize {
+    values.capacity() * size_of::<T>()
+}
+
+fn world_capacity_bytes(world: &World) -> usize {
+    vec_capacity_bytes(&world.agent_id)
+        + vec_capacity_bytes(&world.population_id)
+        + vec_capacity_bytes(&world.spawn_tick)
+        + vec_capacity_bytes(&world.archetype_id)
+        + vec_capacity_bytes(&world.variant_id)
+        + vec_capacity_bytes(&world.spawn_ordinal)
+        + vec_capacity_bytes(&world.scale)
+        + vec_capacity_bytes(&world.pos_x)
+        + vec_capacity_bytes(&world.pos_y)
+        + vec_capacity_bytes(&world.yaw)
+        + vec_capacity_bytes(&world.vel_x)
+        + vec_capacity_bytes(&world.vel_y)
+        + vec_capacity_bytes(&world.radius)
+        + vec_capacity_bytes(&world.max_speed)
+        + vec_capacity_bytes(&world.preferred_speed)
+        + vec_capacity_bytes(&world.route)
+        + vec_capacity_bytes(&world.route_index)
+        + vec_capacity_bytes(&world.destination)
+        + vec_capacity_bytes(&world.custom_destination)
+        + vec_capacity_bytes(&world.destination_x)
+        + vec_capacity_bytes(&world.destination_y)
+        + vec_capacity_bytes(&world.custom_destination_bounds)
+        + vec_capacity_bytes(&world.destination_min_x)
+        + vec_capacity_bytes(&world.destination_min_y)
+        + vec_capacity_bytes(&world.destination_max_x)
+        + vec_capacity_bytes(&world.destination_max_y)
+        + vec_capacity_bytes(&world.arrived)
+        + vec_capacity_bytes(&world.unrouted)
+        + vec_capacity_bytes(&world.commuter_state)
+        + vec_capacity_bytes(&world.decision_reason)
+        + vec_capacity_bytes(&world.clip_id)
+        + vec_capacity_bytes(&world.clip_phase)
+        + vec_capacity_bytes(&world.playback_rate)
+        + vec_capacity_bytes(&world.visible)
+        + vec_capacity_bytes(&world.simulation_tier)
+        + vec_capacity_bytes(&world.render_fidelity_tier)
+        + vec_capacity_bytes(&world.render_tier)
+        + vec_capacity_bytes(&world.des_vel_x)
+        + vec_capacity_bytes(&world.des_vel_y)
+        + vec_capacity_bytes(&world.scheduled_target_vel_x)
+        + vec_capacity_bytes(&world.scheduled_target_vel_y)
+        + vec_capacity_bytes(&world.next_pos_x)
+        + vec_capacity_bytes(&world.next_pos_y)
+        + vec_capacity_bytes(&world.next_vel_x)
+        + vec_capacity_bytes(&world.next_vel_y)
+        + vec_capacity_bytes(&world.next_yaw)
+        + vec_capacity_bytes(&world.solver_status)
+        + vec_capacity_bytes(&world.stall_ticks)
 }
 
 fn hex_hash(bytes: &[u8]) -> String {

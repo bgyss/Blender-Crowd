@@ -188,3 +188,169 @@ Task 13 performance and host Blender runs.
   owns final requirement promotion; Task 13 passing is not full M6 acceptance.
 
 No subagent or reviewer was dispatched.
+
+## Fix Round 1 — 2026-08-19
+
+Status: VERIFIED. This section supersedes the pre-review Task 13 completion
+evidence above where counts, timings, hashes, lifecycle scope, or support
+wording differ. No subagent or reviewer was dispatched.
+
+### Review findings closed
+
+- **Synthetic 10K authority:** every one of the 10,000 runtime agents now
+  executes authoritative perception, typed-blackboard brain work, reservation,
+  formation, evidence-cache output, and one atomic interaction. S0/S1 execute
+  motion matching every tick; S2 executes the checked two-tick M5 cadence.
+  Tier counts, phase operations, cache records, fallbacks, hard-safety failures,
+  and unrelated mutations are derived from runtime state.
+- **Blender bypassed Rust motion validation:** the live load operator now sends
+  the complete interaction layer and motion JSON through
+  `blender_crowd_native.validate_interaction_motion_attachment` before lowering.
+  Rust accepts valid interval/root/contact/provenance evidence and rejects
+  incomplete roots, invalid contacts, and invalid provenance.
+- **Incomplete physics/hero lifecycle:** physics bindings carry the complete
+  cache hash, target IDs, and interval; cached samples must cover every declared
+  tick. Native inspection exposes `physics_active`, and the host smoke proves
+  attach, mute, unmute, remove, and reload at ticks 15 and 25. Hero cloth is
+  explicitly `declaration-only unsupported` and `not attached`, with its
+  requested cache/target/interval binding visible rather than implied as a run.
+- **M4 override loss:** playback retains independent M4 and M6 lists and
+  composes both. An unrelated-agent M4 transform survives M6 attach, failed
+  replacement, mute, unmute, remove, and reload.
+- **Non-atomic attachment:** candidate native layout state is validated and
+  played at the current tick before Python commits either list. Failure restores
+  the previous native stack. The invalid-cache-target host case proves the old
+  M6 and M4 states remain active after native rejection.
+- **Stale removal labels:** removal resets owner, interval, contacts,
+  provenance, recovery, failure policy, and hero boundary to their explicit
+  `No M6 ... loaded` states.
+
+### Focused RED/GREEN evidence
+
+The inherited pure-Python test first failed with
+`KeyError: 'hero_execution_status'`; after the explicit boundary/binding change:
+
+```text
+python3 -m unittest -v tests/test_m6_layer_bundle.py
+Ran 3 tests in 0.005s
+OK
+```
+
+The inherited host smoke first failed at the hero wording, then exposed missing
+`physics_active`, then proved the Rust validator was live by rejecting the
+intentionally incomplete root artifact. The final native focused result was:
+
+```text
+cargo test -p crowd-blender --lib
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+The mixed-tier test added exact per-tier runtime and isolation assertions. Its
+initial per-tier-isolation compile failed because `TierEvidence` did not yet
+carry `unrelated_agent_mutations`; after runtime delta accounting:
+
+```text
+cargo test -p crowd-bench --test m6_mixed_tier
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+### Exact optimized two-pass evidence
+
+Command:
+
+```text
+scripts/m6-performance-test.sh
+```
+
+Exact significant output:
+
+```text
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+M6 mixed-tier: 10000 agents, 126.007 ticks/s, replay a66bdd02ead627f21d161dec5dc03a7b4575bb169ef37768c4c51c338f06b0fd
+M6 mixed-tier: 10000 agents, 124.653 ticks/s, replay a66bdd02ead627f21d161dec5dc03a7b4575bb169ef37768c4c51c338f06b0fd
+M6 mixed-tier performance passed: 126.007 ticks/s; replay a66bdd02ead627f21d161dec5dc03a7b4575bb169ef37768c4c51c338f06b0fd
+```
+
+The retained first run recorded 238,082,792 ns total elapsed,
+213,564,253 ns across the six separately timed phases, 24,518,539 ns explicit
+overhead, 31,895,245 bytes of owned-allocation lower-bound working set, and a
+17,700,000-byte deterministic evidence payload (300,000 records at 59 bytes).
+It recorded zero fallbacks, zero hard-safety failures, and zero unrelated-agent
+mutations globally and for S0, S1, and S2.
+
+S2 runtime totals were 270,000 perception, brain, activity, and group
+operations; 135,000 motion operations; 9,000 completed interaction operations;
+and 270,000 evidence-cache records. S2 remains aggregate-only: individual
+perception, brain, and interaction diagnostics are explicitly unavailable.
+
+Deterministic hashes:
+
+```text
+replay: a66bdd02ead627f21d161dec5dc03a7b4575bb169ef37768c4c51c338f06b0fd
+final state: 2b6e804be85489bbe888d1ec285d25c2934acc02b91312f8bfc3a9aa42215e3d
+evidence payload: 71d613da5353c5f10ef617f7027b7c6b76ed6cf09cde1eb22550e8406f522762
+```
+
+Environment: macOS 27.0 build `26A5416b`, arm64, Rust 1.94.1, Cargo
+1.94.1, optimized release profile.
+
+### Exact host Blender / Metal evidence
+
+Command executed outside the restricted automation sandbox:
+
+```text
+scripts/m6-blender-test.sh
+```
+
+Significant output:
+
+```text
+M6 debugger Blender smoke: PASS
+Error: E_INTERACTION_MOTION: root samples must cover the complete request interval; agent 2506968674689638394 motion roots must cover the complete interval
+Error: E_LAYOUT: layer m6-animation-interaction-pair-10293130296351569156-15 targets an agent absent from the base
+Info: M6 layers muted
+Info: M6 layers unmuted
+Info: M6 layers removed; source artifacts and base cache retained
+M6 Blender physics/hero layers: PASS
+Blender 5.2.0 LTS (hash fbe6228777e7 built 2026-07-14 01:31:22)
+```
+
+Both Blender processes reached Python with normal host Metal access; there was
+no `gpu::MTLBackend::metal_is_supported` or pre-Python Metal abort.
+
+### Regression and quality gates
+
+```text
+scripts/m6-foundation-test.sh
+M6 R0 foundation passed
+
+cargo fmt --all -- --check
+exit 0
+
+cargo clippy --workspace --all-targets -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo]
+
+git diff --check
+exit 0
+```
+
+### Updated durable evidence
+
+- `docs/benchmarks/2026-08-18-m6-blender-layers.md`
+- `docs/benchmarks/2026-08-18-m6-mixed-tier.md`
+- generated retained JSON: `benchmarks/reports/m6-mixed-tier-10k.json`
+  (ignored by Git and reproducible with the performance runner)
+
+### Remaining boundaries
+
+- Cloth, hair, and Geometry Nodes deformation remain declaration-only and are
+  neither attached nor benchmarked.
+- The cached deterministic handoff is not Blender rigid-body parity or evidence
+  for arbitrary collision scenes.
+- Neural motion and external model workers remain unsupported and unmeasured.
+- The 30-tick fixed fixture is not production-scene, long-duration, GPU,
+  viewport/render, Cache v1 disk/streaming, or artist-usability evidence.
+- The CMU candidate remains rejected at 3,587 joint-limit violations against
+  the unchanged hard limit of zero; the checked CC0 baseline remains the
+  accepted motion source.
+- Task 14 still owns milestone-level M6 acceptance promotion.

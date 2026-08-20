@@ -261,6 +261,12 @@ def load_layer_bundle(
     transition = physics.load_transition(physics_transition_path, expected_base_hash)
     hero = physics.load_hero_boundary(hero_boundary_path)
     owners = sorted(set(layer["target_agent_ids"]) | set(transition["agent_ids"]))
+    physics_binding = {
+        "base_cache_hash": expected_base_hash,
+        "target_agent_ids": list(transition["agent_ids"]),
+        "tick_start": transition["tick_start"],
+        "tick_end": transition["tick_end"],
+    }
     return {
         "base_cache_hash": expected_base_hash,
         "owner_agent_ids": owners,
@@ -275,7 +281,15 @@ def load_layer_bundle(
         "recovery": transition["recovery"],
         "physics_failure_policy": transition["failure_policy"],
         "hero_boundary": hero,
+        "hero_execution_status": "declaration_only_unsupported",
+        "physics_binding": physics_binding,
+        "hero_binding": {
+            **physics_binding,
+            "execution_status": "declaration_only_unsupported",
+            "attachment_status": "not_attached",
+        },
         "interaction_layer": layer,
+        "interaction_motion": motion,
         "physics_transition": transition,
     }
 
@@ -318,6 +332,14 @@ def build_layout_layers(bundle, physics_samples, muted=False):
     transition = bundle["physics_transition"]
     if not physics_samples:
         raise ValueError("M6 physics layer requires cached transition samples")
+    expected_ticks = list(range(transition["tick_start"], transition["tick_end"] + 1))
+    sample_ticks = [sample.get("tick") for sample in physics_samples]
+    if sample_ticks != expected_ticks:
+        raise ValueError(
+            "M6 physics samples must cover the complete {}..{} interval".format(
+                transition["tick_start"], transition["tick_end"]
+            )
+        )
     derived.append({
         "schema_version": 1,
         "layer_id": "m6-physics-{}".format(transition["transition_id"]),

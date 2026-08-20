@@ -51,6 +51,32 @@ fn mixed_tier_run_reports_each_authoritative_phase_and_hard_safety() {
     assert!(report.working_set_bytes > 0);
     assert!(report.cache_payload_bytes > 0);
     assert_eq!(report.cache_records, 300_000);
+    assert_eq!(report.tier_counts_source, "runtime_state");
+    assert_eq!(
+        report.cache_payload_bytes,
+        report.cache_records * u64::from(report.cache_record_bytes)
+    );
+    assert!(
+        report.cache_record_bytes > 16,
+        "cache evidence must cover authoritative phase outputs, not only tier and motion state"
+    );
+    assert_eq!(
+        report.working_set_components.values().sum::<u64>(),
+        report.working_set_bytes
+    );
+    for component in [
+        "agent_state",
+        "blackboards",
+        "cache_payload",
+        "group_runtime",
+        "interaction_requests",
+        "world",
+    ] {
+        assert!(
+            report.working_set_components[component] > 0,
+            "{component} memory was not derived from the runtime allocation"
+        );
+    }
     assert!(report.fallbacks.iter().all(|item| !item.reason.is_empty()));
     assert_eq!(
         report
@@ -85,6 +111,76 @@ fn mixed_tier_run_reports_each_authoritative_phase_and_hard_safety() {
         "fixed report failed: {:?}",
         report.failure_reasons
     );
+}
+
+#[test]
+fn every_tier_runs_authoritative_work_and_s2_evidence_is_aggregated_from_outputs() {
+    let report = run_fixture(&MixedTierFixture::checked_10k()).expect("fixed fixture should run");
+    let evidence = report
+        .tier_evidence
+        .iter()
+        .map(|item| (item.tier.as_str(), item))
+        .collect::<BTreeMap<_, _>>();
+
+    for (tier, agents) in [("S0", 10u64), ("S1", 990), ("S2", 9_000)] {
+        let item = evidence[tier];
+        assert_eq!(u64::from(item.agent_count), agents);
+        assert_eq!(item.cache_records, agents * u64::from(report.ticks));
+        assert_eq!(item.fallbacks, 0);
+        assert_eq!(item.hard_safety_failures, 0);
+        assert_eq!(item.unrelated_agent_mutations, 0);
+        for phase in PHASE_NAMES {
+            assert!(
+                item.phase_operations[phase] > 0,
+                "{tier} did not execute authoritative {phase} work"
+            );
+        }
+    }
+
+    assert_eq!(evidence["S0"].individual_records, 10);
+    assert_eq!(evidence["S1"].individual_records, 990);
+    assert_eq!(evidence["S2"].individual_records, 0);
+    assert_eq!(evidence["S2"].aggregate_records, report.ticks);
+    assert_eq!(
+        evidence["S2"].phase_operations["perception"],
+        9_000 * u64::from(report.ticks)
+    );
+    assert_eq!(
+        evidence["S2"].phase_operations["brain"],
+        9_000 * u64::from(report.ticks)
+    );
+    assert_eq!(
+        evidence["S2"].phase_operations["activity"],
+        9_000 * u64::from(report.ticks)
+    );
+    assert_eq!(
+        evidence["S2"].phase_operations["group"],
+        9_000 * u64::from(report.ticks)
+    );
+    assert_eq!(
+        evidence["S2"].phase_operations["interaction"], 9_000,
+        "every S2 agent must complete one authoritative interaction during the run"
+    );
+    assert_eq!(
+        evidence["S2"].phase_operations["motion"],
+        9_000 * u64::from(report.ticks) / 2
+    );
+
+    let timing_operations = report
+        .phase_timings
+        .iter()
+        .map(|timing| (timing.phase.as_str(), timing.operations))
+        .collect::<BTreeMap<_, _>>();
+    for phase in PHASE_NAMES {
+        assert_eq!(
+            timing_operations[phase],
+            evidence
+                .values()
+                .map(|item| item.phase_operations[phase])
+                .sum::<u64>(),
+            "{phase} timing operations were not derived from tier runtime outputs"
+        );
+    }
 }
 
 #[test]

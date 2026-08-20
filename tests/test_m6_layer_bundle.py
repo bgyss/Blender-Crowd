@@ -48,8 +48,24 @@ class M6LayerBundleTests(unittest.TestCase):
             "schema_version": 1,
             "request_id": "request-7-9",
             "participants": [
-                {"agent_id": 7, "root_samples": [], "skeletal_channels": []},
-                {"agent_id": 9, "root_samples": [], "skeletal_channels": []},
+                {
+                    "agent_id": 7,
+                    "root_samples": [
+                        {"tick": 10, "translation": [0.0, 0.0, 0.0], "yaw": 0.0},
+                        {"tick": 15, "translation": [0.25, 0.0, 0.0], "yaw": 0.0},
+                        {"tick": 20, "translation": [0.5, 0.0, 0.0], "yaw": 0.0},
+                    ],
+                    "skeletal_channels": [],
+                },
+                {
+                    "agent_id": 9,
+                    "root_samples": [
+                        {"tick": 10, "translation": [1.0, 0.0, 0.0], "yaw": 3.141592653589793},
+                        {"tick": 15, "translation": [0.75, 0.0, 0.0], "yaw": 3.141592653589793},
+                        {"tick": 20, "translation": [0.5, 0.0, 0.0], "yaw": 3.141592653589793},
+                    ],
+                    "skeletal_channels": [],
+                },
             ],
             "contacts": [{
                 "contact_id": "touch-7-9",
@@ -118,6 +134,28 @@ class M6LayerBundleTests(unittest.TestCase):
         self.assertEqual(bundle["recovery"], "resume-walk")
         self.assertEqual(bundle["physics_failure_policy"], "fallback")
         self.assertEqual(bundle["hero_boundary"]["supported_render_tiers"], ["hero"])
+        self.assertEqual(bundle["hero_execution_status"], "declaration_only_unsupported")
+        self.assertEqual(
+            bundle["physics_binding"],
+            {
+                "base_cache_hash": BASE_HASH,
+                "target_agent_ids": [7],
+                "tick_start": 20,
+                "tick_end": 30,
+            },
+        )
+        self.assertEqual(
+            bundle["hero_binding"],
+            {
+                "base_cache_hash": BASE_HASH,
+                "target_agent_ids": [7],
+                "tick_start": 20,
+                "tick_end": 30,
+                "execution_status": "declaration_only_unsupported",
+                "attachment_status": "not_attached",
+            },
+        )
+        self.assertEqual(bundle["interaction_motion"], self.motion)
 
     def test_bundle_rejects_cross_cache_and_cross_interaction_artifacts(self):
         wrong_cache = copy.deepcopy(self.transition)
@@ -174,7 +212,14 @@ class M6LayerBundleTests(unittest.TestCase):
         self.assertEqual([layer["edits"][0]["clip_id"] for layer in layers[:2]], [42, 43])
         self.assertEqual(layers[2]["kind"], "physics")
         self.assertEqual(layers[2]["target"]["agent_ids"], [7])
+        self.assertEqual(
+            [sample["tick"] for sample in layers[2]["edits"][0]["cached_samples"]],
+            list(range(20, 31)),
+        )
         self.assertTrue(all(not layer["muted"] for layer in layers))
+
+        with self.assertRaisesRegex(ValueError, "complete 20..30 interval"):
+            m6_interaction.build_layout_layers(bundle, physics_samples[:-1], muted=False)
 
         muted = m6_interaction.build_layout_layers(bundle, physics_samples, muted=True)
         self.assertTrue(all(layer["muted"] for layer in muted))
