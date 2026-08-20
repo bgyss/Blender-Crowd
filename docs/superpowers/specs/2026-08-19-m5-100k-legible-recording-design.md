@@ -1,7 +1,7 @@
 # Legible 100K recording: cropped, tracked, 4K
 
 Date: 2026-08-19
-Status: approved, not yet implemented
+Status: implemented
 Touches: `scripts/render_playback.py`, `scripts/make-m5-100k-recording.sh`
 
 ## Problem
@@ -13,7 +13,7 @@ instanced as a cone of radius 0.25 (0.5 m across), which lands at 0.23 px. The
 clip is therefore a pale wash rather than a picture of a crowd.
 
 This is separate from the grey-frame defect fixed alongside it, where the
-camera's default `clip_end` of 1000 sat inside the ~2076 m camera-to-centre
+camera's default `clip_end` of 1000 sat inside the ~3046 m camera-to-centre
 distance and clipped the entire scene away. That fix is a prerequisite: without
 it nothing renders at all.
 
@@ -85,7 +85,8 @@ It must be geometry, not a texture: the renderer is Workbench with
 thin quads at 50 m spacing, ~0.25 m wide (about 3.8 px at 15.36 px/m), sitting
 just above the ground plane, carrying their own darker material.
 
-Grid extent covers the scene bounds, not just the traversed corridor. It is a
+Grid extent covers the occupied bounds `scan_trace` returns, not just the
+traversed corridor. It is a
 few hundred quads either way and generating the whole thing avoids a second
 piece of positioning logic that could disagree with the camera's.
 
@@ -97,7 +98,9 @@ New environment variables on `render_playback.py`:
 - `CROWD_TRACK_STREAM` - which stream label to track (0 = south, 1 = north).
 - `CROWD_GROUND_GRID` - grid spacing in metres. Unset means no grid.
 
-With none of them set, behaviour is byte-identical to today. This keeps
+With none of them set, behaviour is pixel-identical to today (Blender writes
+`Date` and `RenderTime` into each PNG's `tEXt` chunks, so renders are never
+byte-identical). This keeps
 `make-blender-recording.sh`, `make-m1-recording.sh`, and the crossing
 recordings untouched.
 
@@ -117,13 +120,15 @@ no extra I/O.
 
 - Render stage: 4K is ~9x the pixels of 1280x720. Expect roughly 15-20 min
   against the current 137 s.
-- Output: roughly 40-80 MB against the current 7.1 MB.
+- Output: 161 MB (156,193,321 bytes) against the current 7.1 MB.
 - The trace is reused; the multi-hour bake does not re-run.
 
 ## Claims this clip does and does not support
 
-The clip shows 8,300-12,300 agents of 100,000, under 1% of the scene area. It
-must not be captioned as an image of the population; that claim belongs to
+The clip shows 8,300-12,300 agents of 100,000 at a time -- 8.3%-12.3% of the
+population, and about 2% of the scene's ground area (the 250 m window is ~223 m
+deep once the camera tilt is accounted for). It must not be captioned as an
+image of the population; that claim belongs to
 `docs/media/m5-100k-hero.png`, which is a measured positional plot asserted at
 above 95% occupancy. The script header should say so, matching the existing
 qualifiers in `make-m5-100k-recording.sh` about the run being truncated and the

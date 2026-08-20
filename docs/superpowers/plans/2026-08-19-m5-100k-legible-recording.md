@@ -21,6 +21,31 @@
 
 ---
 
+## Corrections after execution
+
+This plan is kept as the record of what was executed, so its task text is left
+as it was written. Two numbers in it are wrong and were corrected in the code
+and the design spec by commit `e3b38ca`. Do not quote them from here:
+
+- **The whole-scene camera distance is ~3046 units, not ~2076.** The 2076
+  figure came from a single-tick debugging probe where the occupied extent was
+  1637 m; the renderer uses the full-scan extent of 2401.6 m, which gives
+  `hypot(2401.6*0.8*1.23, 2401.6*0.8) = 3045.6`. It appears wrong in the Global
+  Constraints, in Task 1's test code and module docstring, and in Task 1's
+  commit message. The conclusion is unaffected -- Blender's default `clip_end`
+  of 1000 clips the scene at either distance.
+- **The clip shows 8.3%-12.3% of the population and ~2% of the scene's ground
+  area, not "under 1%".** The "under 1%" phrasing dates from an early estimate
+  that the 250 m window would hold only a few hundred agents; the agent count
+  was corrected to 8,300-12,300 but the percentage was not. It appears wrong in
+  the Global Constraints and in Task 6's script text and commit message.
+
+Both were found by the whole-branch review, not by any single task's review --
+each task's text was internally consistent, which is exactly why a
+task-scoped gate could not catch either one.
+
+---
+
 ### Task 1: Extract clip-plane derivation and cover it with a test
 
 The grey-frame defect is already fixed inline in `build_camera`, but untested. Move it into the new module so it has a test, and establish the module + test file the later tasks build on.
@@ -614,10 +639,36 @@ CROWD_FRAME_DIR=/tmp/crowd-plan-check/frames-after \
 CROWD_TICK_STEP=2000 CROWD_RES_X=640 \
 /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
   --python scripts/render_playback.py
-diff -r /tmp/crowd-plan-check/frames /tmp/crowd-plan-check/frames-after && echo IDENTICAL
 ```
 
-Expected: `IDENTICAL`. If the frames differ, the refactor changed the default path and must be corrected before moving on.
+Then compare the frames pixel for pixel:
+
+```bash
+python3 - <<'EOF'
+from PIL import Image
+import numpy as np
+import pathlib
+
+before = sorted(pathlib.Path("/tmp/crowd-plan-check/frames").glob("*.png"))
+after = sorted(pathlib.Path("/tmp/crowd-plan-check/frames-after").glob("*.png"))
+assert before, "no baseline frames -- rerun the Task 1 Step 6 render first"
+assert len(before) == len(after), (len(before), len(after))
+for b, a in zip(before, after):
+    x = np.array(Image.open(b).convert("RGBA"), dtype=np.int16)
+    y = np.array(Image.open(a).convert("RGBA"), dtype=np.int16)
+    assert x.shape == y.shape and not np.any(x - y), b.name
+print("IDENTICAL: {} frames match pixel for pixel".format(len(before)))
+EOF
+```
+
+Expected: `IDENTICAL: 3 frames match pixel for pixel`. If any frame differs, the
+refactor changed the default path and must be corrected before moving on.
+
+Compare pixels rather than bytes: Blender stamps `Date` and `RenderTime` into
+each PNG's `tEXt` chunks, so two renders of an identical scene are never
+byte-identical and `diff`/`cmp` would always report a difference. This was
+measured before the plan was executed -- the pixels came back bit-identical
+while the files did not.
 
 - [ ] **Step 7: Commit**
 
@@ -890,10 +941,36 @@ CROWD_FRAME_DIR=/tmp/crowd-plan-check/frames-task5 \
 CROWD_TICK_STEP=2000 CROWD_RES_X=640 \
 /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
   --python scripts/render_playback.py
-diff -r /tmp/crowd-plan-check/frames /tmp/crowd-plan-check/frames-task5 && echo IDENTICAL
 ```
 
-Expected: `IDENTICAL`.
+Then compare the frames pixel for pixel:
+
+```bash
+python3 - <<'EOF'
+from PIL import Image
+import numpy as np
+import pathlib
+
+before = sorted(pathlib.Path("/tmp/crowd-plan-check/frames").glob("*.png"))
+after = sorted(pathlib.Path("/tmp/crowd-plan-check/frames-task5").glob("*.png"))
+assert before, "no baseline frames -- rerun the Task 1 Step 6 render first"
+assert len(before) == len(after), (len(before), len(after))
+for b, a in zip(before, after):
+    x = np.array(Image.open(b).convert("RGBA"), dtype=np.int16)
+    y = np.array(Image.open(a).convert("RGBA"), dtype=np.int16)
+    assert x.shape == y.shape and not np.any(x - y), b.name
+print("IDENTICAL: {} frames match pixel for pixel".format(len(before)))
+EOF
+```
+
+Expected: `IDENTICAL: 3 frames match pixel for pixel`. If any frame differs, the
+refactor changed the default path and must be corrected before moving on.
+
+Compare pixels rather than bytes: Blender stamps `Date` and `RenderTime` into
+each PNG's `tEXt` chunks, so two renders of an identical scene are never
+byte-identical and `diff`/`cmp` would always report a difference. This was
+measured before the plan was executed -- the pixels came back bit-identical
+while the files did not.
 
 - [ ] **Step 7: Commit**
 
@@ -1074,4 +1151,7 @@ of the population at a time, so it is never mistaken for a picture of
 
 - Run the Blender steps with normal host access. A restricted automation sandbox returns no Metal device on macOS and crashes Blender before Python starts, which looks like a Python error but is not one.
 - `scripts/crowd_framing.py` is deliberately dependency-free. If you find yourself wanting `numpy` in it, put the `numpy` part in `render_playback.py` and keep the pure maths in the module, or the test file stops working outside Blender.
+- Blender PNGs are never byte-identical between runs: `Date` and `RenderTime`
+  go into the file's `tEXt` chunks. Compare rendered frames by pixel, never
+  with `diff` or `cmp`.
 - The 3 GB trace at `~/blender-crowd-m5/recording/m5_city_flow-100000.crowdtrace` already exists. Do not re-bake it; that stage is multi-hour.
