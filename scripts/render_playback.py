@@ -20,6 +20,11 @@ Environment:
     CROWD_FRAME_DIR   directory for frame-%05d.png (required)
     CROWD_TICK_STEP   render every Nth tick (default 20)
     CROWD_RES_X       horizontal resolution (default 960)
+    CROWD_CROP_WIDTH  ortho window width in metres. Unset frames the whole
+                      scene, which is the historical behaviour.
+    CROWD_TRACK_STREAM  stream label the crop follows (0 or 1). Only read
+                      when CROWD_CROP_WIDTH is set.
+    CROWD_GROUND_GRID  ground grid spacing in metres. Unset draws no grid.
 """
 
 import os
@@ -77,8 +82,20 @@ def clear_scene():
 STREAM_AXIS = os.environ.get("CROWD_STREAM_AXIS", "diagonal")
 STREAM_SPLIT = float(os.environ.get("CROWD_STREAM_SPLIT", "0"))
 
+# Crop mode. Unset, every one of these is inert and framing is unchanged.
+CROP_WIDTH = float(os.environ.get("CROWD_CROP_WIDTH", "0")) or None
+TRACK_STREAM = int(os.environ.get("CROWD_TRACK_STREAM", "0"))
+GROUND_GRID = float(os.environ.get("CROWD_GROUND_GRID", "0")) or None
 
-def scan_trace(playback, data):
+# Grid bars ~0.25 m wide land at ~4 px in a 250 m window rendered 3840 wide:
+# visible as a line, too thin to compete with the agents.
+GRID_LINE_WIDTH = 0.25
+# Lifted clear of the ground plane so it never z-fights with it.
+GRID_LIFT = 0.02
+COLOUR_GRID = (0.06, 0.07, 0.09, 1.0)
+
+
+def scan_trace(playback, data, track_stream=None):
     """Walk the whole trace once for stream labels and framing bounds.
 
     Two things have to come from the data rather than from constants:
@@ -94,7 +111,9 @@ def scan_trace(playback, data):
     Framing bounds. Agents leave the spawn strips and jam wherever they jam,
     so the camera is fitted to the positions actually occupied.
 
-    Returns (stream, minimum, maximum) over the live agents.
+    Returns (stream, minimum, maximum, track) over the live agents, where
+    `track` is the (tick, median x) of the `track_stream` agents and is
+    empty when no stream is being tracked.
     """
     count = playback.agent_count
     stream = np.full(count, -1, dtype=np.int32)
@@ -102,6 +121,7 @@ def scan_trace(playback, data):
     positions = np.empty(count * 3, dtype=np.float32)
     minimum = np.array([np.inf, np.inf], dtype=np.float64)
     maximum = np.array([-np.inf, -np.inf], dtype=np.float64)
+    track = []
 
     for tick in range(playback.tick_count):
         playback.sync_to_tick(tick)
@@ -132,12 +152,20 @@ def scan_trace(playback, data):
                     spawned_xy[:, 0] < spawned_xy[:, 1], 0, 1
                 )
 
+        if track_stream is not None:
+            # Every live agent already carries a label: a slot is labelled
+            # the first tick it holds an agent, so this is exact rather
+            # than an approximation that improves as the scan proceeds.
+            tracked = live & (stream == track_stream)
+            if np.any(tracked):
+                track.append((tick, float(np.median(xy[tracked][:, 0]))))
+
     if np.any(stream < 0):
         # Not fatal for a recording: a slot that never holds an agent never
         # renders, because the shipped node group hides flags == 0 slots.
         print("warning: {} slots never spawned".format(int(np.sum(stream < 0))))
         stream[stream < 0] = 0
-    return stream, minimum, maximum
+    return stream, minimum, maximum, track
 
 
 def make_material(name, colour):
@@ -209,6 +237,31 @@ def build_ground(centre, extent):
     ground.name = "ground"
     ground.data.materials.append(make_material("ground", COLOUR_GROUND))
     return ground
+
+
+def build_grid(minimum, maximum, spacing):
+    """Lay a grid of thin bars over the ground plane.
+
+    Presentation only, like the ground itself: it never touches agent
+    state. It exists so a tracking camera reads as moving rather than as a
+    static shot of agents milling in place, and it doubles as a scale
+    reference.
+    """
+    vertices, faces = crowd_framing.grid_mesh(
+        minimum,
+        maximum,
+        spacing,
+        GRID_LINE_WIDTH,
+        -CONE_HALF_DEPTH + GRID_LIFT,
+    )
+    mesh = bpy.data.meshes.new("grid")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    grid = bpy.data.objects.new("grid", mesh)
+    bpy.context.scene.collection.objects.link(grid)
+    grid.data.materials.append(make_material("grid", COLOUR_GRID))
+    print("grid: {} bars every {:.0f} m".format(len(faces), spacing))
+    return grid
 
 
 def build_camera(centre, extent, view_width=None):
@@ -286,6 +339,20 @@ def configure_render(scene, res_x):
     scene.render.dither_intensity = 0.0
 
 
+def tracked_band_centre_y(data, stream, track_stream):
+    """Mid-height of the band the tracked stream occupies.
+
+    Read from the data rather than passed in: the two lane blocks sit in
+    fixed, disjoint y bands, so the centre of the tracked one is where the
+    crop should sit, and hardcoding it would break on any other scene.
+    """
+    count = len(stream)
+    positions = np.empty(count * 3, dtype=np.float32)
+    data.attributes["position"].data.foreach_get("vector", positions)
+    ys = positions.reshape(count, 3)[:, 1][stream == track_stream]
+    return float((ys.min() + ys.max()) / 2.0)
+
+
 def main():
     trace_path = os.environ["CROWD_TRACE_PATH"]
     frame_dir = os.environ["CROWD_FRAME_DIR"]
@@ -305,7 +372,9 @@ def main():
     print("agents: {}".format(playback.agent_count))
     print("ticks: {}".format(playback.tick_count))
 
-    stream, minimum, maximum = scan_trace(playback, data)
+    stream, minimum, maximum, track = scan_trace(
+        playback, data, TRACK_STREAM if CROP_WIDTH is not None else None
+    )
     print(
         "streams: {} eastbound, {} northbound".format(
             int(np.sum(stream == 0)), int(np.sum(stream == 1))
@@ -331,7 +400,33 @@ def main():
     )
 
     build_ground(centre, extent)
-    build_camera(centre, extent)
+    if GROUND_GRID is not None:
+        build_grid(minimum, maximum, GROUND_GRID)
+
+    if CROP_WIDTH is not None:
+        if not track:
+            raise SystemExit(
+                "no agent ever carried stream label {}; nothing to track".format(
+                    TRACK_STREAM
+                )
+            )
+        fit = crowd_framing.fit_linear_track(track)
+        worst, rms = crowd_framing.track_residuals(track, fit)
+        print("track fit: x(tick) = {:.6f} * tick + {:.4f}".format(*fit))
+        print(
+            "track residual: worst {:.2f} m, rms {:.2f} m "
+            "({:.2f}% of the {:.0f} m window)".format(
+                worst, rms, worst / CROP_WIDTH * 100.0, CROP_WIDTH
+            )
+        )
+        band_centre_y = tracked_band_centre_y(data, stream, TRACK_STREAM)
+        print("tracking stream {} centred on y {:.1f}".format(TRACK_STREAM, band_centre_y))
+        camera = build_camera(
+            (fit[1], band_centre_y), extent, view_width=CROP_WIDTH
+        )
+    else:
+        fit = None
+        camera = build_camera(centre, extent)
     scene = bpy.context.scene
     configure_render(scene, res_x)
 
@@ -342,6 +437,10 @@ def main():
     start = time.perf_counter()
     for index, tick in enumerate(ticks):
         playback.sync_to_tick(tick)
+        if fit is not None:
+            # Only x changes, so the camera's rotation stays correct: the
+            # target slides by exactly as much as the camera does.
+            camera.location.x = fit[0] * tick + fit[1]
         scene.render.filepath = os.path.join(frame_dir, "frame-{:05d}".format(index))
         bpy.ops.render.render(write_still=True)
         if index % 25 == 0 or index == total - 1:
