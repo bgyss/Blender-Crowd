@@ -1,5 +1,13 @@
 # M6 deterministic foundation evidence — 2026-08-18
 
+> **Superseded 2026-08-20.** Acceptance criterion 5 (production motion matching)
+> was rescoped out of M6 into M9 Track C on 2026-08-20, so the OPEN adjudication
+> below no longer reflects M6's status. The measurements, rejections, and
+> boundaries recorded here are unchanged and still stand as of their date. The
+> current audit is
+> [2026-08-20-m6-acceptance.md](2026-08-20-m6-acceptance.md); the rationale is
+> [2026-08-20-m6-criterion-5-deferral.md](2026-08-20-m6-criterion-5-deferral.md).
+
 ## Result
 
 The M6 deterministic foundation and the model-independent R0 interaction gate

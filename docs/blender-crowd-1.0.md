@@ -1104,11 +1104,14 @@ The recommended order is driven by dependency and product value:
     provenance for explicitly scoped downstream tasks.
 12. **100K background gate.** Earned after shared navigation and GPU presentation
    are proven at 10K.
-13. **Neural animation and independent operator validation.** After M6 is
-    accepted, evaluate R1–R4 learned motion behind its stable boundary and run
-    the deferred debugger/motion-authoring study; see the
-    [research track](reactive-neural-interaction-animation-2026.md) and
-    [M9 contract](milestones/M9-neural-animation-operator-validation.md).
+13. **Production motion corpus, neural animation, and independent operator
+    validation.** Acquire a production motion corpus meeting the unchanged M6
+    motion thresholds and close the production motion-matching criterion
+    deferred from M6 on 2026-08-20; then evaluate R1–R4 learned motion behind
+    its stable boundary and run the deferred debugger/motion-authoring study.
+    See the [research track](reactive-neural-interaction-animation-2026.md),
+    the [deferral record](benchmarks/2026-08-20-m6-criterion-5-deferral.md), and
+    the [M9 contract](milestones/M9-neural-animation-operator-validation.md).
 
 This ordering is expanded into independently executable contracts in
 [the milestone suite](milestones/README.md). The suite additionally schedules

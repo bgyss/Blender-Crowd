@@ -1,5 +1,15 @@
 # M6 motion and trajectory data policy
 
+> **Status (2026-08-20).** This policy stays in force unchanged. The goal it
+> serves — acquiring a production motion corpus that satisfies the unchanged M6
+> motion thresholds — moved with acceptance criterion 5 to
+> [M9 Track C](milestones/M9-neural-animation-operator-validation.md) because
+> the acquisition has no schedule. The CMU candidate remains rejected at 3,587
+> measured joint-limit violations against a hard limit of zero. Any future
+> corpus is ingested under exactly these provenance, licensing, and
+> redistribution rules. See the
+> [deferral record](benchmarks/2026-08-20-m6-criterion-5-deferral.md).
+
 M6 may ingest motion or trajectory data only when the repository has a
 versioned provenance manifest with:
 

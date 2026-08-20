@@ -5,15 +5,19 @@ See [CLAUDE.md](CLAUDE.md) for repository guidelines.
 M6 checks: `scripts/m6-foundation-test.sh` and
 `scripts/m6-extension-examples-test.sh`; full host audit:
 `M6_RUN_BLENDER=1 scripts/m6-acceptance.sh`.
-M6 remains unaccepted while criterion 5 is open: the CMU candidate is rejected
-at 3,587 joint-limit violations against the hard limit of zero, and the CC0
-authored motion is a checked fixture baseline only. `M6_ALLOW_OPEN=1`
-acknowledges an open audit; it does not promote the milestone. Preserve the
-unsupported-claim and M9 boundaries in
-`docs/benchmarks/2026-08-19-m6-acceptance.md`.
-The production-motion result is evidence-driven: a valid future candidate may
-PASS unchanged thresholds, the current rejected candidate is OPEN, and
-malformed or inconsistent evidence is FAILED.
+M6 is accepted with criterion 5 (production motion matching) deferred to M9
+Track C on 2026-08-20. It is deferred, not satisfied: the CMU candidate is
+rejected at 3,587 joint-limit violations against the hard limit of zero, the CC0
+authored motion is a checked fixture baseline only, and every measured threshold
+moved to M9 unchanged. Never state or imply a production motion-matching result
+for M6. `M6_ALLOW_OPEN=1` acknowledges an open audit; it does not promote the
+milestone or a failed gate. Preserve the unsupported-claim and M9 boundaries in
+`docs/benchmarks/2026-08-20-m6-acceptance.md` and
+`docs/benchmarks/2026-08-20-m6-criterion-5-deferral.md`.
+The production-motion result stays evidence-driven: a valid future candidate may
+PASS the unchanged thresholds, the current rejected candidate is OPEN and
+adjudicated as DEFERRED TO M9, and malformed or inconsistent evidence is FAILED
+and still fails M6 closed.
 
 ## Blender automation on macOS
 

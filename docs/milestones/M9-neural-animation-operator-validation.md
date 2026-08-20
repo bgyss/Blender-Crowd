@@ -2,28 +2,35 @@
 
 ## Objective
 
-Evaluate optional learned animation backends for promoted agents and prove that
-independent operators can understand, direct, reject, repair, and replay advanced
-agency and motion through the supported Blender interface. This milestone turns
-the research and human-evidence tracks into production claims only when their
-separate gates pass; it does not reopen accepted deterministic M6 behavior.
+Acquire a production motion corpus and close the deferred production
+motion-matching criterion, evaluate optional learned animation backends for
+promoted agents, and prove that independent operators can understand, direct,
+reject, repair, and replay advanced agency and motion through the supported
+Blender interface. This milestone turns the motion-data, research, and
+human-evidence tracks into production claims only when their separate gates
+pass; it does not reopen accepted deterministic M6 behavior.
 
 ## Sources of truth
 
 - [Reactive neural interaction animation research track](../reactive-neural-interaction-animation-2026.md)
 - [M6 advanced agency and motion](M6-advanced-agency-motion.md)
+- [M6 criterion 5 deferral record](../benchmarks/2026-08-20-m6-criterion-5-deferral.md)
+- [M6 motion data policy](../m6-motion-data-policy.md)
 - [M8 semantic authoring and domain packs](M8-semantic-domains-data.md)
 - [UI/UX roadmap](../ui-ux-roadmap.md)
 - [M9 debugger and motion-authoring study protocol](../user/m9-debugger-study.md)
 
 ## Prerequisites
 
-M6 is accepted, including its model-independent R0 request/response boundary,
-deterministic paired-clip baseline, validators, sparse animation layers,
-fallbacks, and automated Blender debugger smoke. R3 additionally requires the
-M8 combat domain pack's semantics, assets, rights, and entertainment-only claim
-boundary. Before any model or dataset is used, code, checkpoint, training data,
-motion data, and redistribution terms must be reviewed and recorded.
+M6 is accepted with criterion 5 deferred here, including its model-independent
+R0 request/response boundary, deterministic paired-clip baseline, validators,
+sparse animation layers, fallbacks, and automated Blender debugger smoke.
+Track C inherits M6's motion database, matching, warping, terrain, foot-lock,
+and feedback implementation; only an accepted production corpus is missing.
+R3 additionally requires the M8 combat domain pack's semantics, assets, rights,
+and entertainment-only claim boundary. Before any model or dataset is used,
+code, checkpoint, training data, motion data, and redistribution terms must be
+reviewed and recorded.
 
 ## Track A — Neural animation research
 
@@ -61,6 +68,37 @@ This track evaluates both the deterministic M6 debugger and, when Track A has
 an accepted backend, neural proposal/rejection/fallback controls. Automated
 operator calls or Blender smoke tests prove execution only and cannot satisfy
 the independent-user gate.
+
+## Track C — Production motion corpus and deferred M6 criterion 5
+
+Inherited from M6 on 2026-08-20 by the
+[deferral record](../benchmarks/2026-08-20-m6-criterion-5-deferral.md), because
+the criterion is blocked on unscheduled motion data acquisition rather than on
+implemented behavior. The CMU candidate is rejected at 3,587 measured
+joint-limit violations against a hard limit of zero, and the checked CC0
+reference-humanoid-motion fixture is a narrow redistributable baseline that
+does not close the criterion.
+
+**Goal: acquire or author a production motion corpus with reviewed rights and
+recorded provenance that satisfies the unchanged M6 motion thresholds, then
+close production motion matching against it.**
+
+Every threshold, validator, and schema transfers verbatim. Relaxing any of them
+is a contract change requiring its own dated adjudication; it is never something
+this gate may do to make a candidate pass.
+
+- Hard limits, all zero: joint limit violations, root teleportations,
+  undeclared contacts, source hash drift, and cross-cache mutations.
+- Soft limits: 21 mm foot slide, 3 mm trajectory deviation, 60,005 microradian
+  turn discontinuity, and 0 ppm rejected frames.
+- Provenance, licensing, and redistribution review before ingestion, per the
+  [M6 motion data policy](../m6-motion-data-policy.md).
+- The retarget/manifest/report identity and source-hash relationships enforced
+  by the checked motion-source check in scripts/m6_acceptance_checks.py.
+
+Track C is independent of Tracks A and B: it needs no model, checkpoint, or
+accelerator, and a corpus accepted here is usable by the deterministic M6
+motion stack exactly as the CC0 fixture is today.
 
 ## Explicit exclusions
 
@@ -102,6 +140,11 @@ simulation evidence.
 7. If neural controls are claimed, independent participants can inspect,
    reject, correct, fall back, and replay accepted output without mutating the
    base cache or unrelated agents.
+8. A production motion corpus with reviewed rights and recorded provenance
+   passes the checked motion-source adjudication against the unchanged M6
+   thresholds, and motion-matched agents meet the trajectory, contact,
+   foot-slip, turn, terrain, transition, and performance evidence required by
+   the deferred M6 criterion 5, published in a dated report.
 
 ## Validation and authorization boundaries
 
@@ -114,8 +157,8 @@ separate proof levels. Add exact commands to this contract, `AGENTS.md`, and
 
 ## Definition of done and stop conditions
 
-M9 is done only when all R1–R4 stages and the independent operator gate have
-authoritative evidence. A later stage may remain unclaimed without erasing an
+M9 is done only when Track C's production motion corpus, all R1–R4 stages, and
+the independent operator gate have authoritative evidence. A later stage may remain unclaimed without erasing an
 earlier result, but the milestone as a whole remains open. Stop if a model
 becomes authoritative, provenance or rights are unresolved, playback requires
 the model, a correction changes unrelated agents/base truth, or human evidence

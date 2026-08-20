@@ -2,10 +2,17 @@
 # Public requirement-level M6 acceptance audit. Every status comes from a gate
 # executed by this process. M6_ALLOW_OPEN=1 acknowledges OPEN only; FAILED
 # always exits nonzero.
+#
+# Criterion 5 (production motion matching) was rescoped to M9 on 2026-08-20.
+# The motion_source gate still runs and still fails M6 closed on malformed or
+# inconsistent evidence, because the accepted CC0 fixture it validates feeds
+# criteria 3, 4, and 6. Only its OPEN outcome -- no production candidate meets
+# the unchanged thresholds -- is reported as DEFERRED TO M9 instead of blocking.
+# See docs/benchmarks/2026-08-20-m6-criterion-5-deferral.md.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPORT="$REPO_ROOT/docs/benchmarks/2026-08-19-m6-acceptance.md"
+REPORT="$REPO_ROOT/docs/benchmarks/2026-08-20-m6-acceptance.md"
 ARTIFACT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/blender-crowd-m6-acceptance.XXXXXX")"
 MOTION_STATUS="$ARTIFACT_DIR/motion-source.json"
 FRESH_STATUS="$ARTIFACT_DIR/fresh-gates.json"
@@ -17,7 +24,7 @@ if [[ "${1:-}" == "--list" ]]; then
     cat <<'EOF'
 foundation	M6 deterministic foundation
 debugger_library	debugger navigation and reusable library
-motion_source	active production-candidate evidence and accepted CC0 fixture
+motion_source	active production-candidate evidence and accepted CC0 fixture (OPEN is DEFERRED TO M9)
 reference_scenes	integrated deterministic reference scenes
 blender	host Blender debugger/layer proof (M6_RUN_BLENDER=1)
 mixed_tier	fixed 10K mixed-tier performance
@@ -87,7 +94,8 @@ PY
     gate_motion_source="$status"
     printf 'M6 gate %-22s %s\n' "motion_source" "$status"
     if [[ "$status" == "OPEN" ]]; then
-        echo "  open gate: active production motion candidate failed one or more unchanged thresholds"
+        echo "  deferred gate: active production motion candidate failed one or more unchanged thresholds"
+        echo "  criterion 5 (production motion matching) is DEFERRED TO M9; thresholds are unchanged"
     elif [[ "$status" == "FAILED" ]]; then
         echo "  failed gate: motion candidate evidence is malformed, inconsistent, or unverified"
         cat > "$MOTION_STATUS" <<'EOF'

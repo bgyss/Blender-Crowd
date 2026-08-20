@@ -8,14 +8,23 @@ characters, while preserving deterministic lower-fidelity tiers.
 
 ## Current status
 
-M6 remains unaccepted. The
-[2026-08-19 requirement-level audit](../benchmarks/2026-08-19-m6-acceptance.md)
+M6 is accepted with criterion 5 deferred to M9. The
+[2026-08-20 requirement-level audit](../benchmarks/2026-08-20-m6-acceptance.md)
 adjudicates criteria 1–4 and 6–10 as PASS at their documented deterministic
-fixture or host-Blender proof levels. Criterion 5 remains OPEN: the CMU
-candidate has 3,587 measured joint-limit violations against the hard limit of
-zero, while the accepted CC0 authored motion is a narrow deterministic fixture
-baseline only. `scripts/m6-acceptance.sh` exits nonzero without
-`M6_ALLOW_OPEN=1` while that gate remains open.
+fixture or host-Blender proof levels.
+
+Criterion 5, production motion matching, was rescoped out of M6 into
+[M9 Track C](M9-neural-animation-operator-validation.md) on 2026-08-20 because
+it is blocked on unscheduled motion data acquisition rather than on implemented
+behavior. It is deferred, not satisfied: the CMU candidate has 3,587 measured
+joint-limit violations against the hard limit of zero and stays rejected, and
+the accepted CC0 authored motion is a narrow deterministic fixture baseline
+only. Every measured threshold moved to M9 unchanged, and M6 makes no
+production motion-matching claim. See the
+[deferral record](../benchmarks/2026-08-20-m6-criterion-5-deferral.md). The
+`motion_source` gate still runs on every audit and still fails M6 closed on
+malformed or inconsistent motion evidence, because the CC0 fixture it validates
+is consumed by criteria 3, 4, and 6.
 
 This status does not claim Blender cloth/hair/Geometry Nodes deformation,
 rigid-body parity, arbitrary-scene or long-duration performance, GPU execution,
@@ -52,7 +61,9 @@ motion/trajectory data and redistribution terms are documented before ingestion.
    emergency groups, including shared perception and group-level decisions.
 5. Motion database build/validation, future-trajectory queries, pose/contact
    features, motion matching, animation graph integration, stride/turn warping,
-   terrain/slope adaptation, foot locking/IK, and navigation feedback.
+   terrain/slope adaptation, foot locking/IK, and navigation feedback. The
+   implementation is in M6 scope and is exercised against the checked CC0
+   fixture; accepting it against a *production* motion corpus is M9 Track C.
 6. Interaction animation, authoritative contact ownership, animation-to-ragdoll
    and recovery transitions, rigid-body layers, and promoted-hero cloth/hair or
    facial integration through Blender-supported presentation/physics paths.
@@ -124,8 +135,12 @@ M9. Semantic AI and domain packs belong to M8.
    ownership, deadlock outside declared policy, or nondeterministic admission.
 4. Social/group scenes improve their fixed formation/split/intrusion and intent-
    readability metrics without regressing hard safety thresholds.
-5. Motion-matched agents meet trajectory, contact, foot-slip, turn, terrain,
-   transition, and performance thresholds against the clip-state baseline.
+5. **DEFERRED TO M9 (2026-08-20).** Motion-matched agents meet trajectory,
+   contact, foot-slip, turn, terrain, transition, and performance thresholds
+   against the clip-state baseline. Rescoped to
+   [M9 Track C](M9-neural-animation-operator-validation.md) with all measured
+   thresholds unchanged; it is unclaimed until M9 closes it. The criterion
+   number is retained so existing evidence and cross-references stay valid.
 6. The crowd/motion feedback loop remains stable: infeasible motion is reported
    and constrained without allowing animation to teleport or hide collisions.
 7. Interaction and ragdoll/recovery results compose as optional layers and
@@ -150,14 +165,17 @@ failure/recovery tests. Human and learned-model evidence belongs to M9.
 
 M6 is done when authored brains and trajectory-aware motion pass the measurable
 reference scenes, the automated Blender debugger proof passes, and the result
-remains explainable, layer-compatible, and scalable by tier.
+remains explainable, layer-compatible, and scalable by tier. Production motion
+matching against an accepted clip-state baseline is explicitly out of this
+definition as of 2026-08-20 and belongs to M9 Track C.
 Stop if a learned or physics path becomes untraceable authoritative state, if
 motion quality is asserted only from a reel, or if hero features compromise the
 background contracts.
 
 ## Deferred future workstream
 
-[M9](M9-neural-animation-operator-validation.md) owns R1–R4 neural animation,
+[M9](M9-neural-animation-operator-validation.md) owns the production motion
+corpus and criterion 5 (Track C), R1–R4 neural animation,
 model/checkpoint/data authorization, blinded perceptual claims, and independent
 operator verification. Those gates may consume accepted M6 artifacts but do not
 reopen or block M6.

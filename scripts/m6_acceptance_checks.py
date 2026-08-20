@@ -221,6 +221,7 @@ HASHED_INPUTS = (
 )
 
 REQUIRED_EVIDENCE = (
+    "docs/benchmarks/2026-08-20-m6-criterion-5-deferral.md",
     "docs/benchmarks/2026-08-18-m6-foundation.md",
     "docs/benchmarks/2026-08-18-m6-cmu-motion.md",
     "docs/benchmarks/2026-08-18-m6-reference-scenes.md",
@@ -313,7 +314,7 @@ def check_acceptance_report(path, repo_root, fresh_gate_statuses):
     repo_root = Path(repo_root).resolve()
     expected_report = resolve_repo_path(
         repo_root,
-        "docs/benchmarks/2026-08-19-m6-acceptance.md",
+        "docs/benchmarks/2026-08-20-m6-acceptance.md",
         "canonical M6 acceptance report",
     )
     path = Path(path).resolve()
@@ -321,13 +322,14 @@ def check_acceptance_report(path, repo_root, fresh_gate_statuses):
         raise ValueError("M6 acceptance report path is not the canonical checked-in report")
     text = path.read_text(encoding="utf-8")
     required_headings = (
-        "# M6 requirement-level acceptance — 2026-08-19",
+        "# M6 requirement-level acceptance — 2026-08-20",
         "## Result",
         "## Environment",
         "## Inputs and hashes",
         "## Criterion-by-criterion adjudication",
         "## Known failures and rejected inputs",
         "## Unsupported claims",
+        "## Criterion 5 deferral to M9",
         "## M9 deferrals",
         "## Verification",
     )
@@ -390,7 +392,8 @@ def check_acceptance_report(path, repo_root, fresh_gate_statuses):
         )
 
     for phrase in (
-        "M6 remains unaccepted",
+        "DEFERRED TO M9",
+        "docs/benchmarks/2026-08-20-m6-criterion-5-deferral.md",
         "3,587",
         "hard limit of zero",
         "CC0",

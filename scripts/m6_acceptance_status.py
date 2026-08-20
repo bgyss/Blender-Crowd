@@ -40,6 +40,26 @@ CRITERION_DEPENDENCIES = {
 
 GLOBAL_GATES = ("acceptance_report", "release_workspace", "clippy", "format", "python")
 
+# Criterion 5 (production motion matching against an accepted clip-state
+# baseline) was rescoped out of M6 on 2026-08-20. No conforming production
+# motion corpus is available: the CMU candidate is rejected at 3,587 measured
+# joint-limit violations against the hard limit of zero, and acquiring a
+# licensed replacement has no schedule. The criterion, its unchanged measured
+# thresholds, and its evidence contract move to M9 rather than being weakened,
+# hidden, or asserted from the narrow CC0 fixture baseline. See
+# docs/benchmarks/2026-08-20-m6-criterion-5-deferral.md.
+DEFERRED_CRITERIA = {5: "M9"}
+
+# motion_source keeps running and still fails M6 closed when its evidence is
+# malformed or inconsistent, because the accepted CC0 fixture it validates is
+# consumed by criteria 3, 4, and 6. Only its OPEN outcome -- "no production
+# candidate meets the unchanged thresholds" -- is deferred with criterion 5.
+DEFERRED_GATES = {"motion_source": "M9"}
+
+
+def deferred_label(milestone):
+    return "DEFERRED TO {}".format(milestone)
+
 
 def combine_statuses(statuses):
     if "FAILED" in statuses:
@@ -58,15 +78,24 @@ def adjudicate(gates):
         if status not in VALID_STATUSES:
             raise ValueError("M6 gate {} has invalid status {}".format(gate, status))
 
-    criteria = {
-        str(criterion): combine_statuses([gates[gate] for gate in dependencies])
-        for criterion, dependencies in CRITERION_DEPENDENCIES.items()
-    }
-    audit_status = combine_statuses(list(gates.values()))
+    criteria = {}
+    for criterion, dependencies in CRITERION_DEPENDENCIES.items():
+        status = combine_statuses([gates[gate] for gate in dependencies])
+        if criterion in DEFERRED_CRITERIA and status != "FAILED":
+            status = deferred_label(DEFERRED_CRITERIA[criterion])
+        criteria[str(criterion)] = status
+
+    # A deferred gate's OPEN outcome no longer blocks M6; its FAILED still does.
+    blocking = [
+        status
+        for gate, status in gates.items()
+        if not (gate in DEFERRED_GATES and status == "OPEN")
+    ]
+    audit_status = combine_statuses(blocking)
     remaining = [
         "criterion {}".format(criterion)
         for criterion, status in criteria.items()
-        if status != "PASS"
+        if status != "PASS" and not status.startswith("DEFERRED")
     ]
     remaining.extend(gate.replace("_", " ") for gate in GLOBAL_GATES if gates[gate] != "PASS")
     return {
@@ -123,6 +152,9 @@ def render_summary(result, motion):
         lines.append("  criterion {}: {}".format(criterion, result["criteria"][str(criterion)]))
     lines.extend(
         (
+            "  production motion corpus (criterion 5): {}".format(
+                deferred_label(DEFERRED_CRITERIA[5])
+            ),
             "  R1-R4 neural animation: DEFERRED TO M9",
             "  independent-user verification: DEFERRED TO M9",
             "  remaining M6 gates: {}".format(

@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKS_MODULE = REPO_ROOT / "scripts" / "m6_acceptance_checks.py"
 PUBLIC_RUNNER = REPO_ROOT / "scripts" / "m6-acceptance.sh"
 STATUS_HARNESS = REPO_ROOT / "tests" / "m6_acceptance_status_harness.py"
-ACCEPTANCE_REPORT = REPO_ROOT / "docs/benchmarks/2026-08-19-m6-acceptance.md"
+ACCEPTANCE_REPORT = REPO_ROOT / "docs/benchmarks/2026-08-20-m6-acceptance.md"
 
 FRESH_GATES = {
     "foundation": "PASS",
@@ -47,7 +47,10 @@ MOTION_FILES = (
 REPORT_FILES = MOTION_FILES + (
     "assets/reference/m6/acceptance-scenes-v1.json",
     "schemas/m6-acceptance-scenes-v1.schema.json",
+    "docs/benchmarks/2026-08-20-m6-acceptance.md",
+    "docs/benchmarks/2026-08-20-m6-criterion-5-deferral.md",
     "docs/benchmarks/2026-08-19-m6-acceptance.md",
+    "docs/milestones/M9-neural-animation-operator-validation.md",
     "docs/benchmarks/2026-08-18-m6-foundation.md",
     "docs/benchmarks/2026-08-18-m6-cmu-motion.md",
     "docs/benchmarks/2026-08-18-m6-reference-scenes.md",
@@ -166,14 +169,29 @@ class AcceptanceStatusHarnessTests(unittest.TestCase):
             text=True,
         )
 
-    def test_open_motion_gate_can_be_acknowledged_but_not_passed(self):
-        closed = self.run_harness("--motion", "OPEN")
-        acknowledged = self.run_harness("--motion", "OPEN", "--allow-open")
+    def test_open_motion_gate_is_deferred_to_m9_and_never_reported_as_passing(self):
+        completed = self.run_harness("--motion", "OPEN")
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["audit_status"], "PASS")
+        self.assertEqual(result["criteria"]["5"], "DEFERRED TO M9")
+        self.assertNotIn("criterion 5", result["remaining"])
+
+    def test_failed_motion_gate_still_fails_m6_closed(self):
+        closed = self.run_harness("--motion", "FAILED")
+        acknowledged = self.run_harness("--motion", "FAILED", "--allow-open")
+        self.assertEqual(closed.returncode, 2, closed.stdout + closed.stderr)
+        self.assertEqual(acknowledged.returncode, 2, acknowledged.stdout + acknowledged.stderr)
+        result = json.loads(closed.stdout)
+        self.assertEqual(result["audit_status"], "FAILED")
+        self.assertEqual(result["criteria"]["5"], "FAILED")
+
+    def test_a_non_deferred_open_gate_still_holds_m6_open(self):
+        closed = self.run_harness("--open", "blender")
+        acknowledged = self.run_harness("--open", "blender", "--allow-open")
         self.assertEqual(closed.returncode, 2, closed.stdout + closed.stderr)
         self.assertEqual(acknowledged.returncode, 0, acknowledged.stdout + acknowledged.stderr)
-        result = json.loads(acknowledged.stdout)
-        self.assertEqual(result["audit_status"], "OPEN")
-        self.assertEqual(result["criteria"]["5"], "OPEN")
+        self.assertEqual(json.loads(closed.stdout)["audit_status"], "OPEN")
 
     def test_criterion_nine_requires_foundation_and_extension_contracts(self):
         extension_failed = self.run_harness("--fail", "extension_examples")
@@ -217,7 +235,7 @@ class AcceptanceStatusHarnessTests(unittest.TestCase):
                 path = scripts / name
                 path.write_text("#!/bin/sh\nexit {}\n".format(exit_code), encoding="utf-8")
                 path.chmod(path.stat().st_mode | stat.S_IXUSR)
-            report = root / "docs/benchmarks/2026-08-19-m6-acceptance.md"
+            report = root / "docs/benchmarks/2026-08-20-m6-acceptance.md"
             report.parent.mkdir(parents=True)
             report.write_text("test report\n", encoding="utf-8")
             fake_bin = root / "bin"
@@ -272,7 +290,7 @@ class AcceptanceReportCheckerTests(unittest.TestCase):
 
     def check(self, root, gates=None):
         return load_checks().check_acceptance_report(
-            root / "docs/benchmarks/2026-08-19-m6-acceptance.md",
+            root / "docs/benchmarks/2026-08-20-m6-acceptance.md",
             root,
             gates or FRESH_GATES,
         )
@@ -283,8 +301,8 @@ class AcceptanceReportCheckerTests(unittest.TestCase):
             REPO_ROOT,
             FRESH_GATES,
         )
-        self.assertEqual(ruling["milestone_status"], "open")
-        self.assertEqual(ruling["criteria"][5], "OPEN")
+        self.assertEqual(ruling["milestone_status"], "pass")
+        self.assertEqual(ruling["criteria"][5], "DEFERRED TO M9")
         self.assertEqual(len(ruling["sha256"]), 6)
 
     def test_report_checker_cli_consumes_the_fresh_gate_manifest(self):
@@ -308,7 +326,7 @@ class AcceptanceReportCheckerTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
-            self.assertIn("milestone status: OPEN", completed.stdout)
+            self.assertIn("milestone status: PASS", completed.stdout)
 
     def test_changed_hashed_input_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -338,7 +356,7 @@ class AcceptanceReportCheckerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.copy_report_tree(root)
-            path = root / "docs/benchmarks/2026-08-19-m6-acceptance.md"
+            path = root / "docs/benchmarks/2026-08-20-m6-acceptance.md"
             text = path.read_text(encoding="utf-8")
             text = text.replace("PASS (expected current run)", "PASS (recorded)", 1)
             path.write_text(text, encoding="utf-8")
@@ -347,7 +365,7 @@ class AcceptanceReportCheckerTests(unittest.TestCase):
 
             self.copy_report_tree(root)
             text = path.read_text(encoding="utf-8")
-            text = text.replace("| OPEN |", "| PASS |", 1)
+            text = text.replace("| DEFERRED TO M9 |", "| PASS |", 1)
             path.write_text(text, encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "criterion statuses"):
                 self.check(root)
@@ -365,7 +383,7 @@ class AcceptanceReportCheckerTests(unittest.TestCase):
             with self.subTest(private_path=private_path), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 self.copy_report_tree(root)
-                path = root / "docs/benchmarks/2026-08-19-m6-acceptance.md"
+                path = root / "docs/benchmarks/2026-08-20-m6-acceptance.md"
                 path.write_text(
                     path.read_text(encoding="utf-8") + "\n" + private_path + "\n",
                     encoding="utf-8",
@@ -376,7 +394,7 @@ class AcceptanceReportCheckerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.copy_report_tree(root)
-            path = root / "docs/benchmarks/2026-08-19-m6-acceptance.md"
+            path = root / "docs/benchmarks/2026-08-20-m6-acceptance.md"
             path.write_text(
                 path.read_text(encoding="utf-8")
                 + "\n```sh\nBLENDER=/Applications/Blender.app/Contents/MacOS/Blender "
