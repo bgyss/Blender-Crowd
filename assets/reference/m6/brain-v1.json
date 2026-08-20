@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "guarded_exit",
+  "entry_node": "root",
+  "blackboard": [
+    { "key": "threat_visible", "type": "bool" },
+    { "key": "need_score", "type": "number_i32" }
+  ],
+  "actions": [
+    { "id": "leave", "channel": "navigation", "cost_millionths": 1000 },
+    { "id": "hold", "channel": "locomotion", "cost_millionths": 500 }
+  ],
+  "nodes": [
+    { "id": "root", "kind": "utility", "children": ["leave_node", "hold_node"], "key": "need_score" },
+    { "id": "leave_node", "kind": "action", "action_id": "leave" },
+    { "id": "hold_node", "kind": "action", "action_id": "hold" }
+  ]
+}

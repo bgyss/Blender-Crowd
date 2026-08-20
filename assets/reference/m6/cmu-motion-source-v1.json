@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "dataset_id": "cmu-mocap-subjects-35-36-m6-v1",
+  "source_host": "mocap.cs.cmu.edu",
+  "terms_url": "http://mocap.cs.cmu.edu/faqs.php",
+  "license_id": "CMU-Mocap-Free-All-Uses",
+  "redistribution_allowed": false,
+  "required_attribution": "Carnegie Mellon University Graphics Lab Motion Capture Database",
+  "source_frame_rate_hz": 120,
+  "target_frame_rate_hz": 30,
+  "retarget_profile": {
+    "profile_id": "cmu-acclaim-humanoid-v1",
+    "root_bone": "root",
+    "left_foot_bone": "lfoot",
+    "right_foot_bone": "rfoot",
+    "forward_axis": "+Z"
+  },
+  "files": [
+    {
+      "id": "35_skeleton",
+      "kind": "skeleton",
+      "subject": 35,
+      "description": "CMU subject 35 Acclaim skeleton",
+      "url": "http://mocap.cs.cmu.edu/subjects/35/35.asf",
+      "filename": "35.asf",
+      "sha256": "2a8e2eda3c0d7d828566b2a9a8ab36b2b8b3864110574e8b73c8f069fded416c"
+    },
+    {
+      "id": "35_01_walk",
+      "kind": "motion",
+      "subject": 35,
+      "trial": 1,
+      "clip_id": "35_01_walk",
+      "description": "Subject 35 walking trial 01",
+      "skeleton_id": "35_skeleton",
+      "url": "http://mocap.cs.cmu.edu/subjects/35/35_01.amc",
+      "filename": "35_01.amc",
+      "sha256": "0743f4ea48e7e199cd56b2810b5ce81f8ede08d32ff79aa4e363c44cc4fe33aa"
+    },
+    {
+      "id": "35_24_run",
+      "kind": "motion",
+      "subject": 35,
+      "trial": 24,
+      "clip_id": "35_24_run",
+      "description": "Subject 35 running trial 24",
+      "skeleton_id": "35_skeleton",
+      "url": "http://mocap.cs.cmu.edu/subjects/35/35_24.amc",
+      "filename": "35_24.amc",
+      "sha256": "29059fb2c15493983e4dccdf45453a495fb567dd28ff36cc1a0dbc02ad409445"
+    },
+    {
+      "id": "36_skeleton",
+      "kind": "skeleton",
+      "subject": 36,
+      "description": "CMU subject 36 Acclaim skeleton",
+      "url": "http://mocap.cs.cmu.edu/subjects/36/36.asf",
+      "filename": "36.asf",
+      "sha256": "05e190867ead216b5dcdc94b210aa19b2eaaf383df44f1d9bb247e64fbf1c02b"
+    },
+    {
+      "id": "36_01_uneven_walk",
+      "kind": "motion",
+      "subject": 36,
+      "trial": 1,
+      "clip_id": "36_01_uneven_walk",
+      "description": "Subject 36 uneven-terrain walking trial 01",
+      "skeleton_id": "36_skeleton",
+      "url": "http://mocap.cs.cmu.edu/subjects/36/36_01.amc",
+      "filename": "36_01.amc",
+      "sha256": "882e9f8c35622c2e10e9a3f578b5e0e7033ceb53232f415640b47fc05f3c2fac"
+    }
+  ]
+}

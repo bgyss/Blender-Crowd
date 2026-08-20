@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/brain-v1.schema.json",
+  "title": "Blender Crowd Brain Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "entry_node", "blackboard", "actions", "nodes"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "entry_node": { "type": "string", "minLength": 1 },
+    "blackboard": { "type": "array", "items": { "$ref": "#/$defs/blackboard" } },
+    "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+    "nodes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/node" } }
+  },
+  "$defs": {
+    "blackboard": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "type"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["bool", "number_i32", "enum", "stable_id", "string"] }
+      }
+    },
+    "action": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "channel", "cost_millionths"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "channel": { "type": "string", "minLength": 1 },
+        "cost_millionths": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "node": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["state", "utility", "sequence", "action", "interrupt", "fuzzy_compare"] },
+        "children": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "action_id": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

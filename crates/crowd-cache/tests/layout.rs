@@ -1,10 +1,11 @@
 use crowd_cache::{
     compose_layout_frame_v1, extract_procedural_instances_v1, invalidate_dependents_v1,
     mark_dependents_stale_v1, migrate_override_layer_v1, read_usda_crowd_profile_v1,
-    resimulate_local_kinematic_v1, simulate_physics_handoff_v1, write_usda_crowd_profile_v1, Frame,
-    FrameRecord, LayerKindV1, LayerTargetV1, LayoutEditV1, LayoutLayerV1,
-    LocalResimulationRequestV1, LocalResimulationV1, OverrideLayerV1, OverrideOperation,
-    PhysicsHandoffSpecV1, PhysicsSampleV1, ProceduralPrototypeV1, TransformOverride,
+    resimulate_local_kinematic_v1, simulate_physics_handoff_v1, validate_layout_layers_v1,
+    write_usda_crowd_profile_v1, Frame, FrameRecord, LayerKindV1, LayerTargetV1, LayoutEditV1,
+    LayoutLayerV1, LocalResimulationRequestV1, LocalResimulationV1, OverrideLayerV1,
+    OverrideOperation, PhysicsHandoffSpecV1, PhysicsSampleV1, ProceduralPrototypeV1,
+    TransformOverride,
 };
 use std::path::Path;
 use std::process::Command;
@@ -381,6 +382,26 @@ fn dependency_invalidation_marks_a_layer_stale_and_composition_refuses_it() {
     assert!(error.to_string().contains("is stale"));
     layers[1].muted = true;
     assert!(compose_layout_frame_v1(&base(), 10, HASH, &layers).is_ok());
+}
+
+#[test]
+fn attachment_preflight_rejects_an_invalid_muted_layer_that_composition_skips() {
+    let mut invalid = layer(
+        "muted-invalid-target",
+        LayerKindV1::AnimationFix,
+        10,
+        LayoutEditV1::Animation {
+            clip_id: 3,
+            phase_millionths: 0,
+        },
+    );
+    invalid.muted = true;
+    invalid.target.agent_ids = vec![999];
+
+    assert!(compose_layout_frame_v1(&base(), 10, HASH, std::slice::from_ref(&invalid)).is_ok());
+    let error = validate_layout_layers_v1(&base(), HASH, &[invalid])
+        .expect_err("attachment preflight must validate muted layer targets");
+    assert!(error.to_string().contains("absent from the base"));
 }
 
 #[test]

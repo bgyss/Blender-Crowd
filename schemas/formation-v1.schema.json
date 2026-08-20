@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/formation-v1.schema.json",
+  "title": "Blender Crowd Formation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "leader_agent_id", "roles", "max_separation_millimeters", "split_policy"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "leader_agent_id": { "type": "integer", "minimum": 0 },
+    "roles": {
+      "type": "array", "minItems": 1, "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["agent_id", "role", "offset_millimeters"],
+        "properties": {
+          "agent_id": { "type": "integer", "minimum": 0 },
+          "role": { "type": "string", "minLength": 1 },
+          "offset_millimeters": { "type": "array", "prefixItems": [{ "type": "integer" }, { "type": "integer" }], "minItems": 2, "maxItems": 2 }
+        }
+      }
+    },
+    "max_separation_millimeters": { "type": "integer", "minimum": 1 },
+    "split_policy": { "enum": ["hold_leader", "regroup", "continue_individual"] }
+  }
+}

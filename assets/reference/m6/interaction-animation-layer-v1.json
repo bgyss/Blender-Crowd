@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "layer_id": "interaction-pair-7-9",
+  "interaction_id": "request-pair-7-9",
+  "base_cache_hash": "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+  "target_agent_ids": [7, 9],
+  "tick_start": 10,
+  "tick_end": 20,
+  "priority": 40,
+  "enabled": true,
+  "provenance": "authored-paired-clip-v1",
+  "edits": [
+    { "agent_id": 7, "tick": 15, "clip_id": 42, "phase_millionths": 500000 },
+    { "agent_id": 9, "tick": 15, "clip_id": 43, "phase_millionths": 500000 }
+  ],
+  "fallback": {
+    "clip_set_id": "pedestrian_basic",
+    "clip_id": "walk",
+    "reason": "validation failure"
+  }
+}

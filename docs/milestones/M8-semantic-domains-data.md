@@ -10,6 +10,7 @@ systems or domain shortcuts to weaken deterministic simulation truth.
 
 - [Industrial capability roadmap strategic conclusions](../industrial-crowd-capability-roadmap.md#strategic-conclusions)
 - [Blender Crowd 1.0 post-1.0 roadmap](../blender-crowd-1.0.md#17-post-10-roadmap-ordering)
+- [M9 neural animation and operator validation](M9-neural-animation-operator-validation.md)
 - [Reactive neural interaction animation research track](../reactive-neural-interaction-animation-2026.md)
 - Accepted M4 interchange and M6 agency/motion contracts consumed by each track
 - [UI/UX roadmap](../ui-ux-roadmap.md)
@@ -53,13 +54,14 @@ Track B passes per pack when its versioned extension data composes with a clean
 core install, reference scenes and headless tests pass, core behavior does not
 fork silently, and limitations are documented for the intended use.
 
-The combat pack may consume the optional M6 reactive-motion boundary, but it
-must also provide a deterministic paired-clip or motion-matching fallback. The
+The combat pack may consume the deterministic M6 R0 interaction-motion
+boundary, but it must also provide a deterministic paired-clip or
+motion-matching fallback. The
 pack—not the core or model—owns combat roles, attack/defend/parry/evade actions,
 body and weapon contact types, authored outcomes, domain metrics, safe failure
-poses, and entertainment-only limitations. Its first neural gate is limited to
-validated two-character interactions; neither a solo ARDY combat motion nor an
-offline text-generated fight counts as reactive combat proof.
+poses, and entertainment-only limitations. M9 owns its neural gates, beginning
+with validated two-character interactions; neither a solo ARDY combat motion nor
+an offline text-generated fight counts as reactive combat proof.
 
 ## Track C — Synthetic-data crowds
 

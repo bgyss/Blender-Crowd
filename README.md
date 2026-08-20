@@ -23,6 +23,7 @@ decisions is summarized in:
 
 - [Crowd simulation research synthesis](docs/crowd-simulation-research-2026.md)
 - [Reactive neural interaction animation research track](docs/reactive-neural-interaction-animation-2026.md)
+- [Future M9 neural animation and operator validation](docs/milestones/M9-neural-animation-operator-validation.md)
 
 The first release is intentionally focused: build a trustworthy pedestrian-crowd
 pipeline for 1,000 interactive agents before expanding into semantic activities,
@@ -85,6 +86,25 @@ corrections. Its [acceptance record](docs/benchmarks/2026-08-12-m2-acceptance.md
 separates the passing functional gate from the substantial UI/UX work that the
 operator spot check exposed. That deferred work, including the incomplete Figma
 artifact, is tracked in the [UI/UX roadmap](docs/ui-ux-roadmap.md#deferred-uiux-todo).
+
+M6 is accepted with criterion 5 deferred to M9. Its
+[requirement-level audit](docs/benchmarks/2026-08-20-m6-acceptance.md)
+adjudicates criteria 1–4 and 6–10 as PASS at their documented deterministic
+fixture or host-Blender proof levels, including integrated scenes, debugger and
+layer lifecycle, fixed 10K mixed-tier evidence, R0 replay, and executable Rust
+and Python extension examples. Criterion 5, production motion matching, was
+rescoped to [M9 Track C](docs/milestones/M9-neural-animation-operator-validation.md)
+on 2026-08-20 because it is blocked on unscheduled motion data acquisition
+rather than on implemented behavior; every measured threshold moved across
+unchanged and M6 makes no production motion-matching claim. The CMU candidate
+remains rejected at 3,587 measured joint-limit violations against the hard limit
+of zero, and the accepted CC0 authored motion is a narrow fixture baseline only.
+See the [deferral record](docs/benchmarks/2026-08-20-m6-criterion-5-deferral.md).
+The audit does not claim Blender cloth/hair/Geometry Nodes deformation,
+rigid-body parity, GPU or arbitrary-scene performance, long-duration stability,
+neural motion, or visual quality. Model-backed R1–R4 research and
+independent-user verification remain future M9 requirements and do not block
+M6.
 
 The M1 reference concourse compiles exactly 1,000 stable agents, performs a
 strict 10,000-tick rebake, isolates a timed portal change, preserves all v1
@@ -183,6 +203,10 @@ scripts/m5-blender-test.sh                            # M5 procedural playback, 
 M5_BLENDER_AGENTS=10000 scripts/m5-blender-test.sh    # the same proof at the 10K gate's population
 cargo run --release -p crowd-bench -- cache-experiment --agents 10000 --cache-frames 8 --out /tmp/blender-crowd-m5-cache-10k # M5 bounded cache preflight, not acceptance
 scripts/m5-100k-gate.sh                               # every M5 100K stage in one command; multi-hour, run it under tmux
+scripts/m6-foundation-test.sh                         # M6 deterministic contracts, R0 worker/layer, agency, motion, physics, and debugger foundation
+scripts/m6-blender-test.sh                            # M6 Blender-process trace debugger and graph-search smoke (requires Blender 5.2 LTS)
+scripts/m6-extension-examples-test.sh                 # claimed Rust/Python extension contracts, determinism, and failure isolation
+M6_RUN_BLENDER=1 scripts/m6-acceptance.sh             # complete M6 audit; production motion is DEFERRED TO M9 and no longer blocks
 # Full 10K/100K procedure: docs/runbooks/m5-scale-gates.md
 # Accepted 10K gate report:  docs/benchmarks/2026-08-14-m5-10k.md
 # Accepted 100K gate report: docs/benchmarks/2026-08-18-m5-100k.md

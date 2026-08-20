@@ -107,6 +107,10 @@ fn authorable_reference_1000_agents_emits_queue_group_and_decision_evidence() {
                 crowd_core::BehaviorRuntimeEventKind::QueueReleased => queue_released_events += 1,
                 crowd_core::BehaviorRuntimeEventKind::GroupSplit => group_split_events += 1,
                 crowd_core::BehaviorRuntimeEventKind::GroupRegrouped => group_regrouped_events += 1,
+                crowd_core::BehaviorRuntimeEventKind::ActivityGranted
+                | crowd_core::BehaviorRuntimeEventKind::ActivityWaiting
+                | crowd_core::BehaviorRuntimeEventKind::ActivityReleased
+                | crowd_core::BehaviorRuntimeEventKind::ActivityFailed => {}
             }
         }
     }

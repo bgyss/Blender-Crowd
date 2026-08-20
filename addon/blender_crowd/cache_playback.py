@@ -86,6 +86,7 @@ class CachePlayback:
         self._last_warning = ""
         self._override_layers = []
         self._layout_layers = []
+        self._m6_layers = []
         self._upload_static(self._cache.read_agents())
         self._static_uploaded = True
         self.sync_to_tick(self._cache.tick_start)
@@ -201,24 +202,64 @@ class CachePlayback:
             self.sync_to_tick(self._current_tick)
 
     def set_layout_layers(self, layers):
-        self._layout_layers = list(layers)
-        self._cache.set_layout_layers(
-            json.dumps(self._layout_layers, sort_keys=True, separators=(",", ":"))
+        self._replace_composed_layout_layers(list(layers), self._m6_layers)
+
+    def _apply_composed_layout_layers(self):
+        self._replace_composed_layout_layers(self._layout_layers, self._m6_layers)
+
+    def _replace_composed_layout_layers(self, layout_layers, m6_layers):
+        """Commit both layer stacks only after native validation and playback succeed."""
+        candidate_layout = list(layout_layers)
+        candidate_m6 = list(m6_layers)
+        previous_json = json.dumps(
+            self._layout_layers + self._m6_layers,
+            sort_keys=True,
+            separators=(",", ":"),
         )
-        if self._current_tick is not None:
-            self.sync_to_tick(self._current_tick)
+        candidate_json = json.dumps(
+            candidate_layout + candidate_m6,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        candidate_m6_json = json.dumps(
+            candidate_m6,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self._cache.preflight_layout_layers(candidate_m6_json)
+        self._cache.set_layout_layers(candidate_json)
+        try:
+            if self._current_tick is not None:
+                self.sync_to_tick(self._current_tick)
+        except Exception:
+            self._cache.set_layout_layers(previous_json)
+            if self._current_tick is not None:
+                with contextlib.suppress(Exception):
+                    self.sync_to_tick(self._current_tick)
+            raise
+        self._layout_layers = candidate_layout
+        self._m6_layers = candidate_m6
 
     def clear_layout_layers(self):
         self._layout_layers = []
-        self._cache.clear_layout_layers()
-        if self._current_tick is not None:
-            self.sync_to_tick(self._current_tick)
+        self._apply_composed_layout_layers()
+
+    def set_m6_layers(self, layers):
+        """Compose M6 overlays without replacing the user's M4 stack."""
+        self._replace_composed_layout_layers(self._layout_layers, list(layers))
+
+    def clear_m6_layers(self):
+        self._replace_composed_layout_layers(self._layout_layers, [])
 
     def export_usda(self, tick, path):
         self._cache.export_usda(int(tick), str(path))
 
     def inspect_layout(self, tick=None):
         return dict(self._cache.inspect_layout(int(self._current_tick if tick is None else tick)))
+
+    def inspect_native_layout_layers(self):
+        """Return the exact combined native M4/M6 stack without composing it."""
+        return json.loads(self._cache.inspect_layout_layers_json())
 
     def flatten_layout(self, tick, path):
         self._cache.flatten_layout(int(tick), str(path))

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/hero-integration-v1.schema.json",
+  "title": "Blender Crowd Hero Integration Boundary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["integration_id", "solver", "cache_policy", "supported_render_tiers", "failure_policy"],
+  "properties": {
+    "integration_id": { "type": "string", "minLength": 1 },
+    "solver": { "type": "string", "minLength": 1 },
+    "cache_policy": { "type": "string", "minLength": 1 },
+    "supported_render_tiers": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "failure_policy": { "type": "string", "minLength": 1 }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "agent_id": 7,
+  "tick": 12,
+  "observations": [
+    { "channel": "nearest_friend", "value": { "type": "agent", "value": 9 } },
+    { "channel": "density", "value": { "type": "number_i32", "value": 250000 } },
+    { "channel": "hearing", "value": { "type": "bool", "value": true } }
+  ],
+  "memory": [
+    { "key": "last_attention_target", "value": { "type": "agent", "value": 9 }, "expires_tick": 30 }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/cmu-motion-source-v1.schema.json",
+  "title": "Blender Crowd CMU Motion Source Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "dataset_id", "source_host", "terms_url", "license_id", "redistribution_allowed", "required_attribution", "source_frame_rate_hz", "target_frame_rate_hz", "retarget_profile", "files"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "dataset_id": { "const": "cmu-mocap-subjects-35-36-m6-v1" },
+    "source_host": { "const": "mocap.cs.cmu.edu" },
+    "terms_url": { "type": "string", "pattern": "^http://mocap\\.cs\\.cmu\\.edu/" },
+    "license_id": { "const": "CMU-Mocap-Free-All-Uses" },
+    "redistribution_allowed": { "const": false },
+    "required_attribution": { "type": "string", "minLength": 1 },
+    "source_frame_rate_hz": { "const": 120 },
+    "target_frame_rate_hz": { "const": 30 },
+    "retarget_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "root_bone", "left_foot_bone", "right_foot_bone", "forward_axis"],
+      "properties": {
+        "profile_id": { "const": "cmu-acclaim-humanoid-v1" },
+        "root_bone": { "const": "root" },
+        "left_foot_bone": { "const": "lfoot" },
+        "right_foot_bone": { "const": "rfoot" },
+        "forward_axis": { "const": "+Z" }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/source_file" }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "source_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "subject", "description", "url", "filename", "sha256"],
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "motion" } }, "required": ["kind"] },
+          "then": { "required": ["trial", "clip_id", "skeleton_id"] }
+        }
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["skeleton", "motion"] },
+        "subject": { "type": "integer", "enum": [35, 36] },
+        "trial": { "type": "integer", "minimum": 1 },
+        "clip_id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "skeleton_id": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "pattern": "^http://mocap\\.cs\\.cmu\\.edu/subjects/(35|36)/" },
+        "filename": { "type": "string", "pattern": "^[0-9]+(_[0-9]+)?\\.(asf|amc)$" },
+        "sha256": { "$ref": "#/$defs/hash" }
+      }
+    }
+  }
+}

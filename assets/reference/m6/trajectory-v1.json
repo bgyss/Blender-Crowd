@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "database_id": "reference_walks",
+  "clips": [
+    {
+      "id": "walk_forward",
+      "provenance": "Blender Crowd redistributable reference metadata",
+      "samples": [
+        { "tick": 0, "position_millimeters": [0, 0], "velocity_millimeters_per_second": [1000, 0], "contact": "left_foot", "slope_millionths": 0 },
+        { "tick": 1, "position_millimeters": [33, 0], "velocity_millimeters_per_second": [1000, 0], "contact": "right_foot", "slope_millionths": 0 }
+      ]
+    }
+  ]
+}

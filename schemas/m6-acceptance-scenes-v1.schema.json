@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/m6-acceptance-scenes-v1.schema.json",
+  "title": "Blender Crowd Integrated M6 Acceptance Scene Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "fixture_id", "hash_algorithm", "fixture_hash",
+    "motion_report_hash", "motion_source_selection", "scenes",
+    "deterministic_replay_hash", "hard_safety_passed", "fallback_count",
+    "unrelated_agent_mutations", "passed", "reasons"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "fixture_id": { "type": "string", "minLength": 1 },
+    "hash_algorithm": { "const": "blake3" },
+    "fixture_hash": { "$ref": "#/$defs/hash" },
+    "motion_report_hash": { "$ref": "#/$defs/hash" },
+    "motion_source_selection": { "$ref": "#/$defs/motion_source_selection" },
+    "scenes": {
+      "type": "array", "minItems": 6, "maxItems": 6,
+      "prefixItems": [
+        { "$ref": "#/$defs/scheduled_cafe" },
+        { "$ref": "#/$defs/family_split_regroup" },
+        { "$ref": "#/$defs/terrain_motion_feedback" },
+        { "$ref": "#/$defs/paired_handoff" },
+        { "$ref": "#/$defs/ragdoll_recovery" },
+        { "$ref": "#/$defs/mixed_tier_diagnostics" }
+      ],
+      "items": false
+    },
+    "deterministic_replay_hash": { "$ref": "#/$defs/hash" },
+    "hard_safety_passed": { "type": "boolean" },
+    "fallback_count": { "$ref": "#/$defs/count" },
+    "unrelated_agent_mutations": { "$ref": "#/$defs/count" },
+    "passed": { "type": "boolean" },
+    "reasons": { "$ref": "#/$defs/reasons" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "count": { "type": "integer", "minimum": 0 },
+    "nullable_count": { "type": ["integer", "null"], "minimum": 0 },
+    "reasons": {
+      "type": "array", "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "motion_source_selection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["external_candidate", "baseline"],
+      "properties": {
+        "external_candidate": {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "report_path", "report_hash", "status", "joint_limit_violations", "reasons"],
+          "properties": {
+            "id": { "const": "cmu-mocap-subjects-35-36-m6-v1" },
+            "report_path": { "type": "string", "minLength": 1 },
+            "report_hash": { "const": "b05e9bce668fab8ef11fe55e6b396841fd23a7d2373e8281e9c654280cb5f2f9" },
+            "status": { "const": "rejected" },
+            "joint_limit_violations": {
+              "type": "object", "additionalProperties": false,
+              "required": ["observed", "limit"],
+              "properties": { "observed": { "const": 3587 }, "limit": { "const": 0 } }
+            },
+            "reasons": { "$ref": "#/$defs/reasons" }
+          }
+        },
+        "baseline": {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "database_path", "provenance_path", "database_hash", "provenance_hash", "content_hash", "license_id", "status"],
+          "properties": {
+            "id": { "const": "reference-humanoid-motion" },
+            "database_path": { "type": "string", "minLength": 1 },
+            "provenance_path": { "type": "string", "minLength": 1 },
+            "database_hash": { "const": "c687fede242e359fb7b94e91e1c17a44ddacd01963697f2e5f4e687c01998e08" },
+            "provenance_hash": { "const": "60d1bf5aa98f66ab1a37096876140a53b6bb6d63e03f8a83a5ed7370c895340d" },
+            "content_hash": { "const": "c687fede242e359fb7b94e91e1c17a44ddacd01963697f2e5f4e687c01998e08" },
+            "license_id": { "const": "CC0-1.0" },
+            "status": { "const": "accepted" }
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["trajectory_fit_millimeters", "foot_slide_millimeters", "required_contacts", "observed_contacts", "contact_precision_millionths", "safety_violations", "runtime_motion_fallbacks", "scene_specific"],
+      "properties": {
+        "trajectory_fit_millimeters": { "$ref": "#/$defs/count" },
+        "foot_slide_millimeters": { "$ref": "#/$defs/count" },
+        "required_contacts": { "$ref": "#/$defs/count" },
+        "observed_contacts": { "$ref": "#/$defs/count" },
+        "contact_precision_millionths": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "safety_violations": { "$ref": "#/$defs/count" },
+        "runtime_motion_fallbacks": { "$ref": "#/$defs/count" },
+        "scene_specific": { "type": "object" }
+      }
+    },
+    "scene": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "seed", "fixture_hash", "source_hashes", "tick_start", "tick_end", "agent_count", "promoted_group_count", "deterministic_replay_hash", "hard_safety_passed", "isolation_status", "isolation_reason", "base_cache_mutations", "metrics", "fallback_count", "unrelated_agent_mutations", "passed", "reasons"],
+      "properties": {
+        "id": { "type": "string" },
+        "seed": { "type": "integer", "minimum": 0 },
+        "fixture_hash": { "$ref": "#/$defs/hash" },
+        "source_hashes": { "type": "object", "minProperties": 5, "additionalProperties": { "$ref": "#/$defs/hash" } },
+        "tick_start": { "$ref": "#/$defs/count" },
+        "tick_end": { "$ref": "#/$defs/count" },
+        "agent_count": { "type": "integer", "minimum": 1 },
+        "promoted_group_count": { "$ref": "#/$defs/count" },
+        "deterministic_replay_hash": { "$ref": "#/$defs/hash" },
+        "hard_safety_passed": { "type": "boolean" },
+        "isolation_status": { "enum": ["measured", "not_applicable"] },
+        "isolation_reason": { "type": ["string", "null"] },
+        "base_cache_mutations": { "$ref": "#/$defs/nullable_count" },
+        "metrics": { "$ref": "#/$defs/metrics" },
+        "fallback_count": { "$ref": "#/$defs/count" },
+        "unrelated_agent_mutations": { "$ref": "#/$defs/nullable_count" },
+        "passed": { "type": "boolean" },
+        "reasons": { "$ref": "#/$defs/reasons" }
+      },
+      "allOf": [{
+        "if": { "properties": { "isolation_status": { "const": "measured" } } },
+        "then": { "properties": {
+          "isolation_reason": { "type": "null" },
+          "base_cache_mutations": { "$ref": "#/$defs/count" },
+          "unrelated_agent_mutations": { "$ref": "#/$defs/count" }
+        }},
+        "else": { "properties": {
+          "isolation_reason": { "type": "string", "minLength": 1 },
+          "base_cache_mutations": { "type": "null" },
+          "unrelated_agent_mutations": { "type": "null" }
+        }}
+      }]
+    },
+    "execution_properties": {
+      "type": "object",
+      "required": ["kind", "executed_ticks", "executed_agent_count", "motion_evaluated_agent_ticks", "base_cache_hash", "initial_state_hash", "final_state_hash", "target_agent_mutations"],
+      "properties": {
+        "kind": { "type": "string" },
+        "executed_ticks": { "type": "integer", "minimum": 1 },
+        "executed_agent_count": { "type": "integer", "minimum": 1 },
+        "motion_evaluated_agent_ticks": { "type": "integer", "minimum": 1 },
+        "base_cache_hash": { "$ref": "#/$defs/hash" },
+        "initial_state_hash": { "$ref": "#/$defs/hash" },
+        "final_state_hash": { "$ref": "#/$defs/hash" },
+        "target_agent_mutations": { "$ref": "#/$defs/count" }
+      }
+    },
+    "scheduled_cafe_specific": {
+      "allOf": [
+        { "$ref": "#/$defs/execution_properties" },
+        { "required": ["granted_reservations", "waiting_before_release", "promoted_after_release", "double_ownership_violations", "released_agent_id", "promoted_agent_id", "layer_target_agent_ids"],
+          "properties": {
+            "kind": { "const": "scheduled_cafe" },
+            "granted_reservations": { "$ref": "#/$defs/count" },
+            "waiting_before_release": { "$ref": "#/$defs/count" },
+            "promoted_after_release": { "$ref": "#/$defs/count" },
+            "double_ownership_violations": { "$ref": "#/$defs/count" },
+            "released_agent_id": { "$ref": "#/$defs/nullable_count" },
+            "promoted_agent_id": { "$ref": "#/$defs/nullable_count" },
+            "layer_target_agent_ids": {
+              "type": "array", "uniqueItems": true,
+              "items": { "$ref": "#/$defs/count" }
+            }
+          }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "family_split_regroup_specific": {
+      "allOf": [
+        { "$ref": "#/$defs/execution_properties" },
+        { "required": ["split_samples", "regrouped_samples", "intrusion_samples", "maximum_split_separation_millimeters"],
+          "properties": {
+            "kind": { "const": "family_split_regroup" },
+            "split_samples": { "$ref": "#/$defs/count" },
+            "regrouped_samples": { "$ref": "#/$defs/count" },
+            "intrusion_samples": { "$ref": "#/$defs/count" },
+            "maximum_split_separation_millimeters": { "$ref": "#/$defs/count" }
+          }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "terrain_motion_feedback_specific": {
+      "allOf": [
+        { "$ref": "#/$defs/execution_properties" },
+        { "required": ["terrain_constraints_accepted", "foot_locks_satisfied", "navigation_feedback_events"],
+          "properties": {
+            "kind": { "const": "terrain_motion_feedback" },
+            "terrain_constraints_accepted": { "$ref": "#/$defs/count" },
+            "foot_locks_satisfied": { "$ref": "#/$defs/count" },
+            "navigation_feedback_events": { "$ref": "#/$defs/count" }
+          }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "paired_handoff_specific": {
+      "allOf": [
+        { "$ref": "#/$defs/execution_properties" },
+        { "required": ["participants_locked_atomically", "required_interaction_contacts", "completed_interactions", "applied_layer_edits"],
+          "properties": {
+            "kind": { "const": "paired_handoff" },
+            "participants_locked_atomically": { "$ref": "#/$defs/count" },
+            "required_interaction_contacts": { "$ref": "#/$defs/count" },
+            "completed_interactions": { "$ref": "#/$defs/count" },
+            "applied_layer_edits": { "$ref": "#/$defs/count" }
+          }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "ragdoll_recovery_specific": {
+      "allOf": [
+        { "$ref": "#/$defs/execution_properties" },
+        { "required": ["physics_cache_samples", "impact_phase_ticks", "stabilize_phase_ticks", "resume_phase_ticks", "floor_contact_samples", "hero_boundary_validated"],
+          "properties": {
+            "kind": { "const": "ragdoll_recovery" },
+            "physics_cache_samples": { "$ref": "#/$defs/count" },
+            "impact_phase_ticks": { "$ref": "#/$defs/count" },
+            "stabilize_phase_ticks": { "$ref": "#/$defs/count" },
+            "resume_phase_ticks": { "$ref": "#/$defs/count" },
+            "floor_contact_samples": { "$ref": "#/$defs/count" },
+            "hero_boundary_validated": { "$ref": "#/$defs/count" }
+          }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "mixed_tier_diagnostics_specific": {
+      "allOf": [
+        { "$ref": "#/$defs/execution_properties" },
+        { "required": ["full_diagnostic_channels", "reduced_diagnostic_channels", "aggregate_diagnostic_channels", "scheduled_animation_evaluations", "validated_interaction_contacts", "promoted_interaction_groups"],
+          "properties": {
+            "kind": { "const": "mixed_tier_diagnostics" },
+            "full_diagnostic_channels": { "$ref": "#/$defs/count" },
+            "reduced_diagnostic_channels": { "$ref": "#/$defs/count" },
+            "aggregate_diagnostic_channels": { "$ref": "#/$defs/count" },
+            "scheduled_animation_evaluations": { "$ref": "#/$defs/count" },
+            "validated_interaction_contacts": { "$ref": "#/$defs/count" },
+            "promoted_interaction_groups": { "$ref": "#/$defs/count" }
+          }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "scheduled_cafe": { "allOf": [
+      { "$ref": "#/$defs/scene" },
+      { "properties": { "id": { "const": "scheduled_cafe" }, "metrics": { "properties": { "scene_specific": { "$ref": "#/$defs/scheduled_cafe_specific" } } } } }
+    ]},
+    "family_split_regroup": { "allOf": [
+      { "$ref": "#/$defs/scene" },
+      { "properties": { "id": { "const": "family_split_regroup" }, "metrics": { "properties": { "scene_specific": { "$ref": "#/$defs/family_split_regroup_specific" } } } } }
+    ]},
+    "terrain_motion_feedback": { "allOf": [
+      { "$ref": "#/$defs/scene" },
+      { "properties": { "id": { "const": "terrain_motion_feedback" }, "metrics": { "properties": { "scene_specific": { "$ref": "#/$defs/terrain_motion_feedback_specific" } } } } }
+    ]},
+    "paired_handoff": { "allOf": [
+      { "$ref": "#/$defs/scene" },
+      { "properties": { "id": { "const": "paired_handoff" }, "metrics": { "properties": { "scene_specific": { "$ref": "#/$defs/paired_handoff_specific" } } } } }
+    ]},
+    "ragdoll_recovery": { "allOf": [
+      { "$ref": "#/$defs/scene" },
+      { "properties": { "id": { "const": "ragdoll_recovery" }, "metrics": { "properties": { "scene_specific": { "$ref": "#/$defs/ragdoll_recovery_specific" } } } } }
+    ]},
+    "mixed_tier_diagnostics": { "allOf": [
+      { "$ref": "#/$defs/scene" },
+      { "properties": { "id": { "const": "mixed_tier_diagnostics" }, "metrics": { "properties": { "scene_specific": { "$ref": "#/$defs/mixed_tier_diagnostics_specific" } } } } }
+    ]}
+  }
+}

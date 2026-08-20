@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/mixed-tier-v1.schema.json",
+  "title": "Blender Crowd M6 Mixed Tier Fixture v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scene_id", "base_cache_hash", "tiers", "promoted_interaction_groups"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "scene_id": { "type": "string", "minLength": 1 },
+    "base_cache_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "tiers": {
+      "type": "array", "minItems": 1, "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["simulation_tier", "render_tier", "agent_count", "diagnostics"],
+        "properties": {
+          "simulation_tier": { "enum": ["s0", "s1", "s2", "s3"] },
+          "render_tier": { "enum": ["r0", "r1", "r2", "r3", "r4"] },
+          "agent_count": { "type": "integer", "minimum": 0 },
+          "diagnostics": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "promoted_interaction_groups": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  }
+}

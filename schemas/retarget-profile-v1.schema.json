@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/retarget-profile-v1.schema.json",
+  "title": "Blender Crowd Canonical Retarget Profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile_id", "canonical_skeleton", "root_bone", "forward_axis", "scale_millimeters", "bone_map", "source_provenance"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "profile_id": { "type": "string", "minLength": 1 },
+    "canonical_skeleton": { "type": "string", "minLength": 1 },
+    "root_bone": { "type": "string", "minLength": 1 },
+    "forward_axis": { "enum": ["+X", "-X", "+Y", "-Y"] },
+    "scale_millimeters": { "type": "integer", "minimum": 1 },
+    "bone_map": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "minLength": 1 } },
+    "source_provenance": { "type": "string", "minLength": 1 }
+  }
+}

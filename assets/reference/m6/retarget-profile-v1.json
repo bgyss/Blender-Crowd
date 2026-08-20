@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "profile_id": "reference-humanoid",
+  "canonical_skeleton": "m6-reference-humanoid-v1",
+  "root_bone": "root",
+  "forward_axis": "-Y",
+  "scale_millimeters": 1000,
+  "bone_map": {
+    "root": "root",
+    "pelvis": "pelvis",
+    "left_foot": "foot.L",
+    "right_foot": "foot.R"
+  },
+  "source_provenance": "Blender Crowd redistributable reference metadata"
+}

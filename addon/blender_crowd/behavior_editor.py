@@ -25,6 +25,7 @@ _NODE_TYPES = (
     ("navigate", "Navigate", "Set a named destination"),
     ("wait", "Wait", "Hold for ticks"),
     ("queue", "Queue", "Reserve an authored queue slot"),
+    ("action", "Action", "Emit a declared deterministic action"),
     ("follow_lane", "Follow Lane", "Follow an authored lane"),
     ("hold_position", "Hold Position", "Stop desired velocity"),
 )
@@ -122,6 +123,20 @@ def graph_from_tree(tree=None):
             spec["children"] = children
         graph["nodes"].append(spec)
     return graph
+
+
+def highlight_node(logical_id, tree=None):
+    """Select one bounded graph node when an M6 navigation record resolves it."""
+    tree = tree or bpy.data.node_groups.get(TREE_NAME)
+    if tree is None or tree.bl_idname != TREE_ID:
+        return False
+    matched = False
+    for node in tree.nodes:
+        node.select = node.bl_idname == NODE_ID and node.logical_id == logical_id
+        if node.select:
+            tree.nodes.active = node
+            matched = True
+    return matched
 
 
 _CLASSES = (CrowdBehaviorTree, CrowdBehaviorNode)
