@@ -11,6 +11,14 @@
 # completion rate is meaningless — agents that would arrive later never get the
 # chance. Nothing here should be quoted as a result.
 #
+# It is also a CROPPED view. The camera frames a 250 m window that tracks one
+# of the two lane blocks, because the whole 2,402 x 1,140 m scene rendered to
+# a single frame puts an agent at well under a pixel. So the clip shows on the
+# order of 8,300-12,300 agents at a time, under 1% of the scene area, and must
+# never be captioned as a picture of 100,000 agents. That claim belongs to
+# docs/media/m5-100k-hero.png, which is a measured plot asserted above 95%
+# occupancy.
+#
 # Why the trace is subsampled: a trace is 34 bytes per agent per tick, so
 # 142,302 ticks x 100,000 agents is 484 GB at every tick. TRACE_INTERVAL writes
 # every Nth tick instead. The simulation still steps every tick; only the
@@ -26,7 +34,11 @@
 #   MAX_TICKS       stop after this many ticks (default 42000, just before the
 #                   first arrivals, so the whole population is on screen)
 #   TRACE_INTERVAL  write every Nth tick (default 48, ~875 frames = ~29 s clip)
-#   RES_X           horizontal resolution (default 1280)
+#   RES_X           horizontal resolution (default 3840)
+#   CROP_WIDTH      width of the tracked window in metres (default 250)
+#   TRACK_STREAM    lane block the camera follows, 0 south or 1 north
+#                   (default 0)
+#   GROUND_GRID     ground grid spacing in metres (default 50)
 #   STREAM_SPLIT    y that divides the two lane blocks (default: scene midpoint)
 #   FPS             output frame rate (default 30)
 #   OUT_DIR         where the mp4 lands (default ~/blender-crowd-m5/recording)
@@ -36,8 +48,11 @@ set -euo pipefail
 AGENTS="${AGENTS:-100000}"
 MAX_TICKS="${MAX_TICKS:-42000}"
 TRACE_INTERVAL="${TRACE_INTERVAL:-48}"
-RES_X="${RES_X:-1280}"
+RES_X="${RES_X:-3840}"
 FPS="${FPS:-30}"
+CROP_WIDTH="${CROP_WIDTH:-250}"
+TRACK_STREAM="${TRACK_STREAM:-0}"
+GROUND_GRID="${GROUND_GRID:-50}"
 OUT_DIR="${OUT_DIR:-$HOME/blender-crowd-m5/recording}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -65,6 +80,7 @@ printf 'agents           %s\n' "$AGENTS"
 printf 'ticks simulated  %s (of the scene'"'"'s 142302)\n' "$MAX_TICKS"
 printf 'trace interval   every %s ticks\n' "$TRACE_INTERVAL"
 printf 'frames           ~%s  -> ~%s s of video at %s fps\n' "$FRAMES" "$(( FRAMES / FPS ))" "$FPS"
+printf 'window           %s m, tracking stream %s\n' "$CROP_WIDTH" "$TRACK_STREAM"
 printf 'trace size       ~%s GB\n' "$(( BYTES / 1000000000 ))"
 printf 'output           %s/%s.mp4\n\n' "$OUT_DIR" "$STEM"
 
@@ -86,6 +102,9 @@ CROWD_TICK_STEP=1 \
 CROWD_RES_X="$RES_X" \
 CROWD_STREAM_AXIS=y \
 CROWD_STREAM_SPLIT="$STREAM_SPLIT" \
+CROWD_CROP_WIDTH="$CROP_WIDTH" \
+CROWD_TRACK_STREAM="$TRACK_STREAM" \
+CROWD_GROUND_GRID="$GROUND_GRID" \
     "$BLENDER" -b --factory-startup --python "$REPO_ROOT/scripts/render_playback.py"
 
 printf '\n=== encoding ===\n'
@@ -94,4 +113,5 @@ ffmpeg -y -loglevel error -framerate "$FPS" -i "$FRAME_DIR/frame-%05d.png" \
     "$OUT_DIR/$STEM.mp4"
 
 printf 'wrote %s/%s.mp4 (%s)\n' "$OUT_DIR" "$STEM" "$(du -h "$OUT_DIR/$STEM.mp4" | cut -f1)"
-printf '\nReminder: a visualisation, not a measurement, and a truncated run.\n'
+printf '\nReminder: a visualisation, not a measurement; a truncated run; and a\n'
+printf 'cropped view showing well under 1%% of the population at a time.\n'
