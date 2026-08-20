@@ -6,6 +6,22 @@ Complete the path from the 1.0 behavior graph to MASSIVE-class inspectable agenc
 and pair it with a modern trajectory-aware motion stack for close-to-camera
 characters, while preserving deterministic lower-fidelity tiers.
 
+## Current status
+
+M6 remains unaccepted. The
+[2026-08-19 requirement-level audit](../benchmarks/2026-08-19-m6-acceptance.md)
+adjudicates criteria 1–4 and 6–10 as PASS at their documented deterministic
+fixture or host-Blender proof levels. Criterion 5 remains OPEN: the CMU
+candidate has 3,587 measured joint-limit violations against the hard limit of
+zero, while the accepted CC0 authored motion is a narrow deterministic fixture
+baseline only. `scripts/m6-acceptance.sh` exits nonzero without
+`M6_ALLOW_OPEN=1` while that gate remains open.
+
+This status does not claim Blender cloth/hair/Geometry Nodes deformation,
+rigid-body parity, arbitrary-scene or long-duration performance, GPU execution,
+or visual quality. R1–R4 neural animation and independent-user verification
+remain deferred to M9.
+
 ## Sources of truth
 
 - [Industrial capability ledger](../industrial-crowd-capability-roadmap.md#industrial-capability-ledger)

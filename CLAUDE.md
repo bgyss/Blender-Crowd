@@ -18,7 +18,7 @@ scripts/m4-foundation-test.sh                             # M4 layer composition
 scripts/m5-foundation-test.sh                             # M5 tier scheduler, per-tier gate, transitions, CPU fallback
 scripts/m6-foundation-test.sh                             # M6 typed perception/brain/activity/motion/physics contracts and R0 interaction foundation
 scripts/m6-blender-test.sh                                # M6 Blender-process debugger/graph-search smoke; requires Blender 5.2 LTS
-scripts/m6-acceptance.sh                                  # M6 deterministic requirement audit; M9 neural/operator gates are separate
+scripts/m6-acceptance.sh                                  # M6 audit; exits 2 for the open production-motion gate; M9 gates stay separate
 cargo run --release -p crowd-bench -- m5-gate --report REPORT.json --out ADJUDICATION.json # fixed per-tier M5 thresholds
 scripts/m5-blender-test.sh                                # M5 procedural playback, render, and scale/profiling UI proof
 M5_BLENDER_AGENTS=10000 scripts/m5-blender-test.sh        # the same proof at the 10K gate's population
@@ -84,6 +84,15 @@ On macOS, `.cargo/config.toml` points the linker at the system clang; without
 it nothing links, because the nix `cc` on `PATH` cannot resolve `libSystem`.
 
 Run the density fuzz in release — it is impractically slow in debug.
+
+M6 is not accepted while criterion 5 remains open. The CMU candidate is
+rejected at 3,587 joint-limit violations against the hard limit of zero; the
+checked CC0 authored data is a fixture baseline only. `M6_ALLOW_OPEN=1` may
+acknowledge an open audit exit, but it never promotes M6 or a failed gate.
+Do not claim cloth/hair/Geometry Nodes deformation, rigid-body parity, GPU or
+arbitrary-scene performance, long-duration stability, neural motion, or visual
+quality from the current M6 evidence. See
+`docs/benchmarks/2026-08-19-m6-acceptance.md`.
 
 For documentation-only changes, these lightweight checks still apply:
 

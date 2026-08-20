@@ -42,8 +42,10 @@ cargo test -p crowd-core --test m6_metrics
 cargo test -p crowd-core --test m6_physics_recovery --test m6_extensions
 cargo test -p crowd-cache --test interaction_layers
 cargo test -p crowd-bench --test m6_worker
-python3 -m unittest -q tests/test_m6_extensions.py tests/test_m6_interaction_layers.py tests/test_m6_debugger.py tests/test_m6_debugger_navigation.py tests/test_m6_library.py tests/test_m6_motion_database.py tests/test_m6_motion_evaluation.py tests/test_m6_physics_boundaries.py
-python3 -m py_compile scripts/m6_motion_build.py scripts/m6_motion_evaluate.py tests/blender/test_m6_debugger.py addon/blender_crowd/m6_debugger.py addon/blender_crowd/m6_library.py addon/blender_crowd/m6_extensions.py addon/blender_crowd/m6_interaction.py addon/blender_crowd/m6_physics.py addon/blender_crowd/operators.py addon/blender_crowd/panels.py addon/blender_crowd/properties.py
+python3 -m unittest -q tests/test_m6_extensions.py tests/test_m6_extension_examples.py tests/test_m6_interaction_layers.py tests/test_m6_debugger.py tests/test_m6_debugger_navigation.py tests/test_m6_library.py tests/test_m6_motion_database.py tests/test_m6_motion_evaluation.py tests/test_m6_physics_boundaries.py
+python3 -m py_compile scripts/m6_motion_build.py scripts/m6_motion_evaluate.py scripts/m6_acceptance_checks.py examples/m6_extension_python.py tests/blender/test_m6_debugger.py addon/blender_crowd/m6_debugger.py addon/blender_crowd/m6_library.py addon/blender_crowd/m6_extensions.py addon/blender_crowd/m6_interaction.py addon/blender_crowd/m6_physics.py addon/blender_crowd/operators.py addon/blender_crowd/panels.py addon/blender_crowd/properties.py
+cargo run --quiet -p crowd-core --example m6-extension-rust
+python3 examples/m6_extension_python.py
 
 artifact_dir="${M6_ARTIFACT_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/blender-crowd-m6-r0.XXXXXX")}"
 cleanup_artifact_dir=0

@@ -84,12 +84,13 @@ UI/UX and Figma work is deliberately deferred and tracked in the
 [UI/UX roadmap](../ui-ux-roadmap.md#deferred-uiux-todo); it does not reopen M2.
 
 M6's deterministic foundation and model-independent R0 interaction evidence are
-recorded in the [2026-08-18 foundation report](../benchmarks/2026-08-18-m6-foundation.md).
-That report is intentionally partial: it does not promote the full M6 gate,
-whose remaining work is deterministic production motion, terrain, physics,
-reference-scene, bidirectional-debugger, reusable-subgraph/action/preset, and
-acceptance evidence. R1–R4 research and independent-user verification are
-deferred to M9 and do not block M6.
+recorded in the [2026-08-18 foundation report](../benchmarks/2026-08-18-m6-foundation.md),
+and the [2026-08-19 requirement-level audit](../benchmarks/2026-08-19-m6-acceptance.md)
+adjudicates criteria 1–4 and 6–10 as PASS at their documented proof levels.
+M6 remains unaccepted because criterion 5 is OPEN: the CMU candidate records
+3,587 joint-limit violations against the hard limit of zero, and the accepted
+CC0 motion is a checked fixture baseline only. R1–R4 research and
+independent-user verification are deferred to M9 and do not block M6.
 
 Implemented: a Rust workspace of five crates (`crowd-core`, `crowd-cache`,
 `crowd-trace`, `crowd-blender`, and `crowd-bench`); versioned project/cache

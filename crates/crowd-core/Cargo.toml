@@ -14,3 +14,7 @@ crowd-cache = { path = "../crowd-cache" }
 jsonschema = { version = "0.33", default-features = false }
 proptest = { workspace = true }
 tempfile = "3.20"
+
+[[example]]
+name = "m6-extension-rust"
+path = "../../examples/m6-extension-rust.rs"
