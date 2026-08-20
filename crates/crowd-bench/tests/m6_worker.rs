@@ -79,7 +79,11 @@ fn local_worker_can_emit_the_validated_sparse_animation_layer() {
     );
     let layer: AnimationLayerV1 =
         serde_json::from_str(&std::fs::read_to_string(layer_path).unwrap()).unwrap();
+    let request: InteractionRequestV1 = serde_json::from_str(include_str!(
+        "../../../assets/reference/m6/interaction-request-v1.json"
+    ))
+    .unwrap();
     layer.validate().unwrap();
-    assert_eq!(layer.base_cache_hash, "a".repeat(64));
+    assert_eq!(layer.base_cache_hash, request.provenance.base_cache_hash);
     assert_eq!(layer.target_agent_ids, vec![7, 9]);
 }

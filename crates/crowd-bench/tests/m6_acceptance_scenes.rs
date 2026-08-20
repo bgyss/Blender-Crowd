@@ -356,6 +356,81 @@ fn seed_population_and_tick_mutations_change_executed_state() {
 }
 
 #[test]
+fn motion_slide_is_measured_from_executed_tick_displacement() {
+    let mut fixture = checked_fixture_value();
+    fixture["scenes"][0]["motion"]["desired_velocity_millimeters_per_second"] =
+        serde_json::json!([0, 0]);
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zero-velocity.json");
+    write_json(&path, &fixture);
+
+    let run = run_fixture(&path);
+    assert_eq!(run.status.code(), Some(1));
+    assert_eq!(
+        scene(&run.report, "scheduled_cafe")["metrics"]["foot_slide_millimeters"],
+        34,
+        "1000 mm/s executed against a zero request over one 30 Hz tick must measure 34 mm"
+    );
+    assert_schema_valid(&run.report);
+}
+
+#[test]
+fn required_contact_selects_and_executes_the_matching_sample_phase() {
+    let baseline = run_fixture(&checked_fixture());
+    assert!(baseline.status.success());
+    let baseline_scene = scene(&baseline.report, "scheduled_cafe");
+    let mut fixture = checked_fixture_value();
+    fixture["scenes"][0]["motion"]["required_contact"] = Value::from("right_foot");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("right-foot.json");
+    write_json(&path, &fixture);
+
+    let run = run_fixture(&path);
+    assert!(run.status.success());
+    let mutated = scene(&run.report, "scheduled_cafe");
+    assert_eq!(
+        mutated["metrics"]["observed_contacts"],
+        mutated["metrics"]["required_contacts"]
+    );
+    assert_ne!(
+        mutated["metrics"]["scene_specific"]["final_state_hash"],
+        baseline_scene["metrics"]["scene_specific"]["final_state_hash"],
+        "changing the required contact must execute the corresponding sample phase"
+    );
+}
+
+#[test]
+fn scheduled_cafe_layer_targets_follow_post_release_promotion() {
+    let run = run_fixture(&checked_fixture());
+    assert!(run.status.success());
+    let evidence = &scene(&run.report, "scheduled_cafe")["metrics"]["scene_specific"];
+    assert!(
+        evidence["released_agent_id"].is_u64(),
+        "cafe evidence must expose the released owner"
+    );
+    assert!(
+        evidence["promoted_agent_id"].is_u64(),
+        "cafe evidence must expose the waiting agent promoted after release"
+    );
+    assert!(
+        evidence["layer_target_agent_ids"].is_array(),
+        "cafe evidence must expose the targets used by the applied layer"
+    );
+    let released = evidence["released_agent_id"].as_u64().unwrap();
+    let promoted = evidence["promoted_agent_id"].as_u64().unwrap();
+    let layer_targets = evidence["layer_target_agent_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_u64().unwrap())
+        .collect::<Vec<_>>();
+
+    assert!(layer_targets.contains(&promoted));
+    assert!(!layer_targets.contains(&released));
+    assert_eq!(layer_targets.len(), 2);
+}
+
+#[test]
 fn isolation_uses_full_executed_state_and_is_explicitly_not_applicable_without_an_operation() {
     let run = run_fixture(&checked_fixture());
     assert!(run.status.success());
@@ -391,6 +466,69 @@ fn isolation_uses_full_executed_state_and_is_explicitly_not_applicable_without_a
             .unwrap()
             .contains("no promoted"));
     }
+}
+
+#[test]
+fn paired_handoff_rejects_artifacts_bound_to_a_different_executed_base() {
+    let root = repository_root();
+    let directory = tempfile::tempdir().unwrap();
+    let mismatched_hash = "f".repeat(64);
+
+    let request_source = root.join("assets/reference/m6/interaction-request-v1.json");
+    let mut request: Value = serde_json::from_slice(&fs::read(request_source).unwrap()).unwrap();
+    request["provenance"]["base_cache_hash"] = Value::from(mismatched_hash.clone());
+    let request_path = directory
+        .path()
+        .join("mismatch-interaction-request-v1.json");
+    write_json(&request_path, &request);
+
+    let layer_source = root.join("assets/reference/m6/interaction-animation-layer-v1.json");
+    let mut layer: Value = serde_json::from_slice(&fs::read(layer_source).unwrap()).unwrap();
+    layer["base_cache_hash"] = Value::from(mismatched_hash);
+    let layer_path = directory
+        .path()
+        .join("mismatch-interaction-animation-layer-v1.json");
+    write_json(&layer_path, &layer);
+
+    let mut fixture = checked_fixture_value();
+    fixture["scenes"][3]["source_paths"][0] = Value::from(request_path.to_str().unwrap());
+    fixture["scenes"][3]["source_paths"][2] = Value::from(layer_path.to_str().unwrap());
+    let fixture_path = directory.path().join("mismatched-base-fixture.json");
+    write_json(&fixture_path, &fixture);
+
+    let result = run_command(
+        &fixture_path,
+        &root.join("docs/benchmarks/2026-08-18-m6-cmu-motion.json"),
+    );
+    assert_eq!(result.status.code(), Some(2), "{}", result.stderr);
+    assert!(result.report.is_none());
+    assert!(
+        result.stderr.contains("executed full base cache"),
+        "{}",
+        result.stderr
+    );
+}
+
+#[test]
+fn paired_handoff_valid_operation_reports_executed_base_binding_and_full_state_isolation() {
+    let request: Value = serde_json::from_slice(
+        &fs::read(repository_root().join("assets/reference/m6/interaction-request-v1.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let run = run_fixture(&checked_fixture());
+    assert!(run.status.success());
+    let paired = scene(&run.report, "paired_handoff");
+    let evidence = &paired["metrics"]["scene_specific"];
+
+    assert_eq!(
+        evidence["base_cache_hash"], request["provenance"]["base_cache_hash"],
+        "the valid request must identify the executed full base"
+    );
+    assert_eq!(paired["base_cache_mutations"], 0);
+    assert_eq!(paired["unrelated_agent_mutations"], 0);
+    assert_eq!(evidence["executed_agent_count"], paired["agent_count"]);
+    assert_eq!(evidence["target_agent_mutations"], 2);
 }
 
 #[test]

@@ -94,7 +94,6 @@ struct SceneMotionFixture {
     desired_velocity_millimeters_per_second: [i32; 2],
     desired_slope_millionths: i32,
     required_contact: Option<FootContactV1>,
-    foot_slide_millimeters: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -335,6 +334,7 @@ struct ExecutionEvidence {
     executed_ticks: u64,
     executed_agent_count: u64,
     motion_evaluated_agent_ticks: u64,
+    base_cache_hash: String,
     initial_state_hash: String,
     final_state_hash: String,
     target_agent_mutations: u32,
@@ -350,6 +350,9 @@ enum SceneSpecificEvidence {
         waiting_before_release: u64,
         promoted_after_release: u64,
         double_ownership_violations: u64,
+        released_agent_id: Option<u64>,
+        promoted_agent_id: Option<u64>,
+        layer_target_agent_ids: Vec<u64>,
     },
     FamilySplitRegroup {
         #[serde(flatten)]
@@ -402,6 +405,9 @@ enum DomainSpecificData {
         waiting_before_release: u64,
         promoted_after_release: u64,
         double_ownership_violations: u64,
+        released_agent_id: Option<u64>,
+        promoted_agent_id: Option<u64>,
+        layer_target_agent_ids: Vec<u64>,
     },
     FamilySplitRegroup {
         split_samples: u64,
@@ -860,6 +866,7 @@ fn run_scene(
         + u32::from(isolation.status == "measured" && isolation.target_agent_mutations == 0);
     let fallback_count = 1 + motion.runtime_fallbacks;
     let hard_safety_passed = safety_violations == 0;
+    let base_cache_hash = frame_state_hash(&domain.state.base)?;
     let execution = ExecutionEvidence {
         executed_ticks: domain
             .state
@@ -868,6 +875,7 @@ fn run_scene(
             .saturating_add(1),
         executed_agent_count: domain.state.base.records.len() as u64,
         motion_evaluated_agent_ticks: motion.evaluated_agent_ticks,
+        base_cache_hash,
         initial_state_hash: domain.state.initial_state_hash.clone(),
         final_state_hash: frame_state_hash(&domain.state.composed)?,
         target_agent_mutations: isolation.target_agent_mutations,
@@ -1056,6 +1064,7 @@ fn execute_motion(
     let mut trajectory_fit_millimeters = 0;
     let mut required_contacts = 0u32;
     let mut observed_contacts = 0u32;
+    let mut foot_slide_millimeters = 0u32;
     let mut runtime_fallbacks = 0u32;
     let mut safety_violations = 0u32;
     let mut evaluated_agent_ticks = 0u64;
@@ -1086,16 +1095,22 @@ fn execute_motion(
                 .iter()
                 .find(|clip| clip.id == selected.clip_id)
                 .ok_or_else(|| format!("selected clip {} is missing", selected.clip_id))?;
-            let sample = clip
-                .samples
-                .first()
-                .ok_or_else(|| format!("selected clip {} is empty", selected.clip_id))?;
+            let (sample_index, sample) = executed_sample(
+                clip,
+                record.phase,
+                scene.motion.required_contact,
+                selected.used_fallback,
+            )?;
+            let tick_slide_millimeters = tick_displacement_error_millimeters(
+                desired,
+                sample.velocity_millimeters_per_second,
+            );
             let feedback = MotionFeedbackV1::evaluate(
                 desired,
                 sample.velocity_millimeters_per_second,
                 scene.motion.desired_slope_millionths,
                 sample.slope_millionths,
-                scene.motion.foot_slide_millimeters.saturating_mul(1_000),
+                tick_slide_millimeters.saturating_mul(1_000),
                 scene
                     .criteria
                     .max_trajectory_fit_millimeters
@@ -1107,13 +1122,13 @@ fn execute_motion(
             );
             trajectory_fit_millimeters =
                 trajectory_fit_millimeters.max(feedback.root_deviation_millionths / 1_000);
+            foot_slide_millimeters = foot_slide_millimeters.max(tick_slide_millimeters);
             safety_violations += u32::from(!feedback.feasible);
             runtime_fallbacks += u32::from(selected.used_fallback);
             if let Some(contact) = scene.motion.required_contact {
                 required_contacts = required_contacts.saturating_add(1);
-                observed_contacts = observed_contacts.saturating_add(u32::from(
-                    clip.samples.iter().any(|sample| sample.contact == contact),
-                ));
+                observed_contacts =
+                    observed_contacts.saturating_add(u32::from(sample.contact == contact));
             }
             record.clip_id = if selected.clip_id == "jog-reference" {
                 2
@@ -1127,19 +1142,71 @@ fn execute_motion(
             for axis in 0..2 {
                 record.position[axis] += record.velocity[axis] / TICKS_PER_SECOND as f32;
             }
-            record.phase = (record.phase + record.playback_rate / TICKS_PER_SECOND as f32).fract();
+            record.phase = (sample_phase(clip, sample_index)
+                + record.playback_rate / TICKS_PER_SECOND as f32)
+                .fract();
             evaluated_agent_ticks = evaluated_agent_ticks.saturating_add(1);
         }
     }
     Ok(MotionEvidence {
         trajectory_fit_millimeters,
-        foot_slide_millimeters: scene.motion.foot_slide_millimeters,
+        foot_slide_millimeters,
         required_contacts,
         observed_contacts,
         runtime_fallbacks,
         safety_violations,
         evaluated_agent_ticks,
     })
+}
+
+fn executed_sample(
+    clip: &MotionClipV1,
+    phase: f32,
+    required_contact: Option<FootContactV1>,
+    used_fallback: bool,
+) -> Result<(usize, &MotionSampleV1), String> {
+    if clip.samples.is_empty() {
+        return Err(format!("selected clip {} is empty", clip.id));
+    }
+    let phase = if phase.is_finite() {
+        phase.rem_euclid(1.0)
+    } else {
+        0.0
+    };
+    let phase_index = ((phase * clip.samples.len() as f32).floor() as usize)
+        .min(clip.samples.len().saturating_sub(1));
+    let selected_index = if used_fallback {
+        phase_index
+    } else if let Some(required_contact) = required_contact {
+        clip.samples
+            .iter()
+            .enumerate()
+            .filter(|(_, sample)| sample.contact == required_contact)
+            .min_by_key(|(index, _)| cyclic_index_distance(phase_index, *index, clip.samples.len()))
+            .map_or(phase_index, |(index, _)| index)
+    } else {
+        phase_index
+    };
+    Ok((selected_index, &clip.samples[selected_index]))
+}
+
+fn cyclic_index_distance(left: usize, right: usize, length: usize) -> usize {
+    let direct = left.abs_diff(right);
+    direct.min(length.saturating_sub(direct))
+}
+
+fn sample_phase(clip: &MotionClipV1, sample_index: usize) -> f32 {
+    let first_tick = clip.samples.first().map_or(0, |sample| sample.tick);
+    let last_tick = clip.samples.last().map_or(first_tick, |sample| sample.tick);
+    let duration = last_tick.saturating_sub(first_tick).saturating_add(1);
+    clip.samples[sample_index].tick.saturating_sub(first_tick) as f32 / duration as f32
+}
+
+fn tick_displacement_error_millimeters(desired: [i32; 2], actual: [i32; 2]) -> u32 {
+    let x = i64::from(desired[0]) - i64::from(actual[0]);
+    let y = i64::from(desired[1]) - i64::from(actual[1]);
+    let speed_error = ((x.saturating_mul(x).saturating_add(y.saturating_mul(y))) as f64).sqrt();
+    (speed_error / TICKS_PER_SECOND as f64).ceil() as u32
 }
 
 impl DomainSpecificData {
@@ -1150,12 +1217,18 @@ impl DomainSpecificData {
                 waiting_before_release,
                 promoted_after_release,
                 double_ownership_violations,
+                released_agent_id,
+                promoted_agent_id,
+                layer_target_agent_ids,
             } => SceneSpecificEvidence::ScheduledCafe {
                 execution,
                 granted_reservations,
                 waiting_before_release,
                 promoted_after_release,
                 double_ownership_violations,
+                released_agent_id,
+                promoted_agent_id,
+                layer_target_agent_ids,
             },
             Self::FamilySplitRegroup {
                 split_samples,
@@ -1428,20 +1501,24 @@ fn run_scheduled_cafe(
         .iter()
         .filter(|result| matches!(result.status, ReservationStatusV1::Waiting { .. }))
         .count() as u64;
-    let promoted_targets = runtime.owners(&resource_id);
-    let first_owner = promoted_targets.first().copied();
+    let initial_owners = runtime.owners(&resource_id);
+    let first_owner = initial_owners.first().copied();
     let released = first_owner.is_some_and(|agent_id| runtime.release(agent_id, &resource_id));
     let waiting_agent = results
         .iter()
         .find(|result| matches!(result.status, ReservationStatusV1::Waiting { .. }))
-        .map(|result| result.agent_id)
-        .unwrap_or(0);
-    let promoted_after_release =
-        u64::from(runtime.status(waiting_agent, &resource_id) == ReservationStatusV1::Granted);
-    let owners = runtime.owners(&resource_id);
-    let unique_owners = owners.iter().copied().collect::<BTreeSet<_>>().len();
+        .map(|result| result.agent_id);
+    let promoted_agent_id = waiting_agent
+        .filter(|agent_id| runtime.status(*agent_id, &resource_id) == ReservationStatusV1::Granted);
+    let promoted_after_release = u64::from(promoted_agent_id.is_some());
+    let layer_target_agent_ids = runtime.owners(&resource_id);
+    let unique_owners = layer_target_agent_ids
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .len();
     let promoted_group_count = u32::from(
-        active_ticks > 0 && schedule.paired_action.is_some() && promoted_targets.len() >= 2,
+        active_ticks > 0 && schedule.paired_action.is_some() && layer_target_agent_ids.len() >= 2,
     );
     if promoted_group_count > 0 {
         let tick = scene.tick_start + (scene.tick_end - scene.tick_start) / 2;
@@ -1455,13 +1532,13 @@ fn run_scheduled_cafe(
                 .map(|paired| paired.action_id.clone())
                 .unwrap_or_default(),
             base_cache_hash: base_hash.clone(),
-            target_agent_ids: promoted_targets.clone(),
+            target_agent_ids: layer_target_agent_ids.clone(),
             tick_start: scene.tick_start,
             tick_end: scene.tick_end,
             priority: 10,
             enabled: true,
             provenance: "scheduled-cafe-runtime-v1".to_owned(),
-            edits: promoted_targets
+            edits: layer_target_agent_ids
                 .iter()
                 .enumerate()
                 .map(|(index, agent_id)| AnimationEditV1 {
@@ -1485,13 +1562,13 @@ fn run_scheduled_cafe(
         + u32::from(waiting != 1)
         + u32::from(!released)
         + u32::from(promoted_after_release != 1)
-        + u32::from(unique_owners != owners.len());
+        + u32::from(unique_owners != layer_target_agent_ids.len());
     Ok(DomainEvidence {
         promoted_group_count,
         required_contacts: promoted_group_count,
         observed_contacts: u32::from(promoted_group_count > 0 && granted >= 2),
         safety_violations,
-        target_agent_ids: promoted_targets,
+        target_agent_ids: layer_target_agent_ids.clone(),
         isolation_applicable: promoted_group_count > 0,
         isolation_reason: (promoted_group_count == 0)
             .then(|| "no promoted scheduled paired activity was executed".to_owned()),
@@ -1499,7 +1576,10 @@ fn run_scheduled_cafe(
             granted_reservations: granted,
             waiting_before_release: waiting,
             promoted_after_release,
-            double_ownership_violations: (owners.len() - unique_owners) as u64,
+            double_ownership_violations: (layer_target_agent_ids.len() - unique_owners) as u64,
+            released_agent_id: first_owner,
+            promoted_agent_id,
+            layer_target_agent_ids,
         },
         state,
     })
@@ -1688,7 +1768,7 @@ fn run_paired_handoff(
     if scene.tick_start != request.tick_start
         || scene.tick_end != request.tick_end
         || layer.interaction_id != request.request_id
-        || layer.base_cache_hash != request.provenance.base_cache_hash
+        || layer.provenance != request.provenance.worker_protocol
         || layer.target_agent_ids != participant_ids
         || layer.tick_start != request.tick_start
         || layer.tick_end != request.tick_end
@@ -1696,6 +1776,15 @@ fn run_paired_handoff(
         return Err("paired scene tick/participant/layer relationships are invalid".to_owned());
     }
     let mut state = build_executed_state(scene, &participant_ids, database)?;
+    let executed_base_cache_hash = frame_state_hash(&state.base)?;
+    if request.provenance.base_cache_hash != executed_base_cache_hash
+        || layer.base_cache_hash != executed_base_cache_hash
+    {
+        return Err(format!(
+            "paired handoff artifact/request/layer provenance does not match the executed full base cache {executed_base_cache_hash}: request {}, layer {}",
+            request.provenance.base_cache_hash, layer.base_cache_hash
+        ));
+    }
     let mut scheduler = InteractionSchedulerV1::new(1);
     scheduler.enqueue(request.clone())?;
     let promoted = scheduler.promote_next();
@@ -1723,15 +1812,30 @@ fn run_paired_handoff(
         .iter()
         .map(|edit| edit.tick)
         .collect::<BTreeSet<_>>();
+    let mut composed = state.base.clone();
     for tick in edit_ticks {
-        state.composed = compose_interaction_frame_v1(
-            &state.composed,
+        let tick_frame = compose_interaction_frame_v1(
+            &state.base,
             tick,
-            &request.provenance.base_cache_hash,
+            &executed_base_cache_hash,
             std::slice::from_ref(&layer),
         )
         .map_err(|error| error.to_string())?;
+        for edit in layer.edits.iter().filter(|edit| edit.tick == tick) {
+            let source = tick_frame
+                .records
+                .iter()
+                .find(|record| record.agent_id == edit.agent_id)
+                .ok_or_else(|| "paired edit result is missing its target agent".to_owned())?;
+            let target = composed
+                .records
+                .iter_mut()
+                .find(|record| record.agent_id == edit.agent_id)
+                .ok_or_else(|| "paired full state is missing its target agent".to_owned())?;
+            *target = source.clone();
+        }
     }
+    state.composed = composed;
     let applied_layer_edits = layer
         .edits
         .iter()

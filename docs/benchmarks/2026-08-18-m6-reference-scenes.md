@@ -6,7 +6,7 @@ The six checked M6 reference scenes pass against the pinned CC0 authored
 motion baseline. Two complete runner invocations emitted byte-identical JSON,
 including identical runtime-derived metrics and replay hashes. The combined
 replay hash is
-`7fbea50f7c2f7a1ab67df4c978f323fd0792aa8811bfb590d8bade8875f87fac`.
+`7a1e140ea825a65676e962f688cd7312736892e4d61d2c14192641d85a88c4db`.
 
 This result does not accept the official CMU candidate. The pinned
 [CMU report](2026-08-18-m6-cmu-motion.json) contains 3,587 measured raw
@@ -36,13 +36,13 @@ threshold bytes makes the runner fail closed with exit 2 and no report.
 - Platform: Darwin arm64
 - Rust: `rustc 1.94.1 (e408947bf 2026-03-25)`
 - Cargo: `cargo 1.94.1 (29ea6fb6a 2026-03-24)`
-- Fix-round base revision: `74103eb`
+- Fix-round-2 base revision: `ca11034`
 - Fixture:
   [acceptance-scenes-v1.json](../../assets/reference/m6/acceptance-scenes-v1.json)
 - Report schema:
   [m6-acceptance-scenes-v1.schema.json](../../schemas/m6-acceptance-scenes-v1.schema.json)
 - Fixture BLAKE3:
-  `df0545312fc88ef7b53c7dbb604ddebd034f4a6a3c65badf809f72bc13518472`
+  `e56504b02f4be531fbba348cebde5928e18e0fc42d1969591161a34d842abba6`
 
 Generated JSON reports remained outside Git.
 
@@ -52,20 +52,26 @@ Each scene constructs a complete population frame from its declared seed and
 population. Stable agent IDs, initial positions, presentation state, and
 per-agent motion variation are generated through the existing deterministic
 RNG/ID contracts. Every declared tick executes motion matching and feedback for
-every agent, so seed, population, and tick mutations affect executed state,
-agent-tick counts, and replay identity rather than only changing report text.
+every agent. The current phase chooses the nearest sample that satisfies an
+available required contact, the exact chosen sample supplies observed contact,
+and horizontal desired-versus-executed displacement over that 30 Hz tick
+supplies foot-slide evidence. No scene fixture supplies a measured slide value.
+Seed, population, tick, desired-velocity, and required-contact mutations therefore
+affect executed state or measured evidence rather than only changing report text.
 
 The domain operation then composes existing authorities:
 
 - `scheduled_cafe`: finite-capacity reservation, waiting, release, promotion,
-  and a runtime-created paired layer applied to the two admitted agents;
+  and a runtime-created paired layer applied to the owner set read after the
+  waiting agent is promoted;
 - `family_split_regroup`: formation evaluation and bounded cohesion on every
   declared tick, with intrusion candidates drawn from the executed population;
 - `terrain_motion_feedback`: terrain acceptance, foot locks, and navigation
   feedback measured on every applicable tick;
 - `paired_handoff`: consumed request, motion, and animation-layer artifacts;
-  request/motion validation; atomic scheduling; and checked layer edits applied
-  to the complete state;
+  request/motion validation; exact request/layer binding to the executed full
+  base cache hash; atomic scheduling; and checked layer edits applied to the
+  complete state;
 - `ragdoll_recovery`: consumed physics transition and hero boundary,
   deterministic physics samples, phase recovery, promotion, and target-state
   application; and
@@ -82,12 +88,12 @@ source-selection decision.
 
 | Scene | Ticks | Agent-ticks | Promoted groups | Trajectory max (mm) | Foot slide (mm) | Contacts observed/required | Safety | Runtime fallback | Isolation | Base/unrelated mutations | Target mutations | Replay hash |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- |
-| `scheduled_cafe` | 121 | 363 | 1 | 15 | 10 | 364/364 | 0 | 0 | measured | 0/0 | 2 | `f9bdc9b9…7ff509` |
-| `family_split_regroup` | 31 | 124 | 0 | 5 | 8 | 124/124 | 0 | 0 | not applicable | n/a | 0 | `4967ed43…5f7ce` |
-| `terrain_motion_feedback` | 11 | 22 | 0 | 25 | 10 | 33/33 | 0 | 0 | not applicable | n/a | 0 | `c13e3237…cff5a` |
-| `paired_handoff` | 11 | 33 | 1 | 5 | 6 | 34/34 | 0 | 0 | measured | 0/0 | 2 | `2d96800f…596af` |
-| `ragdoll_recovery` | 11 | 22 | 1 | 15 | 10 | 23/23 | 0 | 0 | measured | 0/0 | 1 | `026ec198…82eb7` |
-| `mixed_tier_diagnostics` | 16 | 1,600 | 1 | 5 | 8 | 1,601/1,601 | 0 | 0 | measured | 0/0 | 2 | `78c2ac91…50e29` |
+| `scheduled_cafe` | 121 | 363 | 1 | 15 | 1 | 364/364 | 0 | 0 | measured | 0/0 | 2 | `5945952c…6841cf7` |
+| `family_split_regroup` | 31 | 124 | 0 | 5 | 1 | 124/124 | 0 | 0 | not applicable | n/a | 0 | `d5366aca…23497b` |
+| `terrain_motion_feedback` | 11 | 22 | 0 | 25 | 1 | 33/33 | 0 | 0 | not applicable | n/a | 0 | `f676bddc…22813f` |
+| `paired_handoff` | 11 | 33 | 1 | 5 | 1 | 34/34 | 0 | 0 | measured | 0/0 | 2 | `d841113b…c06987` |
+| `ragdoll_recovery` | 11 | 22 | 1 | 15 | 1 | 23/23 | 0 | 0 | measured | 0/0 | 1 | `3261430b…311abe` |
+| `mixed_tier_diagnostics` | 16 | 1,600 | 1 | 5 | 1 | 1,601/1,601 | 0 | 0 | measured | 0/0 | 2 | `f460ebdd…75bc1e` |
 
 Contact precision is 1,000,000 millionths in every scene. Contact totals include
 one authored locomotion-contact observation per executed agent-tick plus each
@@ -99,18 +105,21 @@ Family and terrain isolation are explicitly `not_applicable`: neither scene
 executes a promoted layer/runtime operation, so the report does not fabricate
 zero isolation measurements. The other four scenes compare the complete base
 population before and after the actual promoted operation, require target
-mutation, and measure base-cache and unrelated-agent preservation.
+mutation, and measure base-cache and unrelated-agent preservation. The valid
+paired request and layer both identify the executed full-base BLAKE3
+`b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7`.
 
 Scene-specific runtime evidence includes:
 
-- café: two grants, one waiter, one promotion after release, and zero double
-  ownership;
+- café: two grants, one waiter, one promotion after release, zero double
+  ownership, and a layer target set that includes the promoted waiter while
+  excluding the released owner;
 - family: 16 split samples, 15 regrouped samples, zero runtime-derived
   intrusion samples, and 4,000 mm maximum separation;
 - terrain: 11 accepted terrain ticks, 11 satisfied foot-lock ticks, and 11
   navigation-feedback events;
-- paired handoff: atomic participant locking, one required interaction contact,
-  completion, and two consumed layer edits;
+- paired handoff: exact executed-base provenance, atomic participant locking,
+  one required interaction contact, completion, and two consumed layer edits;
 - ragdoll: a validated hero boundary, 11 physics samples, five floor-contact
   samples, and 1/2/8 impact/stabilize/resume ticks; and
 - mixed tier: one actual promoted group and validated contact, 3 full, 2
@@ -124,7 +133,13 @@ The real-binary suite covers:
 - four source-spoof mutations, all rejected before report publication;
 - seed, population, and tick mutations that alter executed state or
   agent-tick counts;
+- a zero desired-velocity mutation that measures 34 mm of per-tick slide rather
+  than copying a fixture value, plus a left-to-right contact mutation that
+  changes the executed sample phase;
+- post-release café target identity, including promoted/released membership;
 - full-population target/base/unrelated isolation;
+- paired request and layer hashes mutated together to another valid 64-character
+  value, rejected against the executed full base with exit 2 and no report;
 - declared-but-unconsumed source rejection;
 - actual paired layer, hero boundary, and mixed request/motion consumption;
 - required common fields and exact typed evidence for all six scene kinds;
@@ -135,18 +150,26 @@ The real-binary suite covers:
 
 ## Verified commands
 
-The fix-round RED run had 13 intended failures and two existing passes:
+Fix Round 1 started with 13 intended failures and two existing passes:
 
 ```text
 cargo test -p crowd-bench --test m6_acceptance_scenes
 test result: FAILED. 2 passed; 13 failed
 ```
 
-The focused GREEN run passes all real-binary regressions:
+Fix Round 2 added four real-binary causal regressions. Against `ca11034`, the
+suite retained all 15 prior passes and failed exactly those four tests:
 
 ```text
 cargo test -p crowd-bench --test m6_acceptance_scenes
-test result: ok. 15 passed; 0 failed
+test result: FAILED. 15 passed; 4 failed
+```
+
+The focused GREEN run passes every real-binary regression:
+
+```text
+cargo test -p crowd-bench --test m6_acceptance_scenes
+test result: ok. 20 passed; 0 failed
 ```
 
 The prescribed two-pass runner validates byte equality and the regenerated
@@ -154,13 +177,13 @@ combined hash:
 
 ```text
 scripts/m6-reference-scenes-test.sh
-M6 reference scenes passed twice with exact hashes and metrics: 7fbea50f7c2f7a1ab67df4c978f323fd0792aa8811bfb590d8bade8875f87fac
+M6 reference scenes passed twice with exact hashes and metrics: 7a1e140ea825a65676e962f688cd7312736892e4d61d2c14192641d85a88c4db
 ```
 
-Focused linting passes:
+Workspace linting passes:
 
 ```text
-cargo clippy -p crowd-bench --bin m6-acceptance-scenes --test m6_acceptance_scenes -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 ## Interpretation and limits

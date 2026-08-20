@@ -133,12 +133,13 @@
     },
     "execution_properties": {
       "type": "object",
-      "required": ["kind", "executed_ticks", "executed_agent_count", "motion_evaluated_agent_ticks", "initial_state_hash", "final_state_hash", "target_agent_mutations"],
+      "required": ["kind", "executed_ticks", "executed_agent_count", "motion_evaluated_agent_ticks", "base_cache_hash", "initial_state_hash", "final_state_hash", "target_agent_mutations"],
       "properties": {
         "kind": { "type": "string" },
         "executed_ticks": { "type": "integer", "minimum": 1 },
         "executed_agent_count": { "type": "integer", "minimum": 1 },
         "motion_evaluated_agent_ticks": { "type": "integer", "minimum": 1 },
+        "base_cache_hash": { "$ref": "#/$defs/hash" },
         "initial_state_hash": { "$ref": "#/$defs/hash" },
         "final_state_hash": { "$ref": "#/$defs/hash" },
         "target_agent_mutations": { "$ref": "#/$defs/count" }
@@ -147,13 +148,19 @@
     "scheduled_cafe_specific": {
       "allOf": [
         { "$ref": "#/$defs/execution_properties" },
-        { "required": ["granted_reservations", "waiting_before_release", "promoted_after_release", "double_ownership_violations"],
+        { "required": ["granted_reservations", "waiting_before_release", "promoted_after_release", "double_ownership_violations", "released_agent_id", "promoted_agent_id", "layer_target_agent_ids"],
           "properties": {
             "kind": { "const": "scheduled_cafe" },
             "granted_reservations": { "$ref": "#/$defs/count" },
             "waiting_before_release": { "$ref": "#/$defs/count" },
             "promoted_after_release": { "$ref": "#/$defs/count" },
-            "double_ownership_violations": { "$ref": "#/$defs/count" }
+            "double_ownership_violations": { "$ref": "#/$defs/count" },
+            "released_agent_id": { "$ref": "#/$defs/nullable_count" },
+            "promoted_agent_id": { "$ref": "#/$defs/nullable_count" },
+            "layer_target_agent_ids": {
+              "type": "array", "uniqueItems": true,
+              "items": { "$ref": "#/$defs/count" }
+            }
           }}
       ],
       "unevaluatedProperties": false

@@ -17,8 +17,7 @@
       "motion": {
         "desired_velocity_millimeters_per_second": [990, 0],
         "desired_slope_millionths": 0,
-        "required_contact": "left_foot",
-        "foot_slide_millimeters": 10
+        "required_contact": "left_foot"
       },
       "criteria": {
         "max_trajectory_fit_millimeters": 25,
@@ -39,8 +38,7 @@
       "motion": {
         "desired_velocity_millimeters_per_second": [1000, 0],
         "desired_slope_millionths": 0,
-        "required_contact": "left_foot",
-        "foot_slide_millimeters": 8
+        "required_contact": "left_foot"
       },
       "criteria": {
         "max_trajectory_fit_millimeters": 25,
@@ -61,8 +59,7 @@
       "motion": {
         "desired_velocity_millimeters_per_second": [980, 0],
         "desired_slope_millionths": 0,
-        "required_contact": "left_foot",
-        "foot_slide_millimeters": 10
+        "required_contact": "left_foot"
       },
       "criteria": {
         "max_trajectory_fit_millimeters": 25,
@@ -87,8 +84,7 @@
       "motion": {
         "desired_velocity_millimeters_per_second": [1000, 0],
         "desired_slope_millionths": 0,
-        "required_contact": "left_foot",
-        "foot_slide_millimeters": 6
+        "required_contact": "left_foot"
       },
       "criteria": {
         "max_trajectory_fit_millimeters": 25,
@@ -112,8 +108,7 @@
       "motion": {
         "desired_velocity_millimeters_per_second": [990, 0],
         "desired_slope_millionths": 0,
-        "required_contact": "left_foot",
-        "foot_slide_millimeters": 10
+        "required_contact": "left_foot"
       },
       "criteria": {
         "max_trajectory_fit_millimeters": 25,
@@ -138,8 +133,7 @@
       "motion": {
         "desired_velocity_millimeters_per_second": [1000, 0],
         "desired_slope_millionths": 0,
-        "required_contact": "left_foot",
-        "foot_slide_millimeters": 8
+        "required_contact": "left_foot"
       },
       "criteria": {
         "max_trajectory_fit_millimeters": 25,
