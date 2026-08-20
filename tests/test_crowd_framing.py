@@ -14,11 +14,14 @@ SPEC.loader.exec_module(crowd_framing)
 
 class ClipPlaneTest(unittest.TestCase):
     def test_far_plane_clears_the_distance_it_was_derived_from(self):
-        # The 100K scene stands the camera ~2076 units back. Blender's default
-        # far plane of 1000 sits inside that and clips the whole scene away.
-        near, far = crowd_framing.clip_planes(2076.0052083268)
-        self.assertGreater(far, 2076.0052083268)
-        self.assertLess(near, 2076.0052083268)
+        # The 100K scene stands the camera ~3045.6 units back (full-scan
+        # occupied extent 2401.6 m -> height 1921.28 -> standoff 2363.17 ->
+        # hypot(standoff, height) = 3045.6). Blender's default far plane of
+        # 1000 sits well inside that and clips the whole scene away.
+        distance = math.hypot(2401.6 * 0.8 * 1.23, 2401.6 * 0.8)
+        near, far = crowd_framing.clip_planes(distance)
+        self.assertGreater(far, distance)
+        self.assertLess(near, distance)
 
     def test_near_plane_never_collapses_to_zero_on_a_close_camera(self):
         near, _far = crowd_framing.clip_planes(0.5)
@@ -115,6 +118,64 @@ class GroundGridTest(unittest.TestCase):
         for face in faces:
             for index in face:
                 self.assertLess(index, len(vertices))
+
+
+class TrackedBandCentreYTest(unittest.TestCase):
+    def test_medians_the_live_tracked_agents(self):
+        flags = [1, 1, 1]
+        stream = [0, 0, 0]
+        ys = [100.0, 200.0, 900.0]
+        self.assertEqual(
+            crowd_framing.tracked_band_centre_y(flags, stream, ys, 0), 200.0
+        )
+
+    def test_ignores_agents_in_the_other_stream(self):
+        flags = [1, 1, 1, 1]
+        stream = [0, 0, 1, 1]
+        ys = [100.0, 200.0, 5000.0, 6000.0]
+        self.assertEqual(
+            crowd_framing.tracked_band_centre_y(flags, stream, ys, 0), 150.0
+        )
+
+    def test_never_spawned_slot_does_not_drag_the_centre(self):
+        # A slot that never held an agent carries flags == 0 and, after
+        # scan_trace's `stream[stream < 0] = 0` fallback, can be relabelled
+        # into stream 0 while sitting at the trace format's padding position
+        # -- the origin -- rather than a real y. Without the flags != 0
+        # filter this y = 0.0 would pull the median toward the origin.
+        flags = [1, 1, 0]
+        stream = [0, 0, 0]
+        ys = [300.0, 320.0, 0.0]
+        self.assertEqual(
+            crowd_framing.tracked_band_centre_y(flags, stream, ys, 0), 310.0
+        )
+
+    def test_returns_none_when_nothing_is_live_this_tick(self):
+        flags = [0, 0]
+        stream = [0, 1]
+        ys = [10.0, 20.0]
+        self.assertIsNone(crowd_framing.tracked_band_centre_y(flags, stream, ys, 0))
+
+    def test_returns_none_when_tracked_stream_has_no_live_agents(self):
+        flags = [1, 1]
+        stream = [1, 1]
+        ys = [10.0, 20.0]
+        self.assertIsNone(crowd_framing.tracked_band_centre_y(flags, stream, ys, 0))
+
+
+class BandCentreTest(unittest.TestCase):
+    def test_medians_the_per_tick_values(self):
+        self.assertEqual(crowd_framing.band_centre([300.0, 320.0, 900.0]), 320.0)
+
+    def test_a_single_outlier_tick_cannot_drag_the_centre_far(self):
+        values = [316.0] * 20 + [900.0]
+        # A min/max centre would be pulled to (316 + 900) / 2 = 608; a median
+        # over many ticks is not.
+        self.assertEqual(crowd_framing.band_centre(values), 316.0)
+
+    def test_no_samples_is_an_error_not_a_silent_zero(self):
+        with self.assertRaisesRegex(ValueError, "no samples"):
+            crowd_framing.band_centre([])
 
 
 class CropCameraTest(unittest.TestCase):

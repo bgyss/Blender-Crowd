@@ -87,6 +87,14 @@ CROP_WIDTH = float(os.environ.get("CROWD_CROP_WIDTH", "0")) or None
 TRACK_STREAM = int(os.environ.get("CROWD_TRACK_STREAM", "0"))
 GROUND_GRID = float(os.environ.get("CROWD_GROUND_GRID", "0")) or None
 
+# Guards on the tracked-lane fit's residual (percent of CROWD_CROP_WIDTH).
+# On the 100K trace the residual is 4.22%, comfortably under both. They exist
+# so a future scene, population, or TRACK_STREAM that drifts far off the fit
+# is caught here rather than only showing up as hundreds of bad frames deep
+# into a multi-hour render.
+RESIDUAL_WARN_PCT = 15.0
+RESIDUAL_FAIL_PCT = 40.0
+
 # Grid bars ~0.25 m wide land at ~4 px in a 250 m window rendered 3840 wide:
 # visible as a line, too thin to compete with the agents.
 GRID_LINE_WIDTH = 0.25
@@ -111,9 +119,10 @@ def scan_trace(playback, data, track_stream=None):
     Framing bounds. Agents leave the spawn strips and jam wherever they jam,
     so the camera is fitted to the positions actually occupied.
 
-    Returns (stream, minimum, maximum, track) over the live agents, where
-    `track` is the (tick, median x) of the `track_stream` agents and is
-    empty when no stream is being tracked.
+    Returns (stream, minimum, maximum, track, band_ys) over the live agents,
+    where `track` is the (tick, median x) of the `track_stream` agents and
+    `band_ys` is one median y per tick for that same stream, both empty when
+    no stream is being tracked.
     """
     count = playback.agent_count
     stream = np.full(count, -1, dtype=np.int32)
@@ -122,6 +131,7 @@ def scan_trace(playback, data, track_stream=None):
     minimum = np.array([np.inf, np.inf], dtype=np.float64)
     maximum = np.array([-np.inf, -np.inf], dtype=np.float64)
     track = []
+    band_ys = []
 
     for tick in range(playback.tick_count):
         playback.sync_to_tick(tick)
@@ -159,13 +169,25 @@ def scan_trace(playback, data, track_stream=None):
             tracked = live & (stream == track_stream)
             if np.any(tracked):
                 track.append((tick, float(np.median(xy[tracked][:, 0]))))
+                # The masking here has to match `scan_trace`'s own `live =
+                # flags != 0` exactly, or a never-spawned slot at the origin
+                # can drag the band centre. That masking is easy to get
+                # subtly wrong, so it lives in
+                # `crowd_framing.tracked_band_centre_y`, which is
+                # unit-tested with a synthetic never-spawned slot, rather
+                # than being re-derived here as untestable numpy.
+                centre_y = crowd_framing.tracked_band_centre_y(
+                    flags.tolist(), stream.tolist(), xy[:, 1].tolist(), track_stream
+                )
+                if centre_y is not None:
+                    band_ys.append(centre_y)
 
     if np.any(stream < 0):
         # Not fatal for a recording: a slot that never holds an agent never
         # renders, because the shipped node group hides flags == 0 slots.
         print("warning: {} slots never spawned".format(int(np.sum(stream < 0))))
         stream[stream < 0] = 0
-    return stream, minimum, maximum, track
+    return stream, minimum, maximum, track, band_ys
 
 
 def make_material(name, colour):
@@ -299,14 +321,10 @@ def build_camera(centre, extent, view_width=None):
     direction = target - camera.location
     camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
-    # Clip planes must scale with the scene too. A new camera's clip_end is
-    # 1000, but the camera stands back proportionally to `extent`, and extent
-    # grows with the square root of the population: m5_city_flow at 100,000
-    # agents spans ~2,400 units and puts the camera ~2,100 units from the
-    # centre, so at the default every last object -- agents and ground alike
-    # -- falls beyond the far plane and the render is nothing but the world
-    # background. Derive both planes from the actual camera-to-centre
-    # distance so framing and clipping can never disagree.
+    # See crowd_framing.clip_planes for why clip planes are derived from the
+    # camera-to-target distance rather than left at Blender's defaults. The
+    # only thing local to this call site: `distance` here is the crop
+    # camera's distance when `view_width` is set, not the whole-scene one.
     distance = (camera.location - target).length
     camera_data.clip_start, camera_data.clip_end = crowd_framing.clip_planes(distance)
 
@@ -339,29 +357,6 @@ def configure_render(scene, res_x):
     scene.render.dither_intensity = 0.0
 
 
-def tracked_band_centre_y(data, stream, track_stream):
-    """Mid-height of the band the tracked stream occupies.
-
-    Read from the data rather than passed in: the two lane blocks sit in
-    fixed, disjoint y bands, so the centre of the tracked one is where the
-    crop should sit, and hardcoding it would break on any other scene.
-
-    Slots that never spawned are relabelled into stream 0 by `scan_trace`
-    (see its `stream[stream < 0] = 0`) and sit at the trace format's padding
-    position, not a real y. Masking on `flags != 0` alongside the stream
-    label, matching `scan_trace`'s own `live = flags != 0`, keeps those
-    never-spawned slots out of the min/max.
-    """
-    count = len(stream)
-    positions = np.empty(count * 3, dtype=np.float32)
-    data.attributes["position"].data.foreach_get("vector", positions)
-    flags = np.empty(count, dtype=np.int32)
-    data.attributes["flags"].data.foreach_get("value", flags)
-    tracked = (flags != 0) & (stream == track_stream)
-    ys = positions.reshape(count, 3)[:, 1][tracked]
-    return float((ys.min() + ys.max()) / 2.0)
-
-
 def main():
     trace_path = os.environ["CROWD_TRACE_PATH"]
     frame_dir = os.environ["CROWD_FRAME_DIR"]
@@ -381,11 +376,11 @@ def main():
     print("agents: {}".format(playback.agent_count))
     print("ticks: {}".format(playback.tick_count))
 
-    stream, minimum, maximum, track = scan_trace(
+    stream, minimum, maximum, track, band_ys = scan_trace(
         playback, data, TRACK_STREAM if CROP_WIDTH is not None else None
     )
     print(
-        "streams: {} eastbound, {} northbound".format(
+        "streams: {} in stream 0, {} in stream 1".format(
             int(np.sum(stream == 0)), int(np.sum(stream == 1))
         )
     )
@@ -421,15 +416,36 @@ def main():
             )
         fit = crowd_framing.fit_linear_track(track)
         worst, rms = crowd_framing.track_residuals(track, fit)
+        residual_pct = worst / CROP_WIDTH * 100.0
         print("track fit: x(tick) = {:.6f} * tick + {:.4f}".format(*fit))
         print(
             "track residual: worst {:.2f} m, rms {:.2f} m "
             "({:.2f}% of the {:.0f} m window)".format(
-                worst, rms, worst / CROP_WIDTH * 100.0, CROP_WIDTH
+                worst, rms, residual_pct, CROP_WIDTH
             )
         )
-        band_centre_y = tracked_band_centre_y(data, stream, TRACK_STREAM)
-        print("tracking stream {} centred on y {:.1f}".format(TRACK_STREAM, band_centre_y))
+        # The residual is the whole safety margin for this crop: past
+        # RESIDUAL_WARN_PCT the crowd is visibly drifting off centre; past
+        # RESIDUAL_FAIL_PCT it is sliding out of frame, and a future scene,
+        # population, or TRACK_STREAM producing that should stop the run
+        # rather than quietly emit hundreds of bad frames.
+        if residual_pct > RESIDUAL_FAIL_PCT:
+            raise SystemExit(
+                "track residual {:.2f}% of window exceeds {:.0f}%; "
+                "the crop would lose the crowd".format(residual_pct, RESIDUAL_FAIL_PCT)
+            )
+        if residual_pct > RESIDUAL_WARN_PCT:
+            print(
+                "warning: track residual {:.2f}% of window exceeds {:.0f}%".format(
+                    residual_pct, RESIDUAL_WARN_PCT
+                )
+            )
+        band_centre_y = crowd_framing.band_centre(band_ys)
+        print(
+            "tracking stream {} centred on y {:.1f} (median over {} ticks)".format(
+                TRACK_STREAM, band_centre_y, len(band_ys)
+            )
+        )
         camera = build_camera(
             (fit[1], band_centre_y), extent, view_width=CROP_WIDTH
         )

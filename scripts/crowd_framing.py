@@ -15,7 +15,7 @@ def clip_planes(distance):
     A new Blender camera clips at 1000, but this renderer stands the camera
     back proportionally to the scene, and scene extent grows with the square
     root of the population. m5_city_flow at 100,000 agents puts the camera
-    ~2076 units out, so at the default every object -- agents and ground
+    ~3046 units out, so at the default every object -- agents and ground
     alike -- falls beyond the far plane and the render is nothing but world
     background. Deriving both planes from the actual camera-to-target
     distance means framing and clipping can never disagree.
@@ -111,6 +111,49 @@ def grid_mesh(minimum, maximum, spacing, line_width, z):
     for y in grid_line_positions(low_y, high_y, spacing):
         add_quad(low_x, y - half, high_x, y + half)
     return vertices, faces
+
+
+def _median(values):
+    """Median of a non-empty sequence of numbers, as a plain float."""
+    ordered = sorted(values)
+    count = len(ordered)
+    middle = count // 2
+    if count % 2:
+        return float(ordered[middle])
+    return float((ordered[middle - 1] + ordered[middle]) / 2.0)
+
+
+def tracked_band_centre_y(flags, stream, ys, track_stream):
+    """Median y of the live agents carrying `track_stream`'s label, in one tick.
+
+    A slot that never spawned carries `flags == 0` yet, after `scan_trace`'s
+    `stream[stream < 0] = 0` fallback, can carry stream label 0 while sitting
+    at the trace format's padding position (the origin) rather than a real y.
+    Filtering on `flags != 0` -- matching `scan_trace`'s own `live = flags !=
+    0` -- keeps such a slot from dragging the centre.
+
+    Returns `None` when no tracked agent is live this tick, so a gap tick can
+    be skipped by the caller rather than crashing on an empty reduction.
+    """
+    live_ys = [
+        y for flag, label, y in zip(flags, stream, ys)
+        if flag != 0 and label == track_stream
+    ]
+    if not live_ys:
+        return None
+    return _median(live_ys)
+
+
+def band_centre(per_tick_values):
+    """Median of per-tick band centres over a whole clip.
+
+    A median over many ticks, rather than a min/max computed from a single
+    tick's positions, so neither a single straggler nor a single unusual
+    tick can drag the crop off the band.
+    """
+    if not per_tick_values:
+        raise ValueError("cannot compute a band centre from no samples")
+    return _median(per_tick_values)
 
 
 def crop_camera_placement(view_width, tilt_ratio):

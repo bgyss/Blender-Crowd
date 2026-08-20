@@ -14,10 +14,10 @@
 # It is also a CROPPED view. The camera frames a 250 m window that tracks one
 # of the two lane blocks, because the whole 2,402 x 1,140 m scene rendered to
 # a single frame puts an agent at well under a pixel. So the clip shows on the
-# order of 8,300-12,300 agents at a time, under 1% of the scene area, and must
-# never be captioned as a picture of 100,000 agents. That claim belongs to
-# docs/media/m5-100k-hero.png, which is a measured plot asserted above 95%
-# occupancy.
+# order of 8,300-12,300 agents at a time -- 8.3%-12.3% of the population, but
+# only about 2% of the scene's ground area -- and must never be captioned as a
+# picture of 100,000 agents. That claim belongs to docs/media/m5-100k-hero.png,
+# which is a measured plot asserted above 95% occupancy.
 #
 # Why the trace is subsampled: a trace is 34 bytes per agent per tick, so
 # 142,302 ticks x 100,000 agents is 484 GB at every tick. TRACE_INTERVAL writes
@@ -114,4 +114,5 @@ ffmpeg -y -loglevel error -framerate "$FPS" -i "$FRAME_DIR/frame-%05d.png" \
 
 printf 'wrote %s/%s.mp4 (%s)\n' "$OUT_DIR" "$STEM" "$(du -h "$OUT_DIR/$STEM.mp4" | cut -f1)"
 printf '\nReminder: a visualisation, not a measurement; a truncated run; and a\n'
-printf 'cropped view showing well under 1%% of the population at a time.\n'
+printf 'cropped view showing 8.3%%-12.3%% of the population (~2%% of the scene\n'
+printf 'ground area) at a time -- not a picture of 100,000 agents.\n'
