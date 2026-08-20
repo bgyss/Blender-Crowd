@@ -345,11 +345,20 @@ def tracked_band_centre_y(data, stream, track_stream):
     Read from the data rather than passed in: the two lane blocks sit in
     fixed, disjoint y bands, so the centre of the tracked one is where the
     crop should sit, and hardcoding it would break on any other scene.
+
+    Slots that never spawned are relabelled into stream 0 by `scan_trace`
+    (see its `stream[stream < 0] = 0`) and sit at the trace format's padding
+    position, not a real y. Masking on `flags != 0` alongside the stream
+    label, matching `scan_trace`'s own `live = flags != 0`, keeps those
+    never-spawned slots out of the min/max.
     """
     count = len(stream)
     positions = np.empty(count * 3, dtype=np.float32)
     data.attributes["position"].data.foreach_get("vector", positions)
-    ys = positions.reshape(count, 3)[:, 1][stream == track_stream]
+    flags = np.empty(count, dtype=np.int32)
+    data.attributes["flags"].data.foreach_get("value", flags)
+    tracked = (flags != 0) & (stream == track_stream)
+    ys = positions.reshape(count, 3)[:, 1][tracked]
     return float((ys.min() + ys.max()) / 2.0)
 
 
