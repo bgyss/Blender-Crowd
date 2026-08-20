@@ -280,6 +280,35 @@ class CrowdProjectProperties(PropertyGroup):
     m6_trace_summary: StringProperty(name="M6 Trace Summary", default="No M6 trace inspected")
     m6_trace_timeline: StringProperty(name="M6 Timeline", default="No M6 timeline loaded")
     m6_unavailable_evidence: StringProperty(name="M6 Evidence Availability", default="No degraded evidence reported")
+    m6_interaction_layer_path: StringProperty(
+        name="M6 Interaction Layer",
+        description="Cache-bound sparse interaction animation layer JSON",
+        subtype="FILE_PATH",
+    )
+    m6_interaction_motion_path: StringProperty(
+        name="M6 Interaction Motion",
+        description="Validated paired-motion contact and provenance JSON",
+        subtype="FILE_PATH",
+    )
+    m6_physics_transition_path: StringProperty(
+        name="M6 Physics Transition",
+        description="Cache-bound physics ownership and recovery JSON",
+        subtype="FILE_PATH",
+    )
+    m6_hero_boundary_path: StringProperty(
+        name="M6 Hero Boundary",
+        description="Declared solver/cache/tier support boundary JSON",
+        subtype="FILE_PATH",
+    )
+    m6_layers_attached: BoolProperty(name="M6 Layers Attached", default=False)
+    m6_layers_muted: BoolProperty(name="M6 Layers Muted", default=False)
+    m6_layer_owner: StringProperty(name="M6 Layer Owner", default="No M6 layer loaded")
+    m6_layer_interval: StringProperty(name="M6 Layer Interval", default="No M6 layer loaded")
+    m6_layer_contacts: StringProperty(name="M6 Contacts", default="No M6 contact evidence loaded")
+    m6_layer_provenance: StringProperty(name="M6 Solver/Cache Provenance", default="No M6 provenance loaded")
+    m6_layer_recovery: StringProperty(name="M6 Recovery", default="No M6 recovery loaded")
+    m6_layer_failure_policy: StringProperty(name="M6 Failure Policy", default="No M6 failure policy loaded")
+    m6_hero_support: StringProperty(name="M6 Hero Support", default="No M6 hero boundary loaded")
     diagnostics: CollectionProperty(type=CrowdDiagnosticProperties)
     active_diagnostic_index: IntProperty(default=0, min=0)
     diagnostic_sequence: IntProperty(default=0, min=0)

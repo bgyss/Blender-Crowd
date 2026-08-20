@@ -23,3 +23,9 @@ CROWD_SOURCE_ADDON=1 \
 PYTHONPATH="$REPO_ROOT:$SITE_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
     "$BLENDER" --background --factory-startup --python-use-system-env \
     --python "$REPO_ROOT/tests/blender/test_m6_debugger.py"
+
+CROWD_REPO_ROOT="$REPO_ROOT" \
+CROWD_SOURCE_ADDON=1 \
+PYTHONPATH="$REPO_ROOT:$SITE_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+    "$BLENDER" --background --factory-startup --python-use-system-env \
+    --python "$REPO_ROOT/tests/blender/test_m6_layers.py"

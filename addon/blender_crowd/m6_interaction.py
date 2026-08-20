@@ -6,6 +6,7 @@ workers can use the same validation and cache-isolation rules.
 """
 
 import json
+import importlib.util
 from pathlib import Path
 
 
@@ -26,6 +27,15 @@ _LAYER_KEYS = {
 }
 _EDIT_KEYS = {"agent_id", "tick", "clip_id", "phase_millionths"}
 _FALLBACK_KEYS = {"clip_set_id", "clip_id", "reason"}
+_MOTION_KEYS = {
+    "schema_version",
+    "request_id",
+    "participants",
+    "contacts",
+    "provenance",
+    "diagnostics",
+    "fallback",
+}
 
 
 def new_animation_layer(
@@ -176,6 +186,183 @@ def load_layer(path, expected_base_hash):
             )
         )
     return layer
+
+
+def validate_motion_evidence(motion, layer):
+    """Validate only the attachment relationships Blender consumes.
+
+    Rust remains the interaction-motion validation authority. This guard keeps
+    Blender from displaying contacts or provenance from a different request.
+    """
+    if not isinstance(motion, dict) or set(motion) != _MOTION_KEYS:
+        raise ValueError("M6 interaction motion has missing or unknown fields")
+    if motion.get("schema_version") != 1:
+        raise ValueError("unsupported M6 interaction motion version")
+    if motion.get("request_id") != layer["interaction_id"]:
+        raise ValueError("M6 interaction motion does not match interaction layer")
+    participants = motion.get("participants")
+    if not isinstance(participants, list):
+        raise ValueError("M6 interaction motion participants must be an array")
+    if any(
+        not isinstance(participant, dict)
+        or not isinstance(participant.get("agent_id"), int)
+        or participant["agent_id"] < 0
+        for participant in participants
+    ):
+        raise ValueError("M6 interaction motion participant IDs must be non-negative integers")
+    participant_ids = sorted(participant.get("agent_id") for participant in participants)
+    if participant_ids != sorted(layer["target_agent_ids"]):
+        raise ValueError("M6 interaction motion participants do not match interaction targets")
+    contacts = motion.get("contacts")
+    if not isinstance(contacts, list):
+        raise ValueError("M6 interaction contacts must be an array")
+    seen = set()
+    for contact in contacts:
+        required = {
+            "contact_id",
+            "label",
+            "owner_agent_id",
+            "other_agent_id",
+            "tick",
+            "distance_m",
+        }
+        if not isinstance(contact, dict) or set(contact) != required:
+            raise ValueError("M6 interaction contact has missing or unknown fields")
+        if not contact["contact_id"] or contact["contact_id"] in seen:
+            raise ValueError("M6 interaction contact IDs must be non-empty and unique")
+        seen.add(contact["contact_id"])
+        if contact["owner_agent_id"] not in layer["target_agent_ids"] or contact[
+            "other_agent_id"
+        ] not in layer["target_agent_ids"]:
+            raise ValueError("M6 interaction contact names an undeclared participant")
+        if not layer["tick_start"] <= contact["tick"] <= layer["tick_end"]:
+            raise ValueError("M6 interaction contact is outside the layer interval")
+    provenance = motion.get("provenance")
+    if not isinstance(provenance, dict) or not isinstance(provenance.get("backend"), str) or not provenance["backend"]:
+        raise ValueError("M6 interaction motion provenance must declare a backend")
+    fallback = motion.get("fallback")
+    if not isinstance(fallback, dict) or set(fallback) != _FALLBACK_KEYS:
+        raise ValueError("M6 interaction motion must declare explicit fallback accounting")
+    return motion
+
+
+def load_layer_bundle(
+    interaction_layer_path,
+    interaction_motion_path,
+    physics_transition_path,
+    hero_boundary_path,
+    expected_base_hash,
+):
+    """Load one cache-bound M6 interaction/physics/hero attachment bundle."""
+    physics = _physics_module()
+    layer = load_layer(interaction_layer_path, expected_base_hash)
+    with Path(interaction_motion_path).open(encoding="utf-8") as handle:
+        motion = validate_motion_evidence(json.load(handle), layer)
+    transition = physics.load_transition(physics_transition_path, expected_base_hash)
+    hero = physics.load_hero_boundary(hero_boundary_path)
+    owners = sorted(set(layer["target_agent_ids"]) | set(transition["agent_ids"]))
+    return {
+        "base_cache_hash": expected_base_hash,
+        "owner_agent_ids": owners,
+        "interaction_interval": [layer["tick_start"], layer["tick_end"]],
+        "physics_interval": [transition["tick_start"], transition["tick_end"]],
+        "contacts": motion["contacts"],
+        "interaction_provenance": layer["provenance"],
+        "motion_provenance": motion["provenance"],
+        "interaction_fallback": layer["fallback"],
+        "motion_fallback": motion["fallback"],
+        "physics_solver": transition["solver"],
+        "recovery": transition["recovery"],
+        "physics_failure_policy": transition["failure_policy"],
+        "hero_boundary": hero,
+        "interaction_layer": layer,
+        "physics_transition": transition,
+    }
+
+
+def build_layout_layers(bundle, physics_samples, muted=False):
+    """Lower validated M6 artifacts into native cache-composer layers."""
+    layer = bundle["interaction_layer"]
+    derived = []
+    for edit in sorted(layer["edits"], key=lambda item: (item["tick"], item["agent_id"])):
+        derived.append({
+            "schema_version": 1,
+            "layer_id": "m6-animation-{}-{}-{}".format(
+                layer["layer_id"], edit["agent_id"], edit["tick"]
+            ),
+            "kind": "animation_fix",
+            "order": 50,
+            "priority": layer["priority"],
+            "muted": bool(muted) or not layer["enabled"],
+            "solo": False,
+            "author": "Blender Crowd M6 artifact attachment",
+            "created_at": "derived-from-versioned-m6-artifact",
+            "base_cache_hash": bundle["base_cache_hash"],
+            "provenance": "{}; {}".format(
+                bundle["interaction_provenance"], bundle["motion_provenance"]["backend"]
+            ),
+            "dependencies": [],
+            "stale": False,
+            "local_resimulation": None,
+            "target": {
+                "agent_ids": [edit["agent_id"]],
+                "tick_start": edit["tick"],
+                "tick_end": edit["tick"],
+            },
+            "edits": [{
+                "type": "animation",
+                "clip_id": edit["clip_id"],
+                "phase_millionths": edit["phase_millionths"],
+            }],
+        })
+    transition = bundle["physics_transition"]
+    if not physics_samples:
+        raise ValueError("M6 physics layer requires cached transition samples")
+    derived.append({
+        "schema_version": 1,
+        "layer_id": "m6-physics-{}".format(transition["transition_id"]),
+        "kind": "physics",
+        "order": 60,
+        "priority": layer["priority"],
+        "muted": bool(muted),
+        "solo": False,
+        "author": "Blender Crowd M6 artifact attachment",
+        "created_at": "derived-from-versioned-m6-artifact",
+        "base_cache_hash": bundle["base_cache_hash"],
+        "provenance": "{}; recovery {}".format(
+            transition["solver"], transition["recovery"]
+        ),
+        "dependencies": [layer["layer_id"]],
+        "stale": False,
+        "local_resimulation": None,
+        "target": {
+            "agent_ids": list(transition["agent_ids"]),
+            "tick_start": transition["tick_start"],
+            "tick_end": transition["tick_end"],
+        },
+        "edits": [{
+            "type": "physics_handoff",
+            "collision_masks": ["crowd", "ground"],
+            "incoming_position": list(physics_samples[0]["position"]),
+            "incoming_velocity": list(physics_samples[0]["velocity"]),
+            "cached_samples": list(physics_samples),
+            "recovery_tick": transition["tick_end"] + 1,
+        }],
+    })
+    return derived
+
+
+def _physics_module():
+    try:
+        from . import m6_physics
+
+        return m6_physics
+    except ImportError:
+        module_path = Path(__file__).with_name("m6_physics.py")
+        spec = importlib.util.spec_from_file_location("m6_physics", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
 
 def write_layer_stack(path, layers):

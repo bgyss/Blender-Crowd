@@ -6,6 +6,13 @@ from pathlib import Path
 
 SCHEMA_VERSION = 1
 FAILURE_POLICIES = {"fallback", "reject", "hold"}
+_HERO_KEYS = {
+    "integration_id",
+    "solver",
+    "cache_policy",
+    "supported_render_tiers",
+    "failure_policy",
+}
 
 
 def new_transition_layer(
@@ -72,3 +79,30 @@ def load_transition(path, expected_cache_hash):
     with Path(path).open(encoding="utf-8") as handle:
         layer = json.load(handle)
     return validate_transition(layer, expected_cache_hash)
+
+
+def validate_hero_boundary(boundary):
+    """Validate the declared Blender-side support boundary without claiming a solver run."""
+    if not isinstance(boundary, dict):
+        raise ValueError("M6 hero integration boundary must be an object")
+    unknown = set(boundary) - _HERO_KEYS
+    missing = _HERO_KEYS - set(boundary)
+    if unknown:
+        raise ValueError("M6 hero integration has unknown fields: {}".format(", ".join(sorted(unknown))))
+    if missing:
+        raise ValueError("M6 hero integration is missing fields: {}".format(", ".join(sorted(missing))))
+    for field in ("integration_id", "solver", "cache_policy", "failure_policy"):
+        if not isinstance(boundary[field], str) or not boundary[field]:
+            raise ValueError("M6 hero integration {} must be non-empty".format(field))
+    tiers = boundary["supported_render_tiers"]
+    if not isinstance(tiers, list) or not tiers or any(
+        not isinstance(tier, str) or not tier for tier in tiers
+    ):
+        raise ValueError("M6 hero integration must declare supported render tiers")
+    return boundary
+
+
+def load_hero_boundary(path):
+    with Path(path).open(encoding="utf-8") as handle:
+        boundary = json.load(handle)
+    return validate_hero_boundary(boundary)

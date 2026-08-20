@@ -412,6 +412,28 @@ class CROWD_PT_m6_debugger(Panel):
         layout.prop(props, "m6_brain_instance_id")
         layout.prop(props, "m6_brain_parameters_json")
         layout.operator("crowd.apply_m6_brain_preset", icon="ADD")
+        layout.separator()
+        layout.label(text="Cache-bound interaction and physics/hero layers", icon="PHYSICS")
+        layout.prop(props, "m6_interaction_layer_path")
+        layout.prop(props, "m6_interaction_motion_path")
+        layout.prop(props, "m6_physics_transition_path")
+        layout.prop(props, "m6_hero_boundary_path")
+        row = layout.row(align=True)
+        row.operator("crowd.load_m6_layers", icon="IMPORT")
+        row.operator(
+            "crowd.toggle_m6_layers_mute",
+            text="Unmute" if props.m6_layers_muted else "Mute",
+            icon="HIDE_ON" if props.m6_layers_muted else "HIDE_OFF",
+        )
+        row.operator("crowd.remove_m6_layers", icon="X")
+        evidence = layout.box()
+        evidence.label(text=props.m6_layer_owner)
+        evidence.label(text=props.m6_layer_interval)
+        evidence.label(text=props.m6_layer_contacts)
+        evidence.label(text=props.m6_layer_provenance)
+        evidence.label(text=props.m6_layer_recovery)
+        evidence.label(text=props.m6_layer_failure_policy)
+        evidence.label(text=props.m6_hero_support, icon="INFO")
 
 
 _CLASSES = (CROWD_UL_diagnostics, CROWD_UL_m4_layers, CROWD_PT_workflow, CROWD_PT_project, CROWD_PT_m5_scale_profile, CROWD_PT_m4_layout, CROWD_PT_m6_debugger)

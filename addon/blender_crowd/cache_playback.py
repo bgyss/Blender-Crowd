@@ -86,6 +86,7 @@ class CachePlayback:
         self._last_warning = ""
         self._override_layers = []
         self._layout_layers = []
+        self._m6_layers = []
         self._upload_static(self._cache.read_agents())
         self._static_uploaded = True
         self.sync_to_tick(self._cache.tick_start)
@@ -202,17 +203,27 @@ class CachePlayback:
 
     def set_layout_layers(self, layers):
         self._layout_layers = list(layers)
+        self._apply_composed_layout_layers()
+
+    def _apply_composed_layout_layers(self):
         self._cache.set_layout_layers(
-            json.dumps(self._layout_layers, sort_keys=True, separators=(",", ":"))
+            json.dumps(self._layout_layers + self._m6_layers, sort_keys=True, separators=(",", ":"))
         )
         if self._current_tick is not None:
             self.sync_to_tick(self._current_tick)
 
     def clear_layout_layers(self):
         self._layout_layers = []
-        self._cache.clear_layout_layers()
-        if self._current_tick is not None:
-            self.sync_to_tick(self._current_tick)
+        self._apply_composed_layout_layers()
+
+    def set_m6_layers(self, layers):
+        """Compose M6 overlays without replacing the user's M4 stack."""
+        self._m6_layers = list(layers)
+        self._apply_composed_layout_layers()
+
+    def clear_m6_layers(self):
+        self._m6_layers = []
+        self._apply_composed_layout_layers()
 
     def export_usda(self, tick, path):
         self._cache.export_usda(int(tick), str(path))

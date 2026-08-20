@@ -669,29 +669,75 @@ impl PyCache {
             .ok_or_else(|| {
                 PyValueError::new_err(format!("E_AGENT_NOT_FOUND: {agent_id} at tick {tick}"))
             })?;
-        let composed = compose_frame(&frame, tick, &self.override_layers)
+        let override_composed = compose_frame(&frame, tick, &self.override_layers)
             .map_err(|error| PyValueError::new_err(format!("E_OVERRIDE: {error}")))?;
-        let position = composed
+        let override_position = override_composed
             .records
             .iter()
             .find(|candidate| candidate.agent_id == agent_id)
             .expect("composition preserves base agent IDs")
             .position;
+        let layout_composed = if self.layout_layers.is_empty() {
+            None
+        } else {
+            Some(
+                compose_layout_frame_v1(&frame, tick, &self.base_cache_hash, &self.layout_layers)
+                    .map_err(|error| PyValueError::new_err(format!("E_LAYOUT: {error}")))?,
+            )
+        };
+        let layout_record = layout_composed.as_ref().and_then(|composed| {
+            composed
+                .records
+                .iter()
+                .find(|candidate| candidate.agent_id == agent_id)
+        });
+        let position = layout_record
+            .map(|composed| composed.position)
+            .unwrap_or(override_position);
         let out = PyDict::new(py);
         out.set_item("agent_id", agent_id)?;
         out.set_item("tick", tick)?;
         out.set_item("position", position)?;
         out.set_item(
             "solved_velocity",
-            [record.velocity[0], record.velocity[1], 0.0],
+            layout_record.map(|composed| composed.velocity).unwrap_or([
+                record.velocity[0],
+                record.velocity[1],
+                0.0,
+            ]),
         )?;
-        out.set_item("destination_id", record.destination_id)?;
+        out.set_item(
+            "destination_id",
+            layout_record
+                .map(|composed| composed.destination_id)
+                .unwrap_or(record.destination_id),
+        )?;
         out.set_item("behavior_state", record.behavior_state)?;
         out.set_item("decision_reason", record.decision_reason)?;
-        out.set_item("clip_id", record.clip_id)?;
-        out.set_item("clip_phase", record.phase)?;
-        out.set_item("playback_rate", record.playback_rate)?;
-        out.set_item("visible", record.visible)?;
+        out.set_item(
+            "clip_id",
+            layout_record
+                .map(|composed| composed.clip_id)
+                .unwrap_or(record.clip_id),
+        )?;
+        out.set_item(
+            "clip_phase",
+            layout_record
+                .map(|composed| composed.phase)
+                .unwrap_or(record.phase),
+        )?;
+        out.set_item(
+            "playback_rate",
+            layout_record
+                .map(|composed| composed.playback_rate)
+                .unwrap_or(record.playback_rate),
+        )?;
+        out.set_item(
+            "visible",
+            layout_record
+                .map(|composed| composed.visible)
+                .unwrap_or(record.visible),
+        )?;
 
         let cache_hit = self.cached_behavior_query.as_ref().is_some_and(
             |(cached_agent, cached_tick, _trace)| *cached_agent == agent_id && *cached_tick == tick,

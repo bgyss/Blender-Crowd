@@ -21,7 +21,9 @@ from . import (
     health,
     layout_editor,
     m6_debugger,
+    m6_interaction,
     m6_library,
+    m6_physics,
     m4_layout,
     m5_scale,
     overrides,
@@ -951,6 +953,164 @@ class CROWD_OT_apply_m6_brain_preset(Operator):
         return {"FINISHED"}
 
 
+def _m6_physics_samples(playback, bundle):
+    transition = bundle["physics_transition"]
+    owner = transition["agent_ids"][0]
+    evidence = playback.inspect_agent(owner, transition["tick_start"])
+    position = list(evidence["position"])
+    if len(position) == 2:
+        position.append(0.5)
+    else:
+        position[2] = max(float(position[2]), 0.5)
+    velocity = list(evidence["solved_velocity"])
+    if len(velocity) == 2:
+        velocity.append(-2.0)
+    else:
+        velocity[2] = -2.0
+    spec = {
+        "tick_start": transition["tick_start"],
+        "tick_end": transition["tick_end"],
+        "ticks_per_second": playback.ticks_per_second,
+        "incoming_position": position,
+        "incoming_velocity": velocity,
+        "gravity_mps2": -9.81,
+        "floor_z": 0.0,
+        "restitution_millionths": 0,
+        "collision_masks": ["crowd", "ground"],
+    }
+    return json.loads(
+        blender_crowd_native.simulate_physics_handoff(json.dumps(spec, sort_keys=True))
+    )
+
+
+def _set_m6_layer_summaries(props, bundle):
+    interaction = bundle["interaction_layer"]
+    transition = bundle["physics_transition"]
+    hero = bundle["hero_boundary"]
+    contacts = bundle["contacts"]
+    props.m6_layer_owner = "interaction/physics owners: {}".format(
+        ", ".join(str(agent_id) for agent_id in bundle["owner_agent_ids"])
+    )
+    props.m6_layer_interval = "interaction {}..{} · physics {}..{}".format(
+        *bundle["interaction_interval"], *bundle["physics_interval"]
+    )
+    props.m6_layer_contacts = ", ".join(
+        "{} at tick {}".format(contact["contact_id"], contact["tick"])
+        for contact in contacts
+    ) or "No contacts declared"
+    props.m6_layer_provenance = "cache {} · interaction {} · motion {} · physics {}".format(
+        bundle["base_cache_hash"],
+        bundle["interaction_provenance"],
+        bundle["motion_provenance"]["backend"],
+        bundle["physics_solver"],
+    )
+    props.m6_layer_recovery = "{} via {}".format(
+        bundle["recovery"], transition["transition_id"]
+    )
+    props.m6_layer_failure_policy = "interaction {} · motion {} · physics {} · hero {}".format(
+        interaction["fallback"]["reason"],
+        bundle["motion_fallback"]["reason"],
+        bundle["physics_failure_policy"],
+        hero["failure_policy"],
+    )
+    props.m6_hero_support = "{} · solver {} · cache {} · tiers {}".format(
+        hero["integration_id"],
+        hero["solver"],
+        hero["cache_policy"],
+        ", ".join(hero["supported_render_tiers"]),
+    )
+
+
+def _load_m6_bundle(props, playback):
+    bundle = m6_interaction.load_layer_bundle(
+        bpy.path.abspath(props.m6_interaction_layer_path),
+        bpy.path.abspath(props.m6_interaction_motion_path),
+        bpy.path.abspath(props.m6_physics_transition_path),
+        bpy.path.abspath(props.m6_hero_boundary_path),
+        playback.base_cache_hash,
+    )
+    samples = _m6_physics_samples(playback, bundle)
+    layers = m6_interaction.build_layout_layers(bundle, samples, props.m6_layers_muted)
+    playback.set_m6_layers(layers)
+    _set_m6_layer_summaries(props, bundle)
+    props.m6_layers_attached = True
+    return layers
+
+
+class CROWD_OT_load_m6_layers(Operator):
+    bl_idname = "crowd.load_m6_layers"
+    bl_label = "Load M6 Physics/Hero Layers"
+    bl_description = "Compose cache-bound interaction and physics artifacts without rebaking"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        props = context.scene.crowd_project
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        try:
+            layers = _load_m6_bundle(props, playback)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            props.status = "M6 layer attachment failed: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.status = "Attached {} M6 derived layers to complete cache {}".format(
+            len(layers), playback.base_cache_hash[:12]
+        )
+        health.record(
+            context.scene,
+            "INFO",
+            "M6 physics/hero layers attached",
+            props.status,
+            props.m6_interaction_layer_path,
+            playback.object.name,
+        )
+        self.report({"INFO"}, props.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_toggle_m6_layers_mute(Operator):
+    bl_idname = "crowd.toggle_m6_layers_mute"
+    bl_label = "Mute/Unmute M6 Layers"
+    bl_description = "Toggle the attached M6 bundle while retaining its artifacts and base cache"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        props = context.scene.crowd_project
+        if playback is None or not props.m6_layers_attached:
+            self.report({"ERROR"}, "load M6 layers against a complete cache first")
+            return {"CANCELLED"}
+        props.m6_layers_muted = not props.m6_layers_muted
+        try:
+            _load_m6_bundle(props, playback)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            props.m6_layers_muted = not props.m6_layers_muted
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.status = "M6 layers {}".format("muted" if props.m6_layers_muted else "unmuted")
+        self.report({"INFO"}, props.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_remove_m6_layers(Operator):
+    bl_idname = "crowd.remove_m6_layers"
+    bl_label = "Remove M6 Layers"
+    bl_description = "Detach M6 overlays while preserving their files and the immutable base cache"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        props = context.scene.crowd_project
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        playback.clear_m6_layers()
+        props.m6_layers_attached = False
+        props.m6_layers_muted = False
+        props.status = "M6 layers removed; source artifacts and base cache retained"
+        self.report({"INFO"}, props.status)
+        return {"FINISHED"}
+
+
 class CROWD_OT_add_m2_semantic(Operator):
     bl_idname = "crowd.add_m2_semantic"
     bl_label = "Add M2 Semantic"
@@ -1529,6 +1689,9 @@ _CLASSES = (
     CROWD_OT_search_m6_graph,
     CROWD_OT_navigate_m6_context,
     CROWD_OT_apply_m6_brain_preset,
+    CROWD_OT_load_m6_layers,
+    CROWD_OT_toggle_m6_layers_mute,
+    CROWD_OT_remove_m6_layers,
     CROWD_OT_add_m2_semantic,
     CROWD_OT_remove_m2_semantic,
     CROWD_OT_add_group,
