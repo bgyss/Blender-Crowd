@@ -5,3 +5,4 @@
 /m2-crowd-cache/
 /m2-proof/
 __pycache__/
+.DS_Store
