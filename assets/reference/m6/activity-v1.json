@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "platform_wait",
+  "windows": [
+    { "start_tick": 0, "end_tick": 120, "priority": 10 }
+  ],
+  "resources": ["east_platform_seat"],
+  "needs": [{ "key": "social", "target_millionths": 750000, "decay_per_tick": 1000 }],
+  "paired_action": { "action_id": "greet-and-talk", "participant_roles": ["speaker", "listener"] },
+  "capacity": 2,
+  "failure_policy": "fallback"
+}

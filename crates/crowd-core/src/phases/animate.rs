@@ -3,6 +3,7 @@
 use crate::commuter::{CommuterState, DecisionReason};
 use crate::fidelity::{FidelityPolicy, SimulationTier};
 use crate::ids::AgentId;
+use crate::motion::{MotionMatcher, MotionQueryV1};
 use crate::units::Vec2;
 use crate::world::World;
 
@@ -60,6 +61,53 @@ pub fn animate_scheduled(world: &mut World, config: &AnimateConfig, tick: u64) -
     animate_inner(world, config, |(tier, id)| {
         FidelityPolicy::animation_due(tier, id, tick)
     })
+}
+
+/// Run the deterministic clip-state baseline, then optionally promote the
+/// selected clip through the versioned trajectory matcher. The matcher can
+/// only choose among declared clips; a missing or infeasible result leaves the
+/// baseline clip in place.
+pub fn animate_with_motion_matcher(
+    world: &mut World,
+    config: &AnimateConfig,
+    matcher: &MotionMatcher,
+) -> AnimateReport {
+    let report = animate(world, config);
+    apply_motion_matches(world, matcher);
+    report
+}
+
+/// Apply only promoted S0 matches to the already-selected clip state. Lower
+/// tiers retain the deterministic clip baseline and therefore do not pay the
+/// matcher cost or inherit its diagnostics.
+pub fn apply_motion_matches(world: &mut World, matcher: &MotionMatcher) {
+    for slot in 0..world.len() {
+        if world.simulation_tier[slot] != SimulationTier::S0 {
+            continue;
+        }
+        let velocity = Vec2::new(world.next_vel_x[slot], world.next_vel_y[slot]);
+        let query = MotionQueryV1 {
+            desired_velocity_millimeters_per_second: [
+                (velocity.x * 1_000.0).round() as i32,
+                (velocity.y * 1_000.0).round() as i32,
+            ],
+            desired_slope_millionths: 0,
+            required_contact: None,
+            fallback_clip_id: if world.clip_id[slot] == JOG_CLIP_ID {
+                "jog".to_owned()
+            } else {
+                "walk".to_owned()
+            },
+            future_positions_millimeters: Vec::new(),
+            future_velocities_millimeters_per_second: Vec::new(),
+        };
+        let Ok(result) = matcher.select(&query) else {
+            continue;
+        };
+        if let Some(clip_id) = runtime_clip_id(&result.clip_id) {
+            world.clip_id[slot] = clip_id;
+        }
+    }
 }
 
 fn animate_inner(
@@ -152,4 +200,17 @@ fn advance_clip_phase(world: &mut World, config: &AnimateConfig, slot: usize) {
         config.walk_stride_m
     };
     world.clip_phase[slot] = (world.clip_phase[slot] + distance / stride).rem_euclid(1.0);
+}
+
+fn runtime_clip_id(clip_id: &str) -> Option<u16> {
+    let normalized = clip_id.to_ascii_lowercase();
+    if normalized.contains("jog") {
+        Some(JOG_CLIP_ID)
+    } else if normalized.contains("walk") {
+        Some(WALK_CLIP_ID)
+    } else if normalized.contains("idle") {
+        Some(IDLE_CLIP_ID)
+    } else {
+        None
+    }
 }

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/trajectory-v1.schema.json",
+  "title": "Blender Crowd Trajectory Database v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "database_id", "clips"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "database_id": { "type": "string", "minLength": 1 },
+    "clips": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/clip" } }
+  },
+  "$defs": {
+    "clip": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "provenance", "samples"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "provenance": { "type": "string", "minLength": 1 },
+        "samples": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["tick", "position_millimeters", "velocity_millimeters_per_second", "contact", "slope_millionths"],
+            "properties": {
+              "tick": { "type": "integer", "minimum": 0 },
+              "position_millimeters": { "type": "array", "prefixItems": [{ "type": "integer" }, { "type": "integer" }], "minItems": 2, "maxItems": 2 },
+              "velocity_millimeters_per_second": { "type": "array", "prefixItems": [{ "type": "integer" }, { "type": "integer" }], "minItems": 2, "maxItems": 2 },
+              "contact": { "enum": ["none", "left_foot", "right_foot", "both_feet"] },
+              "slope_millionths": { "type": "integer" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

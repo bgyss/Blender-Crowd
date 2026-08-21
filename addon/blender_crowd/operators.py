@@ -14,11 +14,16 @@ import blender_crowd_native
 # so an absolute `from blender_crowd.x import y` fails with "package not found".
 from .trace_playback import TracePlayback
 from . import (
+    behavior_editor,
     cache_playback,
     debug_overlay,
     geometry_nodes,
     health,
     layout_editor,
+    m6_debugger,
+    m6_interaction,
+    m6_library,
+    m6_physics,
     m4_layout,
     m5_scale,
     overrides,
@@ -779,6 +784,365 @@ class CROWD_OT_validate_authorable_project(Operator):
         return {"FINISHED"}
 
 
+class CROWD_OT_inspect_m6_trace(Operator):
+    bl_idname = "crowd.inspect_m6_trace"
+    bl_label = "Inspect M6 Trace"
+    bl_description = "Load synchronized M6 brain, motion, contact, and group evidence"
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        if not props.m6_trace_path:
+            self.report({"ERROR"}, "choose an M6 trace JSON file")
+            return {"CANCELLED"}
+        try:
+            with open(bpy.path.abspath(props.m6_trace_path), encoding="utf-8") as handle:
+                trace = json.load(handle)
+            agent_id = int(props.selected_agent_id)
+            summary = m6_debugger.build_trace_summary(trace, agent_id, props.m6_debug_tier)
+            props.m6_trace_summary = "agent {} · tick {} · graph {} · decisive node {}".format(
+                summary["agent_id"],
+                summary["tick"],
+                summary["current_graph_state"]["graph_id"] or "<none>",
+                summary["decisive_node"] or "<none>",
+            )
+            props.m6_trace_timeline = "visited: {} · observations: {} · interrupts: {}".format(
+                " → ".join(summary["current_graph_state"]["visited_nodes"]),
+                ", ".join(summary["observations"]) or "none",
+                ", ".join(summary["interrupts"]) or "none",
+            )
+            props.m6_unavailable_evidence = "unavailable: {}".format(
+                ", ".join(summary["unavailable_evidence"]) or "none"
+            )
+            if props.m6_graph_path:
+                _refresh_m6_navigation(props)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            props.m6_trace_summary = "M6 trace invalid: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        health.record(
+            context.scene,
+            "INFO",
+            "M6 trace inspected",
+            "{}\n{}".format(props.m6_trace_summary, props.m6_unavailable_evidence),
+            props.m6_trace_path,
+        )
+        self.report({"INFO"}, props.m6_trace_summary)
+        return {"FINISHED"}
+
+
+class CROWD_OT_search_m6_graph(Operator):
+    bl_idname = "crowd.search_m6_graph"
+    bl_label = "Search M6 Graph"
+    bl_description = "Find graph nodes and highlight the traceable parent/child path"
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        if not props.m6_graph_path:
+            self.report({"ERROR"}, "choose an M6 graph JSON file")
+            return {"CANCELLED"}
+        try:
+            with open(bpy.path.abspath(props.m6_graph_path), encoding="utf-8") as handle:
+                graph = json.load(handle)
+            result = m6_debugger.search_graph(graph, props.m6_graph_search)
+            props.m6_graph_matches = ", ".join(result["matches"]) or "No matching nodes"
+            props.m6_graph_highlight_path = " → ".join(result["highlight_path"]) or "No traceable path"
+            if props.m6_trace_path:
+                _refresh_m6_navigation(props)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        self.report({"INFO"}, props.m6_graph_matches)
+        return {"FINISHED"}
+
+
+def _refresh_m6_navigation(props):
+    with open(bpy.path.abspath(props.m6_trace_path), encoding="utf-8") as handle:
+        trace = json.load(handle)
+    with open(bpy.path.abspath(props.m6_graph_path), encoding="utf-8") as handle:
+        graph = json.load(handle)
+    index = m6_debugger.build_navigation_index(trace, graph)
+    props.m6_navigation_index_json = json.dumps(index, sort_keys=True, separators=(",", ":"))
+    if index:
+        preferred = next((record for record in index if record["target_kind"] == "node"), index[0])
+        props.m6_navigation_target = "{}::{}".format(preferred["target_kind"], preferred["target_id"])
+    return index
+
+
+def _navigation_target_id(index, target_kind):
+    record = next((record for record in index if record["target_kind"] == target_kind), None)
+    return record["target_id"] if record else "No {} selected".format(target_kind)
+
+
+class CROWD_OT_navigate_m6_context(Operator):
+    bl_idname = "crowd.navigate_m6_context"
+    bl_label = "Navigate M6 Context"
+    bl_description = "Resolve a derived M6 context selector without copying a stable ID"
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        try:
+            if not props.m6_navigation_index_json or props.m6_navigation_index_json == "[]":
+                index = _refresh_m6_navigation(props)
+            else:
+                index = json.loads(props.m6_navigation_index_json)
+            target_kind, separator, target_id = props.m6_navigation_target.partition("::")
+            if not separator or target_kind == "none" or not target_id:
+                raise ValueError("choose a derived M6 navigation context")
+            record = m6_debugger.resolve_navigation(index, target_kind, target_id)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            props.m6_navigation_status = "M6 navigation unavailable: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+
+        props.selected_agent_id = str(record["agent_id"])
+        props.selected_agent_tick = record["tick"]
+        props.selected_agent_decisive_node = record["graph_node_id"]
+        props.m6_navigation_event = _navigation_target_id(index, "event")
+        props.m6_navigation_node = record["graph_node_id"] or "No graph node selected"
+        props.m6_navigation_action = record["action_id"] or "No action selected"
+        props.m6_navigation_clip = record["motion_clip_id"] or "No clip selected"
+        props.m6_navigation_contact = record["contact_id"] or "No contact selected"
+        props.m6_navigation_layer = record["layer_id"] or "No layer selected"
+        props.m6_navigation_correction = record["correction_id"] or "No correction selected"
+        props.m6_graph_highlight_path = record["graph_node_id"] or "No traceable path"
+        behavior_editor.highlight_node(record["graph_node_id"])
+        props.selection_context = "M6 {} {} for agent {} at tick {}".format(
+            record["target_kind"], record["target_id"], record["agent_id"], record["tick"]
+        )
+        props.m6_navigation_status = "Navigated to {} {}".format(record["target_kind"], record["target_id"])
+        self.report({"INFO"}, props.m6_navigation_status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_apply_m6_brain_preset(Operator):
+    bl_idname = "crowd.apply_m6_brain_preset"
+    bl_label = "Apply M6 Brain Preset"
+    bl_description = "Instantiate a checked declarative M6 preset into the bounded behavior editor"
+
+    def execute(self, context):
+        props = context.scene.crowd_project
+        if not props.m6_brain_library_path:
+            self.report({"ERROR"}, "choose an M6 brain library JSON file")
+            return {"CANCELLED"}
+        if props.m6_brain_preset_id == "none":
+            self.report({"ERROR"}, "choose a checked M6 brain preset")
+            return {"CANCELLED"}
+        try:
+            with open(bpy.path.abspath(props.m6_brain_library_path), encoding="utf-8") as handle:
+                library = json.load(handle)
+            parameters = json.loads(props.m6_brain_parameters_json)
+            graph = m6_library.instantiate_preset(
+                library,
+                props.m6_brain_preset_id,
+                props.m6_brain_instance_id,
+                parameters,
+            )
+            behavior_editor.ensure_reference_tree(graph)
+            serialized = behavior_editor.graph_from_tree()
+            compiled = blender_crowd_native.compile_behavior_graph(
+                json.dumps(serialized, sort_keys=True, separators=(",", ":"))
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            props.status = "M6 preset invalid: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.status = "M6 preset applied: {} as {} ({} nodes)".format(
+            props.m6_brain_preset_id, props.m6_brain_instance_id, compiled["node_count"]
+        )
+        self.report({"INFO"}, props.status)
+        return {"FINISHED"}
+
+
+def _m6_physics_samples(playback, bundle):
+    transition = bundle["physics_transition"]
+    owner = transition["agent_ids"][0]
+    evidence = playback.inspect_agent(owner, transition["tick_start"])
+    position = list(evidence["position"])
+    if len(position) == 2:
+        position.append(0.5)
+    else:
+        position[2] = max(float(position[2]), 0.5)
+    velocity = list(evidence["solved_velocity"])
+    if len(velocity) == 2:
+        velocity.append(-2.0)
+    else:
+        velocity[2] = -2.0
+    spec = {
+        "tick_start": transition["tick_start"],
+        "tick_end": transition["tick_end"],
+        "ticks_per_second": playback.ticks_per_second,
+        "incoming_position": position,
+        "incoming_velocity": velocity,
+        "gravity_mps2": -9.81,
+        "floor_z": 0.0,
+        "restitution_millionths": 0,
+        "collision_masks": ["crowd", "ground"],
+    }
+    return json.loads(
+        blender_crowd_native.simulate_physics_handoff(json.dumps(spec, sort_keys=True))
+    )
+
+
+def _set_m6_layer_summaries(props, bundle):
+    interaction = bundle["interaction_layer"]
+    transition = bundle["physics_transition"]
+    hero = bundle["hero_boundary"]
+    contacts = bundle["contacts"]
+    props.m6_layer_owner = "interaction/physics owners: {}".format(
+        ", ".join(str(agent_id) for agent_id in bundle["owner_agent_ids"])
+    )
+    props.m6_layer_interval = "interaction {}..{} · physics {}..{}".format(
+        *bundle["interaction_interval"], *bundle["physics_interval"]
+    )
+    props.m6_layer_contacts = ", ".join(
+        "{} at tick {}".format(contact["contact_id"], contact["tick"])
+        for contact in contacts
+    ) or "No contacts declared"
+    props.m6_layer_provenance = "cache {} · interaction {} · motion {} · physics {}".format(
+        bundle["base_cache_hash"],
+        bundle["interaction_provenance"],
+        bundle["motion_provenance"]["backend"],
+        bundle["physics_solver"],
+    )
+    props.m6_layer_recovery = "{} via {}".format(
+        bundle["recovery"], transition["transition_id"]
+    )
+    props.m6_layer_failure_policy = "interaction {} · motion {} · physics {} · hero {}".format(
+        interaction["fallback"]["reason"],
+        bundle["motion_fallback"]["reason"],
+        bundle["physics_failure_policy"],
+        hero["failure_policy"],
+    )
+    binding = bundle["hero_binding"]
+    props.m6_hero_support = (
+        "{} · declaration-only unsupported · not attached · requested cache {} · "
+        "targets {} · interval {}..{} · solver {} · cache policy {} · tiers {}"
+    ).format(
+        hero["integration_id"],
+        binding["base_cache_hash"],
+        ", ".join(str(agent_id) for agent_id in binding["target_agent_ids"]),
+        binding["tick_start"],
+        binding["tick_end"],
+        hero["solver"],
+        hero["cache_policy"],
+        ", ".join(hero["supported_render_tiers"]),
+    )
+
+
+def _clear_m6_layer_summaries(props):
+    props.m6_layer_owner = "No M6 layer loaded"
+    props.m6_layer_interval = "No M6 layer loaded"
+    props.m6_layer_contacts = "No M6 contact evidence loaded"
+    props.m6_layer_provenance = "No M6 provenance loaded"
+    props.m6_layer_recovery = "No M6 recovery loaded"
+    props.m6_layer_failure_policy = "No M6 failure policy loaded"
+    props.m6_hero_support = "No M6 hero boundary loaded"
+
+
+def _load_m6_bundle(props, playback):
+    bundle = m6_interaction.load_layer_bundle(
+        bpy.path.abspath(props.m6_interaction_request_path),
+        bpy.path.abspath(props.m6_interaction_layer_path),
+        bpy.path.abspath(props.m6_interaction_motion_path),
+        bpy.path.abspath(props.m6_physics_transition_path),
+        bpy.path.abspath(props.m6_hero_boundary_path),
+        playback.base_cache_hash,
+    )
+    validated_motion = json.loads(
+        blender_crowd_native.validate_interaction_motion_attachment(
+            playback.base_cache_hash,
+            json.dumps(bundle["interaction_request"], sort_keys=True, separators=(",", ":")),
+            json.dumps(bundle["interaction_layer"], sort_keys=True, separators=(",", ":")),
+            json.dumps(bundle["interaction_motion"], sort_keys=True, separators=(",", ":")),
+        )
+    )
+    bundle["interaction_motion"] = validated_motion
+    bundle["contacts"] = validated_motion["contacts"]
+    bundle["motion_provenance"] = validated_motion["provenance"]
+    bundle["motion_fallback"] = validated_motion["fallback"]
+    samples = _m6_physics_samples(playback, bundle)
+    layers = m6_interaction.build_layout_layers(bundle, samples, props.m6_layers_muted)
+    playback.set_m6_layers(layers)
+    _set_m6_layer_summaries(props, bundle)
+    props.m6_layers_attached = True
+    return layers
+
+
+class CROWD_OT_load_m6_layers(Operator):
+    bl_idname = "crowd.load_m6_layers"
+    bl_label = "Load M6 Physics/Hero Layers"
+    bl_description = "Compose cache-bound interaction and physics artifacts without rebaking"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        props = context.scene.crowd_project
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        try:
+            layers = _load_m6_bundle(props, playback)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            props.status = "M6 layer attachment failed: {}".format(error)
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.status = "Attached {} M6 derived layers to complete cache {}".format(
+            len(layers), playback.base_cache_hash[:12]
+        )
+        health.record(
+            context.scene,
+            "INFO",
+            "M6 physics/hero layers attached",
+            props.status,
+            props.m6_interaction_layer_path,
+            playback.object.name,
+        )
+        self.report({"INFO"}, props.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_toggle_m6_layers_mute(Operator):
+    bl_idname = "crowd.toggle_m6_layers_mute"
+    bl_label = "Mute/Unmute M6 Layers"
+    bl_description = "Toggle the attached M6 bundle while retaining its artifacts and base cache"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        props = context.scene.crowd_project
+        if playback is None or not props.m6_layers_attached:
+            self.report({"ERROR"}, "load M6 layers against a complete cache first")
+            return {"CANCELLED"}
+        props.m6_layers_muted = not props.m6_layers_muted
+        try:
+            _load_m6_bundle(props, playback)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            props.m6_layers_muted = not props.m6_layers_muted
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        props.status = "M6 layers {}".format("muted" if props.m6_layers_muted else "unmuted")
+        self.report({"INFO"}, props.status)
+        return {"FINISHED"}
+
+
+class CROWD_OT_remove_m6_layers(Operator):
+    bl_idname = "crowd.remove_m6_layers"
+    bl_label = "Remove M6 Layers"
+    bl_description = "Detach M6 overlays while preserving their files and the immutable base cache"
+
+    def execute(self, context):
+        playback = active_cache_playback()
+        props = context.scene.crowd_project
+        if playback is None:
+            self.report({"ERROR"}, "attach a complete crowd cache first")
+            return {"CANCELLED"}
+        playback.clear_m6_layers()
+        props.m6_layers_attached = False
+        props.m6_layers_muted = False
+        _clear_m6_layer_summaries(props)
+        props.status = "M6 layers removed; source artifacts and base cache retained"
+        self.report({"INFO"}, props.status)
+        return {"FINISHED"}
+
+
 class CROWD_OT_add_m2_semantic(Operator):
     bl_idname = "crowd.add_m2_semantic"
     bl_label = "Add M2 Semantic"
@@ -1353,6 +1717,13 @@ _CLASSES = (
     CROWD_OT_validate_project,
     CROWD_OT_validate_behavior_graph,
     CROWD_OT_validate_authorable_project,
+    CROWD_OT_inspect_m6_trace,
+    CROWD_OT_search_m6_graph,
+    CROWD_OT_navigate_m6_context,
+    CROWD_OT_apply_m6_brain_preset,
+    CROWD_OT_load_m6_layers,
+    CROWD_OT_toggle_m6_layers_mute,
+    CROWD_OT_remove_m6_layers,
     CROWD_OT_add_m2_semantic,
     CROWD_OT_remove_m2_semantic,
     CROWD_OT_add_group,

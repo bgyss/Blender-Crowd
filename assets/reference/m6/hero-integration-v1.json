@@ -1,0 +1,7 @@
+{
+  "integration_id": "hero-cloth-7",
+  "solver": "blender-cloth",
+  "cache_policy": "adjacent-layer",
+  "supported_render_tiers": ["hero"],
+  "failure_policy": "fallback-to-cached-body"
+}

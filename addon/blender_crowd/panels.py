@@ -363,7 +363,81 @@ class CROWD_PT_m4_layout(Panel):
         layout.label(text="Unsupported profile features report as warnings.", icon="INFO")
 
 
-_CLASSES = (CROWD_UL_diagnostics, CROWD_UL_m4_layers, CROWD_PT_workflow, CROWD_PT_project, CROWD_PT_m5_scale_profile, CROWD_PT_m4_layout)
+class CROWD_PT_m6_debugger(Panel):
+    bl_label = "M6 Brain and Motion Debugger"
+    bl_idname = "CROWD_PT_m6_debugger"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "scene"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.crowd_project
+        layout.label(text="Trace, graph, contact, and layer ownership", icon="CONSOLE")
+        layout.prop(props, "selected_agent_id")
+        layout.prop(props, "m6_debug_tier")
+        layout.prop(props, "m6_trace_path")
+        layout.operator("crowd.inspect_m6_trace", icon="VIEWZOOM")
+        summary = layout.box()
+        summary.label(text=props.m6_trace_summary)
+        summary.label(text=props.m6_trace_timeline)
+        summary.label(text=props.m6_unavailable_evidence, icon="INFO")
+        layout.separator()
+        layout.label(text="Large graph navigation")
+        layout.prop(props, "m6_graph_path")
+        layout.prop(props, "m6_graph_search")
+        layout.operator("crowd.search_m6_graph", icon="VIEWZOOM")
+        layout.label(text=props.m6_graph_matches)
+        layout.label(text=props.m6_graph_highlight_path, icon="NODETREE")
+        layout.separator()
+        layout.label(text="Derived context navigation", icon="SORTALPHA")
+        layout.prop(props, "m6_navigation_target")
+        layout.operator("crowd.navigate_m6_context", icon="RESTRICT_SELECT_OFF")
+        layout.label(text=props.m6_navigation_status)
+        for name in (
+            "m6_navigation_event",
+            "m6_navigation_node",
+            "m6_navigation_action",
+            "m6_navigation_clip",
+            "m6_navigation_contact",
+            "m6_navigation_layer",
+            "m6_navigation_correction",
+        ):
+            layout.label(text=getattr(props, name))
+        layout.separator()
+        layout.label(text="Checked reusable brain preset", icon="NODETREE")
+        layout.prop(props, "m6_brain_library_path")
+        layout.prop(props, "m6_brain_preset_id")
+        layout.prop(props, "m6_brain_instance_id")
+        layout.prop(props, "m6_brain_parameters_json")
+        layout.operator("crowd.apply_m6_brain_preset", icon="ADD")
+        layout.separator()
+        layout.label(text="Cache-bound interaction and physics/hero layers", icon="PHYSICS")
+        layout.prop(props, "m6_interaction_request_path")
+        layout.prop(props, "m6_interaction_layer_path")
+        layout.prop(props, "m6_interaction_motion_path")
+        layout.prop(props, "m6_physics_transition_path")
+        layout.prop(props, "m6_hero_boundary_path")
+        row = layout.row(align=True)
+        row.operator("crowd.load_m6_layers", icon="IMPORT")
+        row.operator(
+            "crowd.toggle_m6_layers_mute",
+            text="Unmute" if props.m6_layers_muted else "Mute",
+            icon="HIDE_ON" if props.m6_layers_muted else "HIDE_OFF",
+        )
+        row.operator("crowd.remove_m6_layers", icon="X")
+        evidence = layout.box()
+        evidence.label(text=props.m6_layer_owner)
+        evidence.label(text=props.m6_layer_interval)
+        evidence.label(text=props.m6_layer_contacts)
+        evidence.label(text=props.m6_layer_provenance)
+        evidence.label(text=props.m6_layer_recovery)
+        evidence.label(text=props.m6_layer_failure_policy)
+        evidence.label(text=props.m6_hero_support, icon="INFO")
+
+
+_CLASSES = (CROWD_UL_diagnostics, CROWD_UL_m4_layers, CROWD_PT_workflow, CROWD_PT_project, CROWD_PT_m5_scale_profile, CROWD_PT_m4_layout, CROWD_PT_m6_debugger)
 
 
 def register():

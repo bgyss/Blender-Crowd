@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blender-crowd.local/schemas/interaction-motion-v1.schema.json",
+  "title": "Blender Crowd Interaction Motion v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "participants", "contacts", "provenance", "diagnostics", "fallback"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "request_id": { "type": "string", "minLength": 1 },
+    "participants": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/motion_participant" } },
+    "contacts": { "type": "array", "items": { "$ref": "#/$defs/contact" } },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "diagnostics": { "type": "array", "items": { "type": "string" } },
+    "fallback": { "$ref": "#/$defs/fallback" }
+  },
+  "$defs": {
+    "motion_participant": {
+      "type": "object", "additionalProperties": false,
+      "required": ["agent_id", "root_samples", "skeletal_channels"],
+      "properties": {
+        "agent_id": { "type": "integer", "minimum": 0 },
+        "root_samples": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/root_sample" } },
+        "skeletal_channels": { "type": "array", "items": { "$ref": "#/$defs/channel" } }
+      }
+    },
+    "root_sample": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tick", "translation", "yaw"],
+      "properties": {
+        "tick": { "type": "integer", "minimum": 0 },
+        "translation": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }, { "type": "number" }], "minItems": 3, "maxItems": 3 },
+        "yaw": { "type": "number" }
+      }
+    },
+    "channel": {
+      "type": "object", "additionalProperties": false,
+      "required": ["joint", "ticks", "values"],
+      "properties": {
+        "joint": { "type": "string", "minLength": 1 },
+        "ticks": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+        "values": { "type": "array", "items": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } } }
+      }
+    },
+    "contact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["contact_id", "label", "owner_agent_id", "other_agent_id", "tick", "distance_m"],
+      "properties": {
+        "contact_id": { "type": "string", "minLength": 1 },
+        "label": { "enum": ["none", "touch", "support", "impact", "grip", "forbidden"] },
+        "owner_agent_id": { "type": "integer", "minimum": 0 },
+        "other_agent_id": { "type": "integer", "minimum": 0 },
+        "tick": { "type": "integer", "minimum": 0 },
+        "distance_m": { "type": "number", "minimum": 0 }
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["backend", "model_hash", "seed", "config_hash"],
+      "properties": {
+        "backend": { "type": "string", "minLength": 1 },
+        "model_hash": { "type": ["string", "null"] },
+        "seed": { "type": "integer", "minimum": 0 },
+        "config_hash": { "type": "string", "minLength": 1 }
+      }
+    },
+    "fallback": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clip_set_id", "clip_id", "reason"],
+      "properties": {
+        "clip_set_id": { "type": "string", "minLength": 1 },
+        "clip_id": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

@@ -16,6 +16,10 @@ cargo test -p crowd-core --test behavior_graph            # M2 typed graph schem
 scripts/m2-foundation-test.sh                             # implemented M2 compiler/data-layer checks
 scripts/m4-foundation-test.sh                             # M4 layer composition, migration, bridge, and profile checks
 scripts/m5-foundation-test.sh                             # M5 tier scheduler, per-tier gate, transitions, CPU fallback
+scripts/m6-foundation-test.sh                             # M6 typed perception/brain/activity/motion/physics contracts and R0 interaction foundation
+scripts/m6-blender-test.sh                                # M6 Blender-process debugger/graph-search smoke; requires Blender 5.2 LTS
+scripts/m6-extension-examples-test.sh                     # claimed Rust/Python extension contracts, determinism, and failure isolation
+M6_RUN_BLENDER=1 scripts/m6-acceptance.sh                 # complete audit; production motion is DEFERRED TO M9 and no longer blocks
 cargo run --release -p crowd-bench -- m5-gate --report REPORT.json --out ADJUDICATION.json # fixed per-tier M5 thresholds
 scripts/m5-blender-test.sh                                # M5 procedural playback, render, and scale/profiling UI proof
 M5_BLENDER_AGENTS=10000 scripts/m5-blender-test.sh        # the same proof at the 10K gate's population
@@ -81,6 +85,26 @@ On macOS, `.cargo/config.toml` points the linker at the system clang; without
 it nothing links, because the nix `cc` on `PATH` cannot resolve `libSystem`.
 
 Run the density fuzz in release — it is impractically slow in debug.
+
+M6 is accepted with criterion 5 (production motion matching) deferred to M9
+Track C on 2026-08-20. Deferred is not satisfied: the CMU candidate is still
+rejected at 3,587 joint-limit violations against the hard limit of zero, the
+checked CC0 authored data is a fixture baseline only, and every measured
+threshold moved to M9 unchanged. Never claim or imply a production
+motion-matching result for M6, and never relax a motion threshold to close it.
+`M6_ALLOW_OPEN=1` may acknowledge an open audit exit, but it never promotes M6
+or a failed gate.
+The motion gate still runs on every audit and derives PASS or OPEN from the
+active candidate's validated identity, source hashes, and unchanged thresholds;
+malformed evidence is FAILED and still fails M6 closed, because the CC0 fixture
+it validates feeds criteria 3, 4, and 6. Only its OPEN outcome is adjudicated as
+DEFERRED TO M9. Do not encode the current rejected CMU snapshot as the only
+future state.
+Do not claim cloth/hair/Geometry Nodes deformation, rigid-body parity, GPU or
+arbitrary-scene performance, long-duration stability, neural motion, or visual
+quality from the current M6 evidence. See
+`docs/benchmarks/2026-08-20-m6-acceptance.md` and
+`docs/benchmarks/2026-08-20-m6-criterion-5-deferral.md`.
 
 For documentation-only changes, these lightweight checks still apply:
 

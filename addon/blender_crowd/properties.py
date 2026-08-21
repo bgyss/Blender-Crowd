@@ -1,15 +1,51 @@
 """Typed Blender properties owned by the narrow M1 project workflow."""
 
+import json
+
 import bpy
 from bpy.props import (
     BoolProperty,
     CollectionProperty,
+    EnumProperty,
     FloatProperty,
     IntProperty,
     PointerProperty,
     StringProperty,
 )
 from bpy.types import Object, PropertyGroup
+
+
+def _m6_navigation_target_items(self, _context):
+    try:
+        records = json.loads(self.m6_navigation_index_json)
+    except (TypeError, ValueError):
+        records = []
+    items = [
+        (
+            "{}::{}".format(record["target_kind"], record["target_id"]),
+            "{}: {}".format(record["target_kind"].title(), record["target_id"]),
+            "Derived from the loaded M6 trace and graph; never paste a stable ID.",
+        )
+        for record in records
+        if record.get("target_kind") and record.get("target_id")
+    ]
+    return items or [("none", "No M6 contexts loaded", "Inspect a trace and search its graph first.")]
+
+
+def _m6_brain_preset_items(self, _context):
+    if not self.m6_brain_library_path:
+        return [("none", "No checked preset loaded", "Choose a versioned brain library JSON file.")]
+    try:
+        with open(bpy.path.abspath(self.m6_brain_library_path), encoding="utf-8") as handle:
+            presets = json.load(handle)["presets"]
+    except (OSError, KeyError, TypeError, ValueError):
+        presets = []
+    items = [
+        (preset["id"], preset["id"], "Checked declarative M6 brain preset.")
+        for preset in presets
+        if isinstance(preset, dict) and isinstance(preset.get("id"), str) and preset["id"]
+    ]
+    return items or [("none", "No checked preset loaded", "Choose a valid versioned brain library JSON file.")]
 
 
 def _signed_u32(value):
@@ -209,6 +245,75 @@ class CrowdProjectProperties(PropertyGroup):
         name="Playback Tiers", default="Attach a cache and summarize"
     )
     m5_profile_status: StringProperty(name="M5 Profile Status", default="Declare a tier mix and attach a complete cache")
+    m6_trace_path: StringProperty(
+        name="M6 Trace JSON",
+        description="Versioned behavior/interaction trace to inspect",
+        subtype="FILE_PATH",
+    )
+    m6_graph_path: StringProperty(
+        name="M6 Graph JSON",
+        description="Versioned behavior graph to search",
+        subtype="FILE_PATH",
+    )
+    m6_graph_search: StringProperty(name="Graph Search", default="")
+    m6_graph_matches: StringProperty(name="Graph Matches", default="No graph search run")
+    m6_graph_highlight_path: StringProperty(name="Graph Highlight Path", default="No graph path")
+    m6_navigation_index_json: StringProperty(default="[]", options={"HIDDEN"})
+    m6_navigation_target: EnumProperty(name="Navigate Context", items=_m6_navigation_target_items)
+    m6_navigation_status: StringProperty(name="Navigation Status", default="No M6 context selected")
+    m6_navigation_event: StringProperty(name="M6 Event", default="No event selected")
+    m6_navigation_node: StringProperty(name="M6 Graph Node", default="No graph node selected")
+    m6_navigation_action: StringProperty(name="M6 Action", default="No action selected")
+    m6_navigation_clip: StringProperty(name="M6 Motion Clip", default="No clip selected")
+    m6_navigation_contact: StringProperty(name="M6 Contact", default="No contact selected")
+    m6_navigation_layer: StringProperty(name="M6 Owning Layer", default="No layer selected")
+    m6_navigation_correction: StringProperty(name="M6 Correction", default="No correction selected")
+    m6_brain_library_path: StringProperty(
+        name="M6 Brain Library JSON",
+        description="Versioned checked action, subgraph, and preset library",
+        subtype="FILE_PATH",
+    )
+    m6_brain_preset_id: EnumProperty(name="Checked Brain Preset", items=_m6_brain_preset_items)
+    m6_brain_instance_id: StringProperty(name="Preset Instance", default="instance")
+    m6_brain_parameters_json: StringProperty(name="Preset Parameters (JSON)", default="{}")
+    m6_debug_tier: StringProperty(name="Debug Tier", default="hero")
+    m6_trace_summary: StringProperty(name="M6 Trace Summary", default="No M6 trace inspected")
+    m6_trace_timeline: StringProperty(name="M6 Timeline", default="No M6 timeline loaded")
+    m6_unavailable_evidence: StringProperty(name="M6 Evidence Availability", default="No degraded evidence reported")
+    m6_interaction_layer_path: StringProperty(
+        name="M6 Interaction Layer",
+        description="Cache-bound sparse interaction animation layer JSON",
+        subtype="FILE_PATH",
+    )
+    m6_interaction_request_path: StringProperty(
+        name="M6 Interaction Request",
+        description="Independently authored interaction constraints and provenance JSON",
+        subtype="FILE_PATH",
+    )
+    m6_interaction_motion_path: StringProperty(
+        name="M6 Interaction Motion",
+        description="Validated paired-motion contact and provenance JSON",
+        subtype="FILE_PATH",
+    )
+    m6_physics_transition_path: StringProperty(
+        name="M6 Physics Transition",
+        description="Cache-bound physics ownership and recovery JSON",
+        subtype="FILE_PATH",
+    )
+    m6_hero_boundary_path: StringProperty(
+        name="M6 Hero Boundary",
+        description="Declared solver/cache/tier support boundary JSON",
+        subtype="FILE_PATH",
+    )
+    m6_layers_attached: BoolProperty(name="M6 Layers Attached", default=False)
+    m6_layers_muted: BoolProperty(name="M6 Layers Muted", default=False)
+    m6_layer_owner: StringProperty(name="M6 Layer Owner", default="No M6 layer loaded")
+    m6_layer_interval: StringProperty(name="M6 Layer Interval", default="No M6 layer loaded")
+    m6_layer_contacts: StringProperty(name="M6 Contacts", default="No M6 contact evidence loaded")
+    m6_layer_provenance: StringProperty(name="M6 Solver/Cache Provenance", default="No M6 provenance loaded")
+    m6_layer_recovery: StringProperty(name="M6 Recovery", default="No M6 recovery loaded")
+    m6_layer_failure_policy: StringProperty(name="M6 Failure Policy", default="No M6 failure policy loaded")
+    m6_hero_support: StringProperty(name="M6 Hero Support", default="No M6 hero boundary loaded")
     diagnostics: CollectionProperty(type=CrowdDiagnosticProperties)
     active_diagnostic_index: IntProperty(default=0, min=0)
     diagnostic_sequence: IntProperty(default=0, min=0)

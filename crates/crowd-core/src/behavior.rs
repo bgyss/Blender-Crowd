@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::blackboard::{fuzzy_membership, BlackboardValueV1};
 use crate::ids::{hash_combine, hash_str, AgentId};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +82,14 @@ pub enum BehaviorNodeV1 {
         key: String,
         child: String,
     },
+    FuzzyCompare {
+        id: String,
+        key: String,
+        lower: i32,
+        upper: i32,
+        threshold_millionths: u32,
+        child: String,
+    },
     Navigate {
         id: String,
         destination_id: String,
@@ -92,6 +101,15 @@ pub enum BehaviorNodeV1 {
     Queue {
         id: String,
         queue_id: String,
+    },
+    Reserve {
+        id: String,
+        resource_id: String,
+        priority: i32,
+    },
+    Action {
+        id: String,
+        action_id: String,
     },
     FollowLane {
         id: String,
@@ -115,9 +133,12 @@ impl BehaviorNodeV1 {
             | Self::Probability { id, .. }
             | Self::Event { id, .. }
             | Self::BlackboardCompare { id, .. }
+            | Self::FuzzyCompare { id, .. }
             | Self::Navigate { id, .. }
             | Self::Wait { id, .. }
             | Self::Queue { id, .. }
+            | Self::Reserve { id, .. }
+            | Self::Action { id, .. }
             | Self::FollowLane { id, .. }
             | Self::HoldPosition { id } => id,
         }
@@ -142,10 +163,13 @@ impl BehaviorNodeV1 {
             | Self::Timer { child, .. }
             | Self::Probability { child, .. }
             | Self::Event { child, .. }
-            | Self::BlackboardCompare { child, .. } => vec![child],
+            | Self::BlackboardCompare { child, .. }
+            | Self::FuzzyCompare { child, .. } => vec![child],
             Self::Navigate { .. }
             | Self::Wait { .. }
             | Self::Queue { .. }
+            | Self::Reserve { .. }
+            | Self::Action { .. }
             | Self::FollowLane { .. }
             | Self::HoldPosition { .. } => Vec::new(),
         }
@@ -190,10 +214,23 @@ impl BehaviorNodeV1 {
             }
             Self::Event { event_type, .. } if event_type.is_empty() => Some("set an event type"),
             Self::BlackboardCompare { key, .. } if key.is_empty() => Some("set a blackboard key"),
+            Self::FuzzyCompare {
+                key,
+                lower,
+                upper,
+                threshold_millionths,
+                ..
+            } if key.is_empty() || lower >= upper || *threshold_millionths > 1_000_000 => {
+                Some("set a fuzzy key, lower < upper, and threshold between 0 and 1000000")
+            }
             Self::Navigate { destination_id, .. } if destination_id.is_empty() => {
                 Some("set a destination ID")
             }
             Self::Queue { queue_id, .. } if queue_id.is_empty() => Some("set a queue ID"),
+            Self::Reserve { resource_id, .. } if resource_id.is_empty() => {
+                Some("set a resource ID")
+            }
+            Self::Action { action_id, .. } if action_id.is_empty() => Some("set an action ID"),
             Self::FollowLane { lane_id, .. } if lane_id.is_empty() => Some("set a lane ID"),
             _ => None,
         }
@@ -245,6 +282,8 @@ pub enum BehaviorAction {
     Navigate { destination_id: String },
     Wait { ticks: u32 },
     Queue { queue_id: String },
+    Reserve { resource_id: String, priority: i32 },
+    Action { action_id: String },
     FollowLane { lane_id: String },
     HoldPosition,
 }
@@ -256,6 +295,8 @@ pub struct BehaviorContext {
     pub bool_observations: BTreeMap<String, bool>,
     /// Deterministic fixed-point numeric observations (one unit = 1e-6).
     pub number_observations: BTreeMap<String, i32>,
+    /// Arbitrary typed values from a declared M6 blackboard schema.
+    pub typed_blackboard: BTreeMap<String, BlackboardValueV1>,
     pub events: BTreeSet<String>,
     /// Node IDs whose action completed since the preceding decision.
     pub completed_nodes: BTreeSet<String>,
@@ -273,6 +314,18 @@ pub struct DecisionOutcome {
     pub visited_nodes: Vec<String>,
     pub observations: Vec<(String, bool)>,
     pub number_observations: Vec<(String, i32)>,
+    /// Utility scores in authored option order, so the debugger can explain
+    /// both the winner and the alternatives considered.
+    pub utility_scores: Vec<(String, i32)>,
+    /// Interrupt nodes that fired during this decision.
+    pub interrupts: Vec<String>,
+    /// Typed perception channels that fed this decision, in deterministic order.
+    pub perception_channels: Vec<String>,
+    /// Explicit reduced-evidence state for a scheduled/lower-fidelity tier.
+    pub degraded_evidence: Option<String>,
+    pub fuzzy_scores: Vec<(String, u32)>,
+    /// Typed blackboard snapshot used at the decision boundary.
+    pub blackboard_values: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug)]
@@ -333,10 +386,15 @@ impl BehaviorVm {
                             .number_observations
                             .get(&option.score_key)
                             .copied()
+                            .or_else(|| match context.typed_blackboard.get(&option.score_key) {
+                                Some(BlackboardValueV1::NumberI32(value)) => Some(*value),
+                                _ => None,
+                            })
                             .unwrap_or(0);
                         outcome
                             .number_observations
                             .push((option.score_key.clone(), score));
+                        outcome.utility_scores.push((option.child.clone(), score));
                         (score, option.child.as_str())
                     })
                     .collect();
@@ -355,6 +413,10 @@ impl BehaviorVm {
                     .number_observations
                     .get(state_key)
                     .copied()
+                    .or_else(|| match context.typed_blackboard.get(state_key) {
+                        Some(BlackboardValueV1::NumberI32(value)) => Some(*value),
+                        _ => None,
+                    })
                     .unwrap_or(0);
                 outcome.number_observations.push((state_key.clone(), value));
                 let child = branches
@@ -365,11 +427,34 @@ impl BehaviorVm {
                 self.evaluate(self.node_indices[child], state, context, outcome)
             }
             BehaviorNodeV1::Interrupt {
+                id,
                 condition_key,
                 child,
-                ..
+            } => {
+                let value = context
+                    .bool_observations
+                    .get(condition_key)
+                    .copied()
+                    .or_else(|| match context.typed_blackboard.get(condition_key) {
+                        Some(BlackboardValueV1::Bool(value)) => Some(*value),
+                        _ => None,
+                    })
+                    .unwrap_or(false);
+                if !outcome
+                    .observations
+                    .iter()
+                    .any(|(key, _)| key == condition_key)
+                {
+                    outcome.observations.push((condition_key.clone(), value));
+                }
+                if value {
+                    outcome.interrupts.push(id.clone());
+                }
+                value
+                    .then(|| self.evaluate(self.node_indices[child], state, context, outcome))
+                    .flatten()
             }
-            | BehaviorNodeV1::BlackboardCompare {
+            BehaviorNodeV1::BlackboardCompare {
                 key: condition_key,
                 child,
                 ..
@@ -378,6 +463,10 @@ impl BehaviorVm {
                     .bool_observations
                     .get(condition_key)
                     .copied()
+                    .or_else(|| match context.typed_blackboard.get(condition_key) {
+                        Some(BlackboardValueV1::Bool(value)) => Some(*value),
+                        _ => None,
+                    })
                     .unwrap_or(false);
                 if !outcome
                     .observations
@@ -387,6 +476,29 @@ impl BehaviorVm {
                     outcome.observations.push((condition_key.clone(), value));
                 }
                 value
+                    .then(|| self.evaluate(self.node_indices[child], state, context, outcome))
+                    .flatten()
+            }
+            BehaviorNodeV1::FuzzyCompare {
+                key,
+                lower,
+                upper,
+                threshold_millionths,
+                child,
+                ..
+            } => {
+                let value = context
+                    .number_observations
+                    .get(key)
+                    .copied()
+                    .or_else(|| match context.typed_blackboard.get(key) {
+                        Some(BlackboardValueV1::NumberI32(value)) => Some(*value),
+                        _ => None,
+                    })
+                    .unwrap_or(0);
+                let membership = fuzzy_membership(value, *lower, *upper);
+                outcome.fuzzy_scores.push((key.clone(), membership));
+                (membership >= *threshold_millionths)
                     .then(|| self.evaluate(self.node_indices[child], state, context, outcome))
                     .flatten()
             }
@@ -434,6 +546,23 @@ impl BehaviorVm {
                 outcome.decisive_node = Some(id.clone());
                 Some(BehaviorAction::Queue {
                     queue_id: queue_id.clone(),
+                })
+            }
+            BehaviorNodeV1::Reserve {
+                id,
+                resource_id,
+                priority,
+            } => {
+                outcome.decisive_node = Some(id.clone());
+                Some(BehaviorAction::Reserve {
+                    resource_id: resource_id.clone(),
+                    priority: *priority,
+                })
+            }
+            BehaviorNodeV1::Action { id, action_id } => {
+                outcome.decisive_node = Some(id.clone());
+                Some(BehaviorAction::Action {
+                    action_id: action_id.clone(),
                 })
             }
             BehaviorNodeV1::FollowLane { id, lane_id } => {

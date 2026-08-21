@@ -16,15 +16,18 @@ lists; they do not replace the canonical
 | M3 | [Production 1.0](M3-production-1.0.md) | Clean-install production acceptance passes on the support matrix |
 | M4 | [Layered layout and interchange](M4-layout-interchange.md) | Golaem-class post-sim direction and validated layered exchange |
 | M5 | [Scale and procedural rendering](M5-scale-rendering.md) | Earn 10K, then 100K, with declared tier mixes and reproducible evidence |
-| M6 | [Advanced agency, motion, and physics](M6-advanced-agency-motion.md) | MASSIVE-class brains, trajectory-aware motion, and validated reactive-interaction research |
+| M6 | [Advanced agency, motion, and physics](M6-advanced-agency-motion.md) | Deterministic MASSIVE-class brains, trajectory-aware motion, interactions, and hero boundaries |
 | M7 | [Blender ecosystem and mainline readiness](M7-blender-integration.md) | Production evidence supports narrowly scoped upstream proposals |
 | M8 | [Semantic authoring, domain packs, and synthetic data](M8-semantic-domains-data.md) | Expansion tracks reuse stable core contracts without weakening determinism |
+| M9 | [Neural animation and operator validation](M9-neural-animation-operator-validation.md) | Optional learned motion and independent-user claims pass their own evidence gates |
 
 M0 through M3 are strict ordered gates. Do not start a later gate to avoid an
 unmet earlier exit condition. M4 through M6 may be staffed as coordinated tracks
 after M3, but their schema and cache changes must remain compatible. M7 collects
 evidence throughout the project but cannot claim readiness before M3 and real
 production evaluation. M8 consumes stable outputs from M4 through M6.
+M9 begins only after M6 is accepted; its R3 combat work also consumes the
+relevant M8 domain pack.
 
 ## Rules shared by every milestone
 
@@ -79,6 +82,19 @@ M2 engineering and operator evidence is consolidated in the
 [M2 acceptance record](../benchmarks/2026-08-12-m2-acceptance.md). The remaining
 UI/UX and Figma work is deliberately deferred and tracked in the
 [UI/UX roadmap](../ui-ux-roadmap.md#deferred-uiux-todo); it does not reopen M2.
+
+M6's deterministic foundation and model-independent R0 interaction evidence are
+recorded in the [2026-08-18 foundation report](../benchmarks/2026-08-18-m6-foundation.md),
+and the [2026-08-20 requirement-level audit](../benchmarks/2026-08-20-m6-acceptance.md)
+adjudicates criteria 1–4 and 6–10 as PASS at their documented proof levels.
+M6 is accepted with criterion 5 deferred to M9 Track C by the
+[2026-08-20 deferral record](../benchmarks/2026-08-20-m6-criterion-5-deferral.md):
+production motion matching is blocked on unscheduled motion data acquisition,
+the CMU candidate records 3,587 joint-limit violations against the hard limit of
+zero and stays rejected, and the accepted CC0 motion is a checked fixture
+baseline only. All motion thresholds moved to M9 unchanged and M6 makes no
+production motion-matching claim. R1–R4 research and independent-user
+verification are also deferred to M9 and do not block M6.
 
 Implemented: a Rust workspace of five crates (`crowd-core`, `crowd-cache`,
 `crowd-trace`, `crowd-blender`, and `crowd-bench`); versioned project/cache

@@ -22,6 +22,7 @@ fn context(tick: u64) -> BehaviorContext {
         agent_id: AgentId(42),
         bool_observations: BTreeMap::new(),
         number_observations: BTreeMap::new(),
+        typed_blackboard: BTreeMap::new(),
         events: BTreeSet::new(),
         completed_nodes: BTreeSet::new(),
     }

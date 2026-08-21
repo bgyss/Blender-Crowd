@@ -16,11 +16,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crowd_cache::{
-    compose_frame, compose_layout_frame_v1, write_usda_crowd_profile_v1, AgentStatic, BakeSpec,
-    BehaviorEventCompactor, BehaviorEventKindV1, BehaviorEventV1, CacheReader, CacheStatus,
-    CacheWriter, ChannelDef, Frame as CacheFrame, FrameRecord, LayoutLayerV1,
-    LocalResimulationRequestV1, OverrideLayerV1, PhysicsHandoffSpecV1, RecoveryInspector,
-    RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
+    compose_frame, compose_layout_frame_v1, validate_layout_layers_v1, write_usda_crowd_profile_v1,
+    AgentStatic, AnimationLayerV1, BakeSpec, BehaviorEventCompactor, BehaviorEventKindV1,
+    BehaviorEventV1, CacheReader, CacheStatus, CacheWriter, ChannelDef, Frame as CacheFrame,
+    FrameRecord, LayoutLayerV1, LocalResimulationRequestV1, OverrideLayerV1, PhysicsHandoffSpecV1,
+    RecoveryInspector, RecoveryReport, ScalarType, CACHE_V1_DEFAULTS,
 };
 use crowd_core::authoring::{
     compile_authorable_project as compile_core_authorable_project, migrate_project_v1,
@@ -28,6 +28,7 @@ use crowd_core::authoring::{
 };
 use crowd_core::avoidance::SampledVelocitySolver;
 use crowd_core::behavior::{compile_graph, BehaviorGraphV1};
+use crowd_core::interaction::{InteractionMotionV1, InteractionRequestV1};
 use crowd_core::project::{
     compile_project as compile_core_project, CompiledAgentSpawn,
     CompiledProject as CoreCompiledProject, Diagnostic,
@@ -392,6 +393,11 @@ impl Session {
                     detail: event.detail,
                     graph_id: event.graph_id,
                     decisive_node: event.decisive_node,
+                    utility_scores: event.utility_scores,
+                    fuzzy_scores: event.fuzzy_scores,
+                    perception_channels: event.perception_channels,
+                    blackboard_values: event.blackboard_values,
+                    degraded_evidence: event.degraded_evidence,
                 });
             }
         }
@@ -567,10 +573,28 @@ impl PyCache {
         self.override_layers.clear();
     }
 
+    fn preflight_layout_layers(&self, layers_json: &str) -> PyResult<()> {
+        let candidate: Vec<LayoutLayerV1> = serde_json::from_str(layers_json)
+            .map_err(|error| PyValueError::new_err(format!("E_LAYOUT_JSON: {error}")))?;
+        let reader = self.complete()?;
+        let tick = reader.manifest().tick_start;
+        let base = reader.read_tick(tick).map_err(|error| {
+            PyOSError::new_err(format!("E_CACHE_READ {}: {error}", self.path.display()))
+        })?;
+        validate_layout_layers_v1(&base, &self.base_cache_hash, &candidate)
+            .map_err(|error| PyValueError::new_err(format!("E_LAYOUT_PREFLIGHT: {error}")))?;
+        Ok(())
+    }
+
     fn set_layout_layers(&mut self, layers_json: &str) -> PyResult<()> {
         self.layout_layers = serde_json::from_str(layers_json)
             .map_err(|error| PyValueError::new_err(format!("E_LAYOUT_JSON: {error}")))?;
         Ok(())
+    }
+
+    fn inspect_layout_layers_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.layout_layers)
+            .map_err(|error| PyValueError::new_err(format!("E_LAYOUT_SERIALIZE: {error}")))
     }
 
     fn clear_layout_layers(&mut self) {
@@ -664,29 +688,79 @@ impl PyCache {
             .ok_or_else(|| {
                 PyValueError::new_err(format!("E_AGENT_NOT_FOUND: {agent_id} at tick {tick}"))
             })?;
-        let composed = compose_frame(&frame, tick, &self.override_layers)
+        let override_composed = compose_frame(&frame, tick, &self.override_layers)
             .map_err(|error| PyValueError::new_err(format!("E_OVERRIDE: {error}")))?;
-        let position = composed
+        let override_position = override_composed
             .records
             .iter()
             .find(|candidate| candidate.agent_id == agent_id)
             .expect("composition preserves base agent IDs")
             .position;
+        let layout_composed = if self.layout_layers.is_empty() {
+            None
+        } else {
+            Some(
+                compose_layout_frame_v1(&frame, tick, &self.base_cache_hash, &self.layout_layers)
+                    .map_err(|error| PyValueError::new_err(format!("E_LAYOUT: {error}")))?,
+            )
+        };
+        let layout_record = layout_composed.as_ref().and_then(|composed| {
+            composed
+                .records
+                .iter()
+                .find(|candidate| candidate.agent_id == agent_id)
+        });
+        let position = layout_record
+            .map(|composed| composed.position)
+            .unwrap_or(override_position);
         let out = PyDict::new(py);
         out.set_item("agent_id", agent_id)?;
         out.set_item("tick", tick)?;
         out.set_item("position", position)?;
         out.set_item(
             "solved_velocity",
-            [record.velocity[0], record.velocity[1], 0.0],
+            layout_record.map(|composed| composed.velocity).unwrap_or([
+                record.velocity[0],
+                record.velocity[1],
+                0.0,
+            ]),
         )?;
-        out.set_item("destination_id", record.destination_id)?;
+        out.set_item(
+            "destination_id",
+            layout_record
+                .map(|composed| composed.destination_id)
+                .unwrap_or(record.destination_id),
+        )?;
         out.set_item("behavior_state", record.behavior_state)?;
         out.set_item("decision_reason", record.decision_reason)?;
-        out.set_item("clip_id", record.clip_id)?;
-        out.set_item("clip_phase", record.phase)?;
-        out.set_item("playback_rate", record.playback_rate)?;
-        out.set_item("visible", record.visible)?;
+        out.set_item(
+            "clip_id",
+            layout_record
+                .map(|composed| composed.clip_id)
+                .unwrap_or(record.clip_id),
+        )?;
+        out.set_item(
+            "clip_phase",
+            layout_record
+                .map(|composed| composed.phase)
+                .unwrap_or(record.phase),
+        )?;
+        out.set_item(
+            "playback_rate",
+            layout_record
+                .map(|composed| composed.playback_rate)
+                .unwrap_or(record.playback_rate),
+        )?;
+        out.set_item(
+            "visible",
+            layout_record
+                .map(|composed| composed.visible)
+                .unwrap_or(record.visible),
+        )?;
+        out.set_item(
+            "physics_active",
+            layout_record.is_some_and(|composed| composed.physics_active),
+        )?;
 
         let cache_hit = self.cached_behavior_query.as_ref().is_some_and(
             |(cached_agent, cached_tick, _trace)| *cached_agent == agent_id && *cached_tick == tick,
@@ -864,6 +938,89 @@ fn simulate_physics_handoff_py(spec_json: &str) -> PyResult<String> {
         .map_err(|error| PyValueError::new_err(format!("E_PHYSICS_SERIALIZE: {error}")))
 }
 
+fn validate_interaction_motion_attachment_json(
+    expected_cache_hash: &str,
+    request_json: &str,
+    layer_json: &str,
+    motion_json: &str,
+) -> Result<InteractionMotionV1, String> {
+    let request: InteractionRequestV1 = serde_json::from_str(request_json)
+        .map_err(|error| format!("interaction request JSON is invalid: {error}"))?;
+    let layer: AnimationLayerV1 = serde_json::from_str(layer_json)
+        .map_err(|error| format!("interaction layer JSON is invalid: {error}"))?;
+    layer
+        .validate()
+        .map_err(|error| format!("interaction layer is invalid: {error}"))?;
+    let motion: InteractionMotionV1 = serde_json::from_str(motion_json)
+        .map_err(|error| format!("interaction motion JSON is invalid: {error}"))?;
+    if motion.contacts.is_empty() {
+        return Err("interaction motion must contain validated contact evidence".to_owned());
+    }
+
+    if layer.base_cache_hash != expected_cache_hash
+        || request.provenance.base_cache_hash != expected_cache_hash
+    {
+        return Err("request and layer must match the attached base cache hash".to_owned());
+    }
+    if layer.interaction_id != request.request_id {
+        return Err("interaction layer ID must match the authored request ID".to_owned());
+    }
+    let request_participants = request
+        .participants
+        .iter()
+        .map(|participant| participant.agent_id)
+        .collect::<BTreeSet<_>>();
+    let layer_targets = layer
+        .target_agent_ids
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if request_participants != layer_targets {
+        return Err(
+            "interaction layer targets must match authored request participants".to_owned(),
+        );
+    }
+    if layer.tick_start != request.tick_start || layer.tick_end != request.tick_end {
+        return Err("interaction layer interval must match the authored request".to_owned());
+    }
+    if layer.provenance != request.provenance.worker_protocol {
+        return Err(
+            "interaction layer provenance must match the authored request protocol".to_owned(),
+        );
+    }
+    if layer.fallback.clip_set_id != motion.fallback.clip_set_id
+        || layer.fallback.clip_id != motion.fallback.clip_id
+    {
+        return Err("interaction layer and motion must name the same fallback clip".to_owned());
+    }
+    motion.validate_against(&request).map_err(|issues| {
+        issues
+            .into_iter()
+            .map(|issue| issue.message)
+            .collect::<Vec<_>>()
+            .join("; ")
+    })?;
+    Ok(motion)
+}
+
+#[pyfunction(name = "validate_interaction_motion_attachment")]
+fn validate_interaction_motion_attachment_py(
+    expected_cache_hash: &str,
+    request_json: &str,
+    layer_json: &str,
+    motion_json: &str,
+) -> PyResult<String> {
+    let motion = validate_interaction_motion_attachment_json(
+        expected_cache_hash,
+        request_json,
+        layer_json,
+        motion_json,
+    )
+    .map_err(|error| PyValueError::new_err(format!("E_INTERACTION_MOTION: {error}")))?;
+    serde_json::to_string(&motion)
+        .map_err(|error| PyValueError::new_err(format!("E_INTERACTION_SERIALIZE: {error}")))
+}
+
 #[pyfunction(name = "resimulate_local_kinematic")]
 fn resimulate_local_kinematic_py(request_json: &str) -> PyResult<String> {
     let request: LocalResimulationRequestV1 = serde_json::from_str(request_json)
@@ -1004,6 +1161,16 @@ fn behavior_event_kind(kind: crowd_core::BehaviorRuntimeEventKind) -> BehaviorEv
         crowd_core::BehaviorRuntimeEventKind::QueueReleased => BehaviorEventKindV1::QueueReleased,
         crowd_core::BehaviorRuntimeEventKind::GroupSplit => BehaviorEventKindV1::GroupSplit,
         crowd_core::BehaviorRuntimeEventKind::GroupRegrouped => BehaviorEventKindV1::GroupRegrouped,
+        crowd_core::BehaviorRuntimeEventKind::ActivityGranted => {
+            BehaviorEventKindV1::ActivityGranted
+        }
+        crowd_core::BehaviorRuntimeEventKind::ActivityWaiting => {
+            BehaviorEventKindV1::ActivityWaiting
+        }
+        crowd_core::BehaviorRuntimeEventKind::ActivityReleased => {
+            BehaviorEventKindV1::ActivityReleased
+        }
+        crowd_core::BehaviorRuntimeEventKind::ActivityFailed => BehaviorEventKindV1::ActivityFailed,
     }
 }
 
@@ -1386,6 +1553,279 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    fn checked_interaction_attachment() -> (String, String, String) {
+        (
+            include_str!("../../../assets/reference/m6/interaction-request-v1.json").to_owned(),
+            include_str!("../../../assets/reference/m6/interaction-animation-layer-v1.json")
+                .to_owned(),
+            include_str!("../../../assets/reference/m6/interaction-motion-v1.json").to_owned(),
+        )
+    }
+
+    #[test]
+    fn native_attachment_accepts_interval_roots_contacts_and_provenance() {
+        let (request, layer, motion) = checked_interaction_attachment();
+        let validated = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &motion,
+        )
+        .expect("checked paired motion must pass the Rust authority");
+
+        assert_eq!(validated.request_id, "request-pair-7-9");
+        assert_eq!(validated.participants.len(), 2);
+        assert_eq!(validated.contacts.len(), 1);
+        assert_eq!(validated.provenance.backend, "authored-paired-clip");
+    }
+
+    #[test]
+    fn native_attachment_rejects_motion_without_complete_root_samples() {
+        let (request, layer, motion) = checked_interaction_attachment();
+        let mut motion: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        motion["participants"][0]["root_samples"] = serde_json::json!([]);
+
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &motion.to_string(),
+        )
+        .expect_err("empty roots must not reach native layout lowering");
+        assert!(
+            error.contains("root"),
+            "unexpected validation error: {error}"
+        );
+    }
+
+    #[test]
+    fn native_attachment_rejects_invalid_contact_and_provenance() {
+        let (request, layer, motion) = checked_interaction_attachment();
+        let mut bad_contact: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_contact["contacts"][0]["distance_m"] = serde_json::json!(-1.0);
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_contact.to_string(),
+        )
+        .expect_err("invalid contact must not reach native layout lowering");
+        assert!(
+            error.contains("contact"),
+            "unexpected contact validation error: {error}"
+        );
+
+        let mut bad_provenance: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_provenance["provenance"]["backend"] = serde_json::json!("");
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_provenance.to_string(),
+        )
+        .expect_err("invalid provenance must not reach native layout lowering");
+        assert!(
+            error.contains("provenance"),
+            "unexpected provenance validation error: {error}"
+        );
+    }
+
+    #[test]
+    fn native_attachment_rejects_in_range_motion_that_disagrees_with_the_authored_request() {
+        let (request, layer, motion) = checked_interaction_attachment();
+
+        let mut bad_root: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_root["participants"][0]["root_samples"][1]["translation"] =
+            serde_json::json!([0.75, 0.0, 0.0]);
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_root.to_string(),
+        )
+        .expect_err("an in-range root must be checked against the authored request");
+        assert!(
+            error.contains("authored path"),
+            "unexpected root error: {error}"
+        );
+
+        let mut bad_contact: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_contact["contacts"][0]["tick"] = serde_json::json!(17);
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_contact.to_string(),
+        )
+        .expect_err("an in-range contact must obey the authored contact window");
+        assert!(
+            error.contains("declared constraint"),
+            "unexpected contact error: {error}"
+        );
+
+        let mut forbidden_contact: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        forbidden_contact["contacts"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "contact_id": "separate-7-9",
+                "label": "forbidden",
+                "owner_agent_id": 7,
+                "other_agent_id": 9,
+                "tick": 19,
+                "distance_m": 0.0
+            }));
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &forbidden_contact.to_string(),
+        )
+        .expect_err("a forbidden authored contact must remain forbidden");
+        assert!(
+            error.contains("forbidden contact"),
+            "unexpected forbidden-contact error: {error}"
+        );
+
+        let mut bad_seed: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_seed["provenance"]["seed"] = serde_json::json!(2027);
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_seed.to_string(),
+        )
+        .expect_err("strict motion seed must come from the authored request");
+        assert!(
+            error.contains("strict request seed"),
+            "unexpected seed error: {error}"
+        );
+    }
+
+    #[test]
+    fn native_attachment_rejects_wrapped_yaw_deviation_with_valid_translations() {
+        let (request, layer, motion) = checked_interaction_attachment();
+        let mut bad_yaw: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        for participant in bad_yaw["participants"].as_array_mut().unwrap() {
+            for sample in participant["root_samples"].as_array_mut().unwrap() {
+                sample["yaw"] = serde_json::json!(sample["yaw"].as_f64().unwrap() + 1.0);
+            }
+        }
+
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_yaw.to_string(),
+        )
+        .expect_err("motion yaw must be checked against the authored request roots");
+        assert!(
+            error.contains("yaw deviates"),
+            "unexpected yaw error: {error}"
+        );
+    }
+
+    #[test]
+    fn native_attachment_rejects_cross_artifact_identity_and_fallback_mismatches() {
+        let (request, layer, motion) = checked_interaction_attachment();
+
+        let error = validate_interaction_motion_attachment_json(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            &request,
+            &layer,
+            &motion,
+        )
+        .expect_err("request and layer cache identity must match the live cache");
+        assert!(
+            error.contains("base cache hash"),
+            "unexpected cache error: {error}"
+        );
+
+        let mut bad_layer_id: serde_json::Value = serde_json::from_str(&layer).unwrap();
+        bad_layer_id["interaction_id"] = serde_json::json!("another-request");
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &bad_layer_id.to_string(),
+            &motion,
+        )
+        .expect_err("layer request ID must come from the authored request");
+        assert!(
+            error.contains("request ID"),
+            "unexpected request error: {error}"
+        );
+
+        let mut bad_request_participants: serde_json::Value =
+            serde_json::from_str(&request).unwrap();
+        bad_request_participants["participants"][1]["agent_id"] = serde_json::json!(11);
+        bad_request_participants["root_constraints"][1]["agent_id"] = serde_json::json!(11);
+        for constraint in bad_request_participants["contact_constraints"]
+            .as_array_mut()
+            .unwrap()
+        {
+            constraint["other_agent_id"] = serde_json::json!(11);
+        }
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &bad_request_participants.to_string(),
+            &layer,
+            &motion,
+        )
+        .expect_err("layer targets must match authored request participants");
+        assert!(
+            error.contains("participants"),
+            "unexpected participant error: {error}"
+        );
+
+        let mut bad_layer_provenance: serde_json::Value = serde_json::from_str(&layer).unwrap();
+        bad_layer_provenance["provenance"] = serde_json::json!("another-worker-v1");
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &bad_layer_provenance.to_string(),
+            &motion,
+        )
+        .expect_err("layer provenance must authenticate the request protocol");
+        assert!(
+            error.contains("provenance"),
+            "unexpected provenance error: {error}"
+        );
+
+        let mut bad_fallback: serde_json::Value = serde_json::from_str(&motion).unwrap();
+        bad_fallback["fallback"]["clip_id"] = serde_json::json!("run");
+        let error = validate_interaction_motion_attachment_json(
+            "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+            &request,
+            &layer,
+            &bad_fallback.to_string(),
+        )
+        .expect_err("layer and motion fallback clips must agree");
+        assert!(
+            error.contains("fallback clip"),
+            "unexpected fallback error: {error}"
+        );
+    }
+
+    #[test]
+    fn native_attachment_rejects_empty_authored_action_and_outcome() {
+        let (request, layer, motion) = checked_interaction_attachment();
+        for field in ["action", "outcome"] {
+            let mut invalid_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            invalid_request[field] = serde_json::json!("");
+            let error = validate_interaction_motion_attachment_json(
+                "b2c74ec5a6038dc1761afdcb727f756b092ad64113aeeed3a9c5e14611c138d7",
+                &invalid_request.to_string(),
+                &layer,
+                &motion,
+            )
+            .expect_err("schema-required request action/outcome must be non-empty");
+            assert!(
+                error.contains("action and outcome"),
+                "unexpected {field} error: {error}"
+            );
+        }
+    }
+
     #[test]
     fn only_declared_fidelity_profiles_are_accepted() {
         assert!(parse_fidelity_profile(None).unwrap().is_none());
@@ -1746,6 +2186,10 @@ fn blender_crowd_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compile_authorable_project_py, m)?)?;
     m.add_function(wrap_pyfunction!(compile_authorable_runtime_py, m)?)?;
     m.add_function(wrap_pyfunction!(simulate_physics_handoff_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        validate_interaction_motion_attachment_py,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(resimulate_local_kinematic_py, m)?)?;
     m.add_function(wrap_pyfunction!(inspect_cache, m)?)?;
     Ok(())

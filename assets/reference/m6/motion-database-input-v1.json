@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "database_id": "reference-humanoid-motion",
+  "retarget_profile_id": "reference-humanoid",
+  "source_provenance": "Blender Crowd redistributable reference metadata",
+  "clips": [
+    {
+      "id": "walk-reference",
+      "samples": [
+        { "tick": 0, "velocity_millimeters_per_second": [1000, 0], "contact": "left_foot", "slope_millionths": 0 },
+        { "tick": 1, "velocity_millimeters_per_second": [1000, 0], "contact": "right_foot", "slope_millionths": 0 }
+      ]
+    },
+    {
+      "id": "jog-reference",
+      "samples": [
+        { "tick": 0, "velocity_millimeters_per_second": [2000, 0], "contact": "left_foot", "slope_millionths": 0 },
+        { "tick": 1, "velocity_millimeters_per_second": [2000, 0], "contact": "right_foot", "slope_millionths": 0 }
+      ]
+    }
+  ]
+}

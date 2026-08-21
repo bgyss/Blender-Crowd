@@ -2,25 +2,36 @@
 //!
 //! See `docs/superpowers/specs/2026-08-04-crowd-sim-kernel-design.md`.
 
+pub mod action_library;
+pub mod activity;
 pub mod arena;
 pub mod assets;
 pub mod authoring;
 pub mod avoidance;
 pub mod behavior;
+pub mod blackboard;
 pub mod clock;
 pub mod commuter;
 pub mod concourse;
+pub mod extensions;
 pub mod fidelity;
 pub mod field;
+pub mod formation;
 pub mod geometry;
 pub mod grid;
 pub mod ids;
+pub mod interaction;
+pub mod m6_metrics;
 pub mod metrics;
+pub mod motion;
 pub mod nav;
 pub mod nav_scenes;
+pub mod perception;
 pub mod phases;
+pub mod physics;
 pub mod presentation;
 pub mod project;
+pub mod provenance;
 pub mod rng;
 pub mod route;
 pub mod runtime_behavior;
@@ -52,8 +63,8 @@ pub use ids::{derive_agent_id, AgentId};
 pub use metrics::{Metrics, MetricsConfig, MetricsSummary, Phase};
 pub use nav::{NavMeshDef, PortalId, TileGraph};
 pub use phases::{
-    animate, animate_scheduled, AnimateConfig, AnimateReport, IDLE_CLIP_ID, JOG_CLIP_ID,
-    WALK_CLIP_ID,
+    animate, animate_scheduled, animate_with_motion_matcher, apply_motion_matches, AnimateConfig,
+    AnimateReport, IDLE_CLIP_ID, JOG_CLIP_ID, WALK_CLIP_ID,
 };
 pub use project::{
     compile_project, CompiledAgentSpawn, CompiledProject, Diagnostic, DiagnosticCode, ProjectIrV1,

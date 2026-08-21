@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "threshold_id": "m6-cmu-motion-2026-08-18",
+  "adjudicated_on": "2026-08-18",
+  "baseline_report": "docs/benchmarks/2026-08-18-m6-cmu-motion.json",
+  "source_manifest": "assets/reference/m6/cmu-motion-source-v1.json",
+  "source_hashes": {
+    "35_01_walk": "0743f4ea48e7e199cd56b2810b5ce81f8ede08d32ff79aa4e363c44cc4fe33aa",
+    "35_24_run": "29059fb2c15493983e4dccdf45453a495fb567dd28ff36cc1a0dbc02ad409445",
+    "35_skeleton": "2a8e2eda3c0d7d828566b2a9a8ab36b2b8b3864110574e8b73c8f069fded416c",
+    "36_01_uneven_walk": "882e9f8c35622c2e10e9a3f578b5e0e7033ceb53232f415640b47fc05f3c2fac",
+    "36_skeleton": "05e190867ead216b5dcdc94b210aa19b2eaaf383df44f1d9bb247e64fbf1c02b"
+  },
+  "hard_limits": {
+    "root_teleportations": {
+      "limit": 0,
+      "evidence_status": "not_applicable",
+      "reason": "source ingestion does not execute runtime root transitions"
+    },
+    "undeclared_contacts": {
+      "limit": 0,
+      "evidence_status": "not_applicable",
+      "reason": "source ingestion has no independent contact observation source"
+    },
+    "source_hash_drift": { "limit": 0, "evidence_status": "measured", "baseline": 0 },
+    "cross_cache_mutations": {
+      "limit": 0,
+      "evidence_status": "not_applicable",
+      "reason": "source ingestion does not read or write runtime caches"
+    },
+    "joint_limit_violations": { "limit": 0, "evidence_status": "measured", "baseline": 3587 }
+  },
+  "soft_limits": {
+    "max_foot_slide_millimeters": { "baseline": 21, "limit": 21 },
+    "max_trajectory_deviation_millimeters": { "baseline": 3, "limit": 3 },
+    "max_turn_discontinuity_microradians": { "baseline": 60005, "limit": 60005 },
+    "rejected_frame_rate_ppm": { "baseline": 0, "limit": 0 }
+  },
+  "policy": {
+    "soft_limit_rule": "integer-ceiling-of-maximum-observed-baseline",
+    "additional_headroom": 0,
+    "loosening_requires_new_dated_adjudication": true
+  }
+}

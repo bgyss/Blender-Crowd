@@ -15,6 +15,10 @@ pub enum BehaviorEventKindV1 {
     QueueReleased,
     GroupSplit,
     GroupRegrouped,
+    ActivityGranted,
+    ActivityWaiting,
+    ActivityReleased,
+    ActivityFailed,
     PortalReroute,
 }
 
@@ -29,7 +33,28 @@ pub struct BehaviorEventV1 {
     pub graph_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decisive_node: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub utility_scores: Vec<(String, i32)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fuzzy_scores: Vec<(String, u32)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub perception_channels: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blackboard_values: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degraded_evidence: Option<String>,
 }
+
+type DecisionSignature = (
+    String,
+    Option<String>,
+    Option<String>,
+    Vec<(String, i32)>,
+    Vec<(String, u32)>,
+    Vec<String>,
+    Vec<(String, String)>,
+    Option<String>,
+);
 
 /// Incrementally retains the cache-side event evidence for a bake.
 ///
@@ -39,7 +64,7 @@ pub struct BehaviorEventV1 {
 #[derive(Default)]
 pub struct BehaviorEventCompactor {
     events: Vec<BehaviorEventV1>,
-    last_decisions: BTreeMap<u64, (String, Option<String>, Option<String>)>,
+    last_decisions: BTreeMap<u64, DecisionSignature>,
 }
 
 impl BehaviorEventCompactor {
@@ -49,6 +74,11 @@ impl BehaviorEventCompactor {
                 event.detail.clone(),
                 event.graph_id.clone(),
                 event.decisive_node.clone(),
+                event.utility_scores.clone(),
+                event.fuzzy_scores.clone(),
+                event.perception_channels.clone(),
+                event.blackboard_values.clone(),
+                event.degraded_evidence.clone(),
             );
             let prior = self
                 .last_decisions
@@ -79,6 +109,11 @@ impl BehaviorEventV1 {
             detail: detail.into(),
             graph_id: None,
             decisive_node: None,
+            utility_scores: Vec::new(),
+            fuzzy_scores: Vec::new(),
+            perception_channels: Vec::new(),
+            blackboard_values: Vec::new(),
+            degraded_evidence: None,
         }
     }
 
@@ -96,6 +131,11 @@ impl BehaviorEventV1 {
             detail: detail.into(),
             graph_id: Some(graph_id.into()),
             decisive_node: Some(decisive_node.into()),
+            utility_scores: Vec::new(),
+            fuzzy_scores: Vec::new(),
+            perception_channels: Vec::new(),
+            blackboard_values: Vec::new(),
+            degraded_evidence: None,
         }
     }
 }

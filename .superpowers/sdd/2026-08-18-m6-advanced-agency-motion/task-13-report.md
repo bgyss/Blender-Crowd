@@ -1,0 +1,673 @@
+# Task 13 — Blender physics/hero layers and mixed-tier performance
+
+Status: FIX ROUND 3 VERIFIED
+
+The original completion narrative below is retained only as a historical
+pre-review snapshot. Everything from **Historical pre-review implementation
+narrative** through the first `No subagent or reviewer was dispatched` line is
+obsolete and must not be used as current evidence. Fix Rounds 1 through 3
+supersede it; where those rounds differ, Fix Round 3 is authoritative.
+
+## Historical pre-review implementation narrative (obsolete)
+
+- Added cache-bound Blender attachment for deterministic paired-interaction,
+  contact, physics-transition, and hero-support artifacts. Attachment requires
+  the complete Cache v1 `base_cache_hash` and exposes owners, intervals,
+  contacts, interaction/motion/solver provenance, recovery, failure policies,
+  and declared hero support boundaries.
+- Lowered sparse interaction edits and cached physics handoff samples into the
+  existing native layout composer. M6 overlays use a dedicated playback list,
+  preserving the existing M4 stack and immutable base cache while affecting
+  only declared target IDs and intervals.
+- Made native selected-agent inspection read the same composed layout state as
+  viewport playback, without moving simulation or interaction authority out of
+  Rust.
+- Added Blender operators and UI for load, mute/unmute, remove, inspect, and
+  reload lifecycle actions.
+- Added a backend-neutral Rust benchmark lane for exactly 10,000 agents over 30
+  ticks: 10 S0 hero, 990 S1 promoted, and 9,000 S2 background. It times
+  perception, brain, activity, group, motion, and interaction separately;
+  accounts for fallbacks and evidence degradation; checks deterministic replay,
+  hard safety, and unrelated-agent isolation; and uses total elapsed time for
+  the 10 ticks/s gate.
+
+## RED / GREEN
+
+The inherited Task 13 slice retained its original RED evidence in the two dated
+benchmark reports. Before implementation, the Blender runner reached Blender
+but failed because `bpy.ops.crowd.load_m6_layers` did not exist. The Rust focused
+test failed because the public mixed-tier module and report binary did not
+exist. A later Blender GREEN attempt exposed that `read_tick` composed layout
+layers while `inspect_agent` still returned base animation state; the native
+inspection bridge was corrected to inspect the same composed state.
+
+Fresh takeover verification found no failing production behavior. The only
+completion defect was stale checked benchmark prose from an earlier run; its
+timings and hashes were updated from the exact fresh optimized run below.
+
+## Focused tests
+
+```text
+python3 -m unittest -q tests/test_m6_layer_bundle.py
+Ran 3 tests in 0.006s
+OK
+```
+
+```text
+cargo test -p crowd-blender --quiet
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+```text
+cargo test -p crowd-bench --test m6_mixed_tier
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+```text
+cargo clippy --workspace --all-targets -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo] target(s)
+```
+
+`cargo fmt --all`, `cargo fmt --all -- --check`, and `git diff --check` also
+exited zero.
+
+## Exact optimized performance run
+
+Command:
+
+```text
+scripts/m6-performance-test.sh
+```
+
+Exact output, with only machine-local repository and temporary-directory paths
+normalized to `<repo>` and `<tmp>`:
+
+```text
+   Compiling crowd-bench v1.0.0 (<repo>/crates/crowd-bench)
+    Finished `release` profile [optimized + debuginfo] target(s) in 11.73s
+     Running tests/m6_mixed_tier.rs (target/release/deps/m6_mixed_tier-2174b9611cbfb07e)
+
+running 4 tests
+test checked_fixture_has_exact_m5_mix_and_debug_evidence_boundaries ... ok
+test mixed_tier_run_reports_each_authoritative_phase_and_hard_safety ... ok
+test replay_hash_excludes_measurement_noise_but_covers_output_state_and_accounting ... ok
+test report_binary_writes_the_fixed_fixture_and_rejects_unknown_arguments ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+   Compiling crowd-bench v1.0.0 (<repo>/crates/crowd-bench)
+    Finished `release` profile [optimized + debuginfo] target(s) in 5.90s
+     Running `target/release/m6-mixed-tier --out <repo>/benchmarks/reports/m6-mixed-tier-10k.json`
+M6 mixed-tier: 10000 agents, 1540.694 ticks/s, replay 42031d1b03ded2a5595a31b38d9199c093941ed641a3e8d6b53e5bfb83353b47 -> <repo>/benchmarks/reports/m6-mixed-tier-10k.json
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.03s
+     Running `target/release/m6-mixed-tier --out <tmp>/blender-crowd-m6-mixed-tier.n8dQHX.json`
+M6 mixed-tier: 10000 agents, 1788.589 ticks/s, replay 42031d1b03ded2a5595a31b38d9199c093941ed641a3e8d6b53e5bfb83353b47 -> <tmp>/blender-crowd-m6-mixed-tier.n8dQHX.json
+M6 mixed-tier performance passed: 1540.694 ticks/s; replay 42031d1b03ded2a5595a31b38d9199c093941ed641a3e8d6b53e5bfb83353b47; report <repo>/benchmarks/reports/m6-mixed-tier-10k.json
+```
+
+The first retained report recorded 17,262,210 ns of phase time, 19,471,750 ns
+total elapsed, 2,209,540 ns explicit overhead, zero hard-safety failures, zero
+unrelated-agent interaction mutations, zero fallbacks, 4,800,000 cache-payload
+bytes, and 5,041,920 bytes of owned Rust allocation capacity. The exact phase
+timings and evidence limits are in
+`docs/benchmarks/2026-08-18-m6-mixed-tier.md`.
+
+Environment: macOS 27.0 build `26A5416b`, arm64, Rust 1.94.1, Cargo 1.94.1,
+optimized release profile.
+
+## Host Blender / Metal
+
+The required runner was executed outside the restricted automation sandbox, so
+both Blender processes had normal macOS Metal access. Blender reached Python;
+there was no pre-Python Metal abort.
+
+Command:
+
+```text
+scripts/m6-blender-test.sh
+```
+
+Exact significant output:
+
+```text
+Built wheel for abi3 Python >= 3.11 to addon/blender_crowd/wheels/blender_crowd_native-1.0.0-cp311-abi3-macosx_11_0_arm64.whl
+M6 debugger Blender smoke: PASS
+Blender 5.2.0 LTS (hash fbe6228777e7 built 2026-07-14 01:31:22)
+M6 Blender physics/hero layers: PASS
+Blender 5.2.0 LTS (hash fbe6228777e7 built 2026-07-14 01:31:22)
+```
+
+The full Blender layer result, cache/manifest identity checks, lifecycle proof,
+and unsupported boundaries are recorded in
+`docs/benchmarks/2026-08-18-m6-blender-layers.md`.
+
+## M6 foundation regression
+
+```text
+scripts/m6-foundation-test.sh
+M6 R0 foundation passed
+```
+
+The runner passed every invoked Rust lane and all 31 pure-Python tests after the
+Task 13 performance and host Blender runs.
+
+## Files changed
+
+- `addon/blender_crowd/cache_playback.py`
+- `addon/blender_crowd/m6_interaction.py`
+- `addon/blender_crowd/m6_physics.py`
+- `addon/blender_crowd/operators.py`
+- `addon/blender_crowd/panels.py`
+- `addon/blender_crowd/properties.py`
+- `crates/crowd-bench/src/lib.rs`
+- `crates/crowd-bench/src/bin/m6-mixed-tier.rs`
+- `crates/crowd-bench/src/m6_mixed_tier.rs`
+- `crates/crowd-bench/tests/m6_mixed_tier.rs`
+- `crates/crowd-blender/src/lib.rs`
+- `scripts/m6-performance-test.sh`
+- `scripts/m6-blender-test.sh`
+- `tests/blender/test_m6_layers.py`
+- `tests/test_m6_layer_bundle.py`
+- `docs/benchmarks/2026-08-18-m6-blender-layers.md`
+- `docs/benchmarks/2026-08-18-m6-mixed-tier.md`
+- `.superpowers/sdd/2026-08-18-m6-advanced-agency-motion/task-13-report.md`
+
+## Concerns and unsupported claims
+
+- The Blender cloth declaration is a validated support boundary only. This run
+  does not execute or benchmark Blender cloth, hair, Geometry Nodes deformation,
+  rigid-body parity, arbitrary collision scenes, or neural motion.
+- The deterministic native physics handoff and fixed 30-tick mixed-tier fixture
+  do not establish production visual quality, arbitrary-scene performance,
+  long-duration stability, GPU throughput, Cache v1 disk/streaming throughput,
+  or artist usability.
+- S2 evidence is intentionally aggregate-only; absent per-agent perception,
+  brain, and interaction diagnostics are explicitly unavailable and are not
+  inferred.
+- The unchanged CMU candidate remains rejected at 3,587 joint-limit violations
+  against the hard limit of zero. The benchmark uses the checked CC0 baseline;
+  it does not promote the CMU candidate or weaken that gate.
+- `scripts/m6-acceptance.sh` remains the milestone-level open audit. Task 14
+  owns final requirement promotion; Task 13 passing is not full M6 acceptance.
+
+No subagent or reviewer was dispatched.
+
+## Fix Round 1 — 2026-08-19
+
+Status: VERIFIED. This section supersedes the pre-review Task 13 completion
+evidence above where counts, timings, hashes, lifecycle scope, or support
+wording differ. No subagent or reviewer was dispatched.
+
+### Review findings closed
+
+- **Synthetic 10K authority:** every one of the 10,000 runtime agents now
+  executes authoritative perception, typed-blackboard brain work, reservation,
+  formation, evidence-cache output, and one atomic interaction. S0/S1 execute
+  motion matching every tick; S2 executes the checked two-tick M5 cadence.
+  Tier counts, phase operations, cache records, fallbacks, hard-safety failures,
+  and unrelated mutations are derived from runtime state.
+- **Blender bypassed Rust motion validation:** the live load operator now sends
+  the complete interaction layer and motion JSON through
+  `blender_crowd_native.validate_interaction_motion_attachment` before lowering.
+  Rust accepts valid interval/root/contact/provenance evidence and rejects
+  incomplete roots, invalid contacts, and invalid provenance.
+- **Incomplete physics/hero lifecycle:** physics bindings carry the complete
+  cache hash, target IDs, and interval; cached samples must cover every declared
+  tick. Native inspection exposes `physics_active`, and the host smoke proves
+  attach, mute, unmute, remove, and reload at ticks 15 and 25. Hero cloth is
+  explicitly `declaration-only unsupported` and `not attached`, with its
+  requested cache/target/interval binding visible rather than implied as a run.
+- **M4 override loss:** playback retains independent M4 and M6 lists and
+  composes both. An unrelated-agent M4 transform survives M6 attach, failed
+  replacement, mute, unmute, remove, and reload.
+- **Non-atomic attachment:** candidate native layout state is validated and
+  played at the current tick before Python commits either list. Failure restores
+  the previous native stack. The invalid-cache-target host case proves the old
+  M6 and M4 states remain active after native rejection.
+- **Stale removal labels:** removal resets owner, interval, contacts,
+  provenance, recovery, failure policy, and hero boundary to their explicit
+  `No M6 ... loaded` states.
+
+### Focused RED/GREEN evidence
+
+The inherited pure-Python test first failed with
+`KeyError: 'hero_execution_status'`; after the explicit boundary/binding change:
+
+```text
+python3 -m unittest -v tests/test_m6_layer_bundle.py
+Ran 3 tests in 0.005s
+OK
+```
+
+The inherited host smoke first failed at the hero wording, then exposed missing
+`physics_active`, then proved the Rust validator was live by rejecting the
+intentionally incomplete root artifact. The final native focused result was:
+
+```text
+cargo test -p crowd-blender --lib
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+The mixed-tier test added exact per-tier runtime and isolation assertions. Its
+initial per-tier-isolation compile failed because `TierEvidence` did not yet
+carry `unrelated_agent_mutations`; after runtime delta accounting:
+
+```text
+cargo test -p crowd-bench --test m6_mixed_tier
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+### Exact optimized two-pass evidence
+
+Command:
+
+```text
+scripts/m6-performance-test.sh
+```
+
+Exact significant output:
+
+```text
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+M6 mixed-tier: 10000 agents, 126.007 ticks/s, replay a66bdd02ead627f21d161dec5dc03a7b4575bb169ef37768c4c51c338f06b0fd
+M6 mixed-tier: 10000 agents, 124.653 ticks/s, replay a66bdd02ead627f21d161dec5dc03a7b4575bb169ef37768c4c51c338f06b0fd
+M6 mixed-tier performance passed: 126.007 ticks/s; replay a66bdd02ead627f21d161dec5dc03a7b4575bb169ef37768c4c51c338f06b0fd
+```
+
+The retained first run recorded 238,082,792 ns total elapsed,
+213,564,253 ns across the six separately timed phases, 24,518,539 ns explicit
+overhead, 31,895,245 bytes of owned-allocation lower-bound working set, and a
+17,700,000-byte deterministic evidence payload (300,000 records at 59 bytes).
+It recorded zero fallbacks, zero hard-safety failures, and zero unrelated-agent
+mutations globally and for S0, S1, and S2.
+
+S2 runtime totals were 270,000 perception, brain, activity, and group
+operations; 135,000 motion operations; 9,000 completed interaction operations;
+and 270,000 evidence-cache records. S2 remains aggregate-only: individual
+perception, brain, and interaction diagnostics are explicitly unavailable.
+
+Deterministic hashes:
+
+```text
+replay: a66bdd02ead627f21d161dec5dc03a7b4575bb169ef37768c4c51c338f06b0fd
+final state: 2b6e804be85489bbe888d1ec285d25c2934acc02b91312f8bfc3a9aa42215e3d
+evidence payload: 71d613da5353c5f10ef617f7027b7c6b76ed6cf09cde1eb22550e8406f522762
+```
+
+Environment: macOS 27.0 build `26A5416b`, arm64, Rust 1.94.1, Cargo
+1.94.1, optimized release profile.
+
+### Exact host Blender / Metal evidence
+
+Command executed outside the restricted automation sandbox:
+
+```text
+scripts/m6-blender-test.sh
+```
+
+Significant output:
+
+```text
+M6 debugger Blender smoke: PASS
+Error: E_INTERACTION_MOTION: root samples must cover the complete request interval; agent 2506968674689638394 motion roots must cover the complete interval
+Error: E_LAYOUT: layer m6-animation-interaction-pair-10293130296351569156-15 targets an agent absent from the base
+Info: M6 layers muted
+Info: M6 layers unmuted
+Info: M6 layers removed; source artifacts and base cache retained
+M6 Blender physics/hero layers: PASS
+Blender 5.2.0 LTS (hash fbe6228777e7 built 2026-07-14 01:31:22)
+```
+
+Both Blender processes reached Python with normal host Metal access; there was
+no `gpu::MTLBackend::metal_is_supported` or pre-Python Metal abort.
+
+### Regression and quality gates
+
+```text
+scripts/m6-foundation-test.sh
+M6 R0 foundation passed
+
+cargo fmt --all -- --check
+exit 0
+
+cargo clippy --workspace --all-targets -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo]
+
+git diff --check
+exit 0
+```
+
+### Updated durable evidence
+
+- `docs/benchmarks/2026-08-18-m6-blender-layers.md`
+- `docs/benchmarks/2026-08-18-m6-mixed-tier.md`
+- generated retained JSON: `benchmarks/reports/m6-mixed-tier-10k.json`
+  (ignored by Git and reproducible with the performance runner)
+
+### Remaining boundaries
+
+- Cloth, hair, and Geometry Nodes deformation remain declaration-only and are
+  neither attached nor benchmarked.
+- The cached deterministic handoff is not Blender rigid-body parity or evidence
+  for arbitrary collision scenes.
+- Neural motion and external model workers remain unsupported and unmeasured.
+- The 30-tick fixed fixture is not production-scene, long-duration, GPU,
+  viewport/render, Cache v1 disk/streaming, or artist-usability evidence.
+- The CMU candidate remains rejected at 3,587 joint-limit violations against
+  the unchanged hard limit of zero; the checked CC0 baseline remains the
+  accepted motion source.
+- Task 14 still owns milestone-level M6 acceptance promotion.
+
+## Fix Round 2 — 2026-08-19
+
+Status: VERIFIED. This round supersedes Fix Round 1 for interaction-motion
+authority, candidate-layout preflight, native test counts, and host Blender
+error evidence. No subagent or reviewer was dispatched.
+
+### Important finding 1: independent request authority
+
+The native API now receives four independent inputs from the live Blender
+operator:
+
+1. the complete attached Cache v1 `base_cache_hash`;
+2. the authored `InteractionRequestV1` artifact;
+3. the cache-bound `AnimationLayerV1`; and
+4. the submitted `InteractionMotionV1`.
+
+Before lowering, Rust validates:
+
+- request and layer cache hashes against the live cache;
+- layer interaction ID against request ID, then motion request ID against the
+  request;
+- exact request participant/layer target identity, then exact motion
+  participant identity;
+- request/layer intervals and motion roots against independently authored root
+  constraints;
+- required contact presence, contact windows, and forbidden contacts;
+- strict motion seed against the request seed;
+- valid request provenance, matching request/layer worker provenance, and
+  non-empty motion backend/config provenance; and
+- matching layer/motion fallback clip-set and clip IDs, with both reasons still
+  required and independently retained.
+
+The Python bundle now carries `interaction_request`, and the Blender property
+panel exposes an explicit independently authored request path. The operator no
+longer derives request roots, contacts, or seed from submitted motion.
+
+### Important finding 2: muted replacement preflight
+
+`validate_layout_layers_v1` is a non-mutating attachment preflight that
+validates every supplied layer regardless of `muted` or `solo` state. The
+native Blender cache exposes it separately from composition. `CachePlayback`
+preflights only the candidate M6 list before submitting the combined M4+M6
+stack, preserving existing M4 muted/stale semantics.
+
+If preflight fails, neither native `layout_layers` nor Python `_m6_layers` is
+modified. The host regression loads a request/layer/motion set that is
+internally consistent but targets an ID absent from the live cache; native
+preflight rejects it both unmuted and with `m6_layers_muted=true`. The old M6
+stack, M4 override, mute state, and seven evidence properties remain unchanged.
+
+### RED evidence
+
+The semantic native regression changed only the in-range middle root sample
+from `[0.25, 0.0, 0.0]` to `[0.75, 0.0, 0.0]`. Before the fix, the submitted
+motion was used as its own root authority and the test failed because validation
+returned `Ok(InteractionMotionV1)`:
+
+```text
+cargo test -p crowd-blender --lib tests::native_attachment_rejects_in_range_motion_that_disagrees_with_the_authored_request -- --exact --nocapture
+test tests::native_attachment_rejects_in_range_motion_that_disagrees_with_the_authored_request ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out
+```
+
+The muted-layer unit regression initially failed to compile because no
+validation-only API existed:
+
+```text
+cargo test -p crowd-cache --test layout attachment_preflight_rejects_an_invalid_muted_layer_that_composition_skips -- --exact --nocapture
+error[E0432]: unresolved import `crowd_cache::validate_layout_layers_v1`
+```
+
+The first host RED run reached both Blender processes with normal Metal access,
+then failed at the missing request-aware operator plumbing:
+
+```text
+M6 debugger Blender smoke: PASS
+Error: load_layer_bundle() missing 1 required positional argument: 'expected_base_hash'
+FAIL: unexpected RuntimeError: Error: load_layer_bundle() missing 1 required positional argument: 'expected_base_hash'
+```
+
+### GREEN focused evidence
+
+```text
+python3 -m unittest -v tests/test_m6_layer_bundle.py
+Ran 3 tests in 0.006s
+OK
+
+cargo test -p crowd-blender --lib
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+cargo test -p crowd-cache --test layout
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+The native attachment suite includes checked acceptance plus direct negative
+coverage for cache identity, request ID, participants, in-range root deviation,
+required-contact window, forbidden contact, strict seed, request/layer/motion
+provenance, and fallback mismatch. The layout suite separately proves that
+normal composition skips a muted invalid layer while attachment preflight
+rejects it.
+
+### GREEN host Blender / Metal evidence
+
+Command executed outside the restricted automation sandbox:
+
+```text
+scripts/m6-blender-test.sh
+```
+
+Exact significant output:
+
+```text
+M6 debugger Blender smoke: PASS
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion root deviates from its authored path at tick 15
+Error: E_INTERACTION_MOTION: motion contact touch-pair violates its declared constraint; required contact touch-pair was not observed
+Error: E_INTERACTION_MOTION: forbidden contact separate-pair was reported
+Error: E_INTERACTION_MOTION: motion provenance must name a backend/config and match the strict request seed
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion roots must cover the complete interval
+Error: E_LAYOUT_PREFLIGHT: layer m6-animation-interaction-pair-10293130296351569156-15 targets an agent absent from the base
+Info: M6 layers muted
+Error: E_LAYOUT_PREFLIGHT: layer m6-animation-interaction-pair-10293130296351569156-15 targets an agent absent from the base
+Info: M6 layers unmuted
+Info: M6 layers removed; source artifacts and base cache retained
+M6 Blender physics/hero layers: PASS
+Blender 5.2.0 LTS (hash fbe6228777e7 built 2026-07-14 01:31:22)
+```
+
+Both Blender processes reached Python with normal host Metal access; there was
+no pre-Python Metal abort.
+
+### Quality and documentation checks
+
+```text
+cargo fmt --all -- --check
+exit 0
+
+cargo clippy --workspace --all-targets -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo]
+
+git diff --check
+exit 0
+```
+
+The durable Blender benchmark report was updated at
+`docs/benchmarks/2026-08-18-m6-blender-layers.md`. The original pre-review
+completion prose at the top of this report is now explicitly marked obsolete
+instead of contradicting the current validation boundary.
+
+### Remaining boundaries
+
+- Cloth, hair, Geometry Nodes deformation, Blender rigid-body parity, and
+  neural motion remain unsupported and unmeasured as recorded in Fix Round 1.
+- The request artifact is trusted as authored input after schema validation;
+  this round does not add cryptographic signing or remote attestation.
+- Task 14 still owns milestone-level M6 acceptance promotion.
+
+## Fix Round 3 — 2026-08-20
+
+Status: VERIFIED. Fix Round 2 evidence is retained unchanged above. This round
+supersedes it only for authored root-yaw validation, canonical request
+action/outcome validation, native layer-stack observability, focused test
+counts, and host Blender output. No subagent or reviewer was dispatched.
+
+### Finding 1: authored root yaw
+
+`InteractionMotionV1` root yaw is now validated against independently authored
+`InteractionRequestV1.root_constraints` in radians. The validator interpolates
+authored yaw along the shortest wrapped angular path, compares wrapped angular
+distance, and allows at most `0.17453292` radians (10 degrees). This mirrors the
+existing bounded translation check (`0.25` meters) while making units explicit.
+
+The core regression proves both sides of the contract: adding exactly `2π` to
+every submitted yaw remains equivalent, while adding one further radian with
+unchanged translations produces `RootYawDeviation`. The native attachment and
+real Blender regressions mutate every yaw by one radian while preserving
+translations, ticks, contacts, seed, provenance, and fallback.
+
+### Finding 2: native muted-stack proof
+
+The native Cache bridge now exposes a read-only JSON serialization of its exact
+combined `layout_layers` state. `CachePlayback.inspect_native_layout_layers()`
+decodes that state without composing or mutating it.
+
+During the host smoke, after the valid M6 stack is muted and before the invalid
+replacement, the test asserts that native state equals the exact old list
+`[m4_override] + muted_m6_layers`. It also captures native composed records for
+the interaction target and unrelated M4 target. After the muted absent-target
+replacement is rejected—and before paths are restored or a valid reload is
+attempted—the test asserts:
+
+- the combined native M4/M6 layer list is byte-for-byte structurally equal;
+- the target and unrelated-agent native composed records are unchanged;
+- the Python M6 list and mute state are unchanged; and
+- all seven evidence properties are unchanged.
+
+This directly proves that preflight failure preserves the old native stack and
+state rather than inferring native atomicity from Python state.
+
+### Finding 3: canonical action and outcome
+
+The canonical schema already requires `action` and `outcome` strings with
+`minLength: 1`. `InteractionRequestV1::validate` now enforces the same rule and
+emits `InvalidActionOutcome` when either field is empty. Because the native
+attachment path invokes `motion.validate_against(request)`, malformed authored
+requests are rejected by Rust before attachment; Python does not duplicate or
+weaken the authority.
+
+### RED evidence
+
+Before yaw validation, the native attachment accepted all mutated yaws and the
+negative test failed:
+
+```text
+cargo test -p crowd-blender --lib tests::native_attachment_rejects_wrapped_yaw_deviation_with_valid_translations -- --exact --nocapture
+test tests::native_attachment_rejects_wrapped_yaw_deviation_with_valid_translations ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out
+```
+
+Before canonical action/outcome validation, the native attachment accepted the
+empty `action` request and the negative test failed:
+
+```text
+cargo test -p crowd-blender --lib tests::native_attachment_rejects_empty_authored_action_and_outcome -- --exact --nocapture
+test tests::native_attachment_rejects_empty_authored_action_and_outcome ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 15 filtered out
+```
+
+The Fix Round 3 host RED run reached both Blender processes with normal Metal
+access and rejected the yaw mutation, then stopped at the missing read-only
+native stack API:
+
+```text
+M6 debugger Blender smoke: PASS
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion root yaw deviates from its authored path at tick 10; agent 2506968674689638394 motion root yaw deviates from its authored path at tick 15; agent 2506968674689638394 motion root yaw deviates from its authored path at tick 20; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 10; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 15; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 20
+Info: M6 layers muted
+FAIL: unexpected AttributeError: 'CachePlayback' object has no attribute 'inspect_native_layout_layers'
+```
+
+### GREEN focused evidence
+
+```text
+python3 -m unittest -v tests/test_m6_layer_bundle.py
+Ran 3 tests in 0.008s
+OK
+
+cargo test -p crowd-blender --lib
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+cargo test -p crowd-cache --test layout
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+cargo test -p crowd-core --test m6_interaction_invalid
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+### GREEN host Blender / Metal evidence
+
+Command executed outside the restricted automation sandbox:
+
+```text
+scripts/m6-blender-test.sh
+```
+
+Exact significant output:
+
+```text
+M6 debugger Blender smoke: PASS
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion root deviates from its authored path at tick 15
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion root yaw deviates from its authored path at tick 10; agent 2506968674689638394 motion root yaw deviates from its authored path at tick 15; agent 2506968674689638394 motion root yaw deviates from its authored path at tick 20; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 10; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 15; agent 8751800285498332900 motion root yaw deviates from its authored path at tick 20
+Error: E_INTERACTION_MOTION: motion contact touch-pair violates its declared constraint; required contact touch-pair was not observed
+Error: E_INTERACTION_MOTION: forbidden contact separate-pair was reported
+Error: E_INTERACTION_MOTION: motion provenance must name a backend/config and match the strict request seed
+Error: E_INTERACTION_MOTION: agent 2506968674689638394 motion roots must cover the complete interval
+Error: E_LAYOUT_PREFLIGHT: layer m6-animation-interaction-pair-10293130296351569156-15 targets an agent absent from the base
+Info: M6 layers muted
+Error: E_LAYOUT_PREFLIGHT: layer m6-animation-interaction-pair-10293130296351569156-15 targets an agent absent from the base
+Info: M6 layers unmuted
+Info: M6 layers removed; source artifacts and base cache retained
+M6 Blender physics/hero layers: PASS
+Blender 5.2.0 LTS (hash fbe6228777e7 built 2026-07-14 01:31:22)
+```
+
+Both Blender processes reached Python with normal host Metal access; there was
+no pre-Python Metal abort. The native stack/state equality assertions execute
+after the second `E_LAYOUT_PREFLIGHT` line and before `Info: M6 layers unmuted`.
+
+### Quality and documentation checks
+
+```text
+cargo fmt --all -- --check
+exit 0
+
+cargo clippy --workspace --all-targets -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo]
+
+git diff --check
+exit 0
+```
+
+The repository documentation path/privacy scan found no personal-machine or
+temporary paths in this report or the Blender benchmark report.
+
+### Remaining boundaries
+
+- Root yaw is intentionally a bounded authored-path check, not full skeletal
+  orientation, foot-lock, or visual-quality validation.
+- Native stack inspection is read-only diagnostic evidence; it does not add a
+  second layer authority or mutation path.
+- Cloth, rigid-body parity, neural motion, cryptographic request attestation,
+  and Task 14 milestone promotion remain outside this round.

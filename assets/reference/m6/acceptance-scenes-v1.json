@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "fixture_id": "m6-integrated-reference-scenes-2026-08-18",
+  "motion_baseline": {
+    "database_path": "assets/reference/m6/motion-database-input-v1.json",
+    "provenance_path": "assets/reference/m6/motion-provenance-v1.json",
+    "thresholds_path": "assets/reference/m6/motion-thresholds-v1.json"
+  },
+  "scenes": [
+    {
+      "id": "scheduled_cafe",
+      "seed": 12001,
+      "tick_start": 0,
+      "tick_end": 120,
+      "agent_count": 3,
+      "source_paths": ["assets/reference/m6/activity-v1.json"],
+      "motion": {
+        "desired_velocity_millimeters_per_second": [990, 0],
+        "desired_slope_millionths": 0,
+        "required_contact": "left_foot"
+      },
+      "criteria": {
+        "max_trajectory_fit_millimeters": 25,
+        "max_foot_slide_millimeters": 21,
+        "minimum_contact_precision_millionths": 1000000,
+        "max_safety_violations": 0,
+        "max_fallback_count": 1,
+        "max_unrelated_agent_mutations": 0
+      }
+    },
+    {
+      "id": "family_split_regroup",
+      "seed": 12002,
+      "tick_start": 0,
+      "tick_end": 30,
+      "agent_count": 4,
+      "source_paths": ["assets/reference/m6/formation-v1.json"],
+      "motion": {
+        "desired_velocity_millimeters_per_second": [1000, 0],
+        "desired_slope_millionths": 0,
+        "required_contact": "left_foot"
+      },
+      "criteria": {
+        "max_trajectory_fit_millimeters": 25,
+        "max_foot_slide_millimeters": 21,
+        "minimum_contact_precision_millionths": 1000000,
+        "max_safety_violations": 0,
+        "max_fallback_count": 1,
+        "max_unrelated_agent_mutations": 0
+      }
+    },
+    {
+      "id": "terrain_motion_feedback",
+      "seed": 12003,
+      "tick_start": 10,
+      "tick_end": 20,
+      "agent_count": 2,
+      "source_paths": ["assets/reference/m6/terrain-motion-v1.json"],
+      "motion": {
+        "desired_velocity_millimeters_per_second": [980, 0],
+        "desired_slope_millionths": 0,
+        "required_contact": "left_foot"
+      },
+      "criteria": {
+        "max_trajectory_fit_millimeters": 25,
+        "max_foot_slide_millimeters": 21,
+        "minimum_contact_precision_millionths": 1000000,
+        "max_safety_violations": 0,
+        "max_fallback_count": 1,
+        "max_unrelated_agent_mutations": 0
+      }
+    },
+    {
+      "id": "paired_handoff",
+      "seed": 12004,
+      "tick_start": 10,
+      "tick_end": 20,
+      "agent_count": 3,
+      "source_paths": [
+        "assets/reference/m6/interaction-request-v1.json",
+        "assets/reference/m6/interaction-motion-v1.json",
+        "assets/reference/m6/interaction-animation-layer-v1.json"
+      ],
+      "motion": {
+        "desired_velocity_millimeters_per_second": [1000, 0],
+        "desired_slope_millionths": 0,
+        "required_contact": "left_foot"
+      },
+      "criteria": {
+        "max_trajectory_fit_millimeters": 25,
+        "max_foot_slide_millimeters": 21,
+        "minimum_contact_precision_millionths": 1000000,
+        "max_safety_violations": 0,
+        "max_fallback_count": 1,
+        "max_unrelated_agent_mutations": 0
+      }
+    },
+    {
+      "id": "ragdoll_recovery",
+      "seed": 12005,
+      "tick_start": 20,
+      "tick_end": 30,
+      "agent_count": 2,
+      "source_paths": [
+        "assets/reference/m6/physics-transition-v1.json",
+        "assets/reference/m6/hero-integration-v1.json"
+      ],
+      "motion": {
+        "desired_velocity_millimeters_per_second": [990, 0],
+        "desired_slope_millionths": 0,
+        "required_contact": "left_foot"
+      },
+      "criteria": {
+        "max_trajectory_fit_millimeters": 25,
+        "max_foot_slide_millimeters": 21,
+        "minimum_contact_precision_millionths": 1000000,
+        "max_safety_violations": 0,
+        "max_fallback_count": 1,
+        "max_unrelated_agent_mutations": 0
+      }
+    },
+    {
+      "id": "mixed_tier_diagnostics",
+      "seed": 12006,
+      "tick_start": 0,
+      "tick_end": 15,
+      "agent_count": 100,
+      "source_paths": [
+        "assets/reference/m6/mixed-tier-v1.json",
+        "assets/reference/m6/interaction-request-v1.json",
+        "assets/reference/m6/interaction-motion-v1.json"
+      ],
+      "motion": {
+        "desired_velocity_millimeters_per_second": [1000, 0],
+        "desired_slope_millionths": 0,
+        "required_contact": "left_foot"
+      },
+      "criteria": {
+        "max_trajectory_fit_millimeters": 25,
+        "max_foot_slide_millimeters": 21,
+        "minimum_contact_precision_millionths": 1000000,
+        "max_safety_violations": 0,
+        "max_fallback_count": 1,
+        "max_unrelated_agent_mutations": 0
+      }
+    }
+  ]
+}

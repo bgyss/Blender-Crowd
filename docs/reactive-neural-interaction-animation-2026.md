@@ -3,8 +3,9 @@
 Status: post-1.0 research and stretch-goal contract
 Evidence reviewed: primary papers, project pages, and released repositories
 available through August 12, 2026
-Owning milestones: [M6 advanced agency and motion](milestones/M6-advanced-agency-motion.md),
-with combat semantics and assets in [M8 domain packs](milestones/M8-semantic-domains-data.md)
+Owning milestone: [M9 neural animation and operator validation](milestones/M9-neural-animation-operator-validation.md),
+building on the M6 R0 boundary, with combat semantics and assets in
+[M8 domain packs](milestones/M8-semantic-domains-data.md)
 
 ## Decision
 
@@ -14,7 +15,7 @@ finished fight clip. It is a reactive motion layer in which each participant can
 respond to the other's recent motion while respecting authored intent, root paths,
 contacts, props, outcomes, and shot direction.
 
-This is a future M6 research track, not a Blender Crowd 1.0 feature and not a
+This is a future M9 research track, not a Blender Crowd 1.0 or M6 feature and not a
 commitment to one model. [ARDY](https://research.nvidia.com/labs/sil/projects/ardy/)
 is the preferred first single-character integration candidate because its streaming
 interface accepts online text and sparse, long-horizon kinematic constraints. It is
@@ -202,6 +203,10 @@ measured acceptance results rather than preserving ARDY compatibility at any cos
 ## Staged research gates
 
 ### R0 — Contract and clip baseline
+
+R0 is the model-independent prerequisite implemented and owned by M6; M9 cannot
+start until M6 accepts it. R0 is not a neural-animation gate and is not repeated
+in M9.
 
 - Define `interaction_request_v1` and `interaction_motion_v1` without a model.
 - Run an authored paired-clip worker through request, validation, cache layer,
